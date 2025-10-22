@@ -41,10 +41,6 @@ apis:
   - OpenAlex
   - GoogleScholar
   - IEEE
-  - Elsevier
-  - HAL
-  - DBLP
-  - Arxiv
 
 # ============================================================================
 # COLLECTION CONTROL
@@ -57,11 +53,11 @@ collect: true
 # Name for this collection run
 # Creates a timestamped directory: output_dir/collect_name_YYYYMMDD_HHMMSS/
 # Use descriptive names like: 'rag_survey', 'knowledge_graphs_2024', 'llm_agents'
-collect_name: KG_memory_extension
+collect_name: my_research_project
 
 # Email address (optional, used by some APIs for rate limit increases)
 # Some APIs like Arxiv give better rate limits with a valid email
-email: benjamin.navet@univ-cotedazur.fr
+email: your.email@example.com
 
 # ============================================================================
 # SEARCH FIELDS

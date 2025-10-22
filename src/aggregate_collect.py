@@ -22,6 +22,7 @@ from src.crawlers.aggregate import (
     IEEEtoZoteroFormat,
     SpringertoZoteroFormat,
     ElseviertoZoteroFormat,
+    GoogleScholartoZoteroFormat,
 )
 from src.crawlers.utils import load_all_configs
 
@@ -50,6 +51,7 @@ FORMAT_CONVERTERS = {
     "IEEE": IEEEtoZoteroFormat,
     "Springer": SpringertoZoteroFormat,
     "Elsevier": ElseviertoZoteroFormat,
+    "GoogleScholar": GoogleScholartoZoteroFormat,
 }
 
 def _keyword_matches_in_abstract(keyword, abstract_text):

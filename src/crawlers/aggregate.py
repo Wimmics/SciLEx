@@ -865,3 +865,104 @@ def ElseviertoZoteroFormat(row):
             # print("NEED TO ADD FOLLOWING TYPE >",row["subtypeDescription"])
 
     return zotero_temp
+
+
+
+def GoogleScholartoZoteroFormat(row):
+    """
+    Convert Google Scholar (scholarly package) results to Zotero format.
+    
+    Note: Google Scholar data from scholarly package can be incomplete.
+    Many fields may be missing (DOI, publisher, volume, etc.).
+    """
+    zotero_temp = {
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
+    }
+    
+    zotero_temp["archive"] = "GoogleScholar"
+    
+    # Title
+    if safe_get(row, "title"):
+        zotero_temp["title"] = row["title"]
+    
+    # Authors - scholarly returns authors as a list of names
+    if safe_get(row, "authors"):
+        authors = row["authors"]
+        if isinstance(authors, list):
+            # Filter out empty author names
+            auth_list = [auth for auth in authors if auth and auth != ""]
+            if len(auth_list) > 0:
+                zotero_temp["authors"] = ";".join(auth_list)
+        elif isinstance(authors, str):
+            # Sometimes it might be a string
+            zotero_temp["authors"] = authors
+    
+    # Abstract
+    if safe_get(row, "abstract"):
+        zotero_temp["abstract"] = row["abstract"]
+    
+    # Venue - try to determine item type from venue
+    if safe_get(row, "venue"):
+        venue = row["venue"].lower()
+        # Try to infer type from venue name
+        if any(keyword in venue for keyword in ["journal", "ieee", "acm", "springer"]):
+            zotero_temp["itemType"] = "journalArticle"
+            zotero_temp["journalAbbreviation"] = row["venue"]
+        elif any(keyword in venue for keyword in ["conference", "proceedings", "workshop", "symposium"]):
+            zotero_temp["itemType"] = "conferencePaper"
+            zotero_temp["conferenceName"] = row["venue"]
+        elif any(keyword in venue for keyword in ["book", "chapter"]):
+            zotero_temp["itemType"] = "bookSection"
+        else:
+            # Default to journal article if venue exists but type unclear
+            zotero_temp["itemType"] = "journalArticle"
+            zotero_temp["journalAbbreviation"] = row["venue"]
+    
+    # If no venue or item type still not set, default to Manuscript
+    if not is_valid(zotero_temp.get("itemType")):
+        zotero_temp["itemType"] = "Manuscript"
+    
+    # Year/Date
+    if safe_get(row, "year"):
+        zotero_temp["date"] = str(row["year"])
+    
+    # URL
+    if safe_get(row, "url"):
+        zotero_temp["url"] = row["url"]
+    
+    # eprint URL (open access)
+    if safe_get(row, "eprint_url"):
+        zotero_temp["rights"] = row["eprint_url"]
+    
+    # Scholar ID (use as archive ID)
+    if safe_get(row, "scholar_id"):
+        scholar_id = row["scholar_id"]
+        if isinstance(scholar_id, list) and len(scholar_id) > 0:
+            zotero_temp["archiveID"] = scholar_id[0]
+        elif isinstance(scholar_id, str):
+            zotero_temp["archiveID"] = scholar_id
+    
+    # Note: Google Scholar (via scholarly) typically does not provide:
+    # - DOI (rarely available)
+    # - Publisher information
+    # - Volume/Issue numbers
+    # - Page numbers
+    # These fields will remain as MISSING_VALUE
+    
+    return zotero_temp

@@ -2,7 +2,10 @@ zotero:
     api_key: "YOUR_ZOTERO_API_KEY"
     user_mode: "user"  # or "group" for group libraries
 google_scholar:
-    api_key: "YOUR_GOOGLE_SCHOLAR_API_KEY"
+    # Google Scholar uses the free 'scholarly' Python package with automatic proxy rotation
+    # No API key needed! The collection may be slower than paid APIs due to web scraping
+    # and proxy rotation, but it's completely free
+    enabled: true  # Set to false to disable Google Scholar collection
 springer:
     api_key: "YOUR_SPRINGER_API_KEY"
 sem_scholar:

@@ -9,6 +9,7 @@ from typing import Optional
 import requests
 from lxml import etree
 from ratelimit import limits, sleep_and_retry
+from scholarly import scholarly, ProxyGenerator
 
 # # Set up logging configuration
 # logging.basicConfig(
@@ -1558,88 +1559,194 @@ class Springer_collector(API_collector):
 
 
 class GoogleScholarCollector(API_collector):
-    """Collector for fetching publication metadata from Google Scholar via SerpAPI."""
+    """Collector for fetching publication metadata from Google Scholar using the free scholarly package."""
 
-    def __init__(self, filter_param, data_path, api_key):
+    # Class-level proxy initialization flag
+    _proxy_initialized = False
+    _proxy_lock = None
+
+    def __init__(self, filter_param, data_path, api_key=None):
         """
         Initializes the Google Scholar collector with the given parameters.
 
         Args:
             filter_param (Filter_param): The parameters for filtering results (years, keywords, etc.).
             data_path (str): Path to save the collected data.
+            api_key (str, optional): Not used for scholarly (kept for API compatibility).
         """
         super().__init__(filter_param, data_path, api_key)
-        self.rate_limit = 3  # Number of requests allowed per second
-        self.max_by_page = 100  # Maximum number of results to retrieve per page
+        self.rate_limit = 2  # Conservative rate limit for free proxies
+        self.max_by_page = 20  # scholarly returns ~10-20 results per "page" iteration
         self.api_name = "GoogleScholar"
-        self.api_url = "https://serpapi.com/search.json"
+        self.api_url = ""  # Not used for scholarly
 
-    #     self.api_key = google_api
+        # Initialize proxy if not already done (class-level to avoid multiple setups)
+        if not GoogleScholarCollector._proxy_initialized:
+            self._setup_proxy()
 
-    def parsePageResults(self, response, page):
+    def _setup_proxy(self):
         """
-        Parses the results from a response for a specific page.
+        Sets up the proxy for scholarly to avoid Google Scholar blocking.
+        Uses free proxies with automatic rotation.
+        """
+        try:
+            logging.info("Initializing Google Scholar proxy with FreeProxies...")
+            pg = ProxyGenerator()
+            success = pg.FreeProxies()
+
+            if success:
+                scholarly.use_proxy(pg)
+                GoogleScholarCollector._proxy_initialized = True
+                logging.info("Google Scholar proxy initialized successfully with FreeProxies")
+            else:
+                logging.warning("Failed to initialize FreeProxies, proceeding without proxy (may be blocked)")
+        except Exception as e:
+            logging.error(f"Error setting up Google Scholar proxy: {str(e)}")
+            logging.warning("Proceeding without proxy - requests may be blocked by Google Scholar")
+
+    def parsePageResults(self, results_batch, page):
+        """
+        Parses results from scholarly search generator for a specific batch/page.
 
         Args:
-            response (requests.Response): The API response object containing the results.
-            page (int): The page number of results being processed.
+            results_batch (list): A batch of results from scholarly.search_pubs()
+            page (int): The page/batch number being processed.
 
         Returns:
-            dict: A dictionary containing metadata about the collected results, including the total count and the results themselves.
+            dict: A dictionary containing metadata about the collected results.
         """
         page_data = {
-            "date_search": str(date.today()),  # Date of the search
-            "id_collect": self.get_collectId(),  # Unique identifier for this collection
-            "page": page,  # Current page number
-            "total": 0,  # Total number of results found
-            "results": [],  # List to hold the collected results
+            "date_search": str(date.today()),
+            "id_collect": self.get_collectId(),
+            "page": page,
+            "total": len(results_batch) * page,  # Estimate (scholarly doesn't provide exact totals)
+            "results": [],
         }
 
-        # Parse the JSON response
-        page_with_results = response.json()
+        for result in results_batch:
+            try:
+                # Extract data from scholarly result
+                parsed_result = {
+                    "title": result.get("bib", {}).get("title", ""),
+                    "authors": result.get("bib", {}).get("author", []),
+                    "abstract": result.get("bib", {}).get("abstract", ""),
+                    "venue": result.get("bib", {}).get("venue", ""),
+                    "year": result.get("bib", {}).get("pub_year", ""),
+                    "url": result.get("pub_url", ""),
+                    "eprint_url": result.get("eprint_url", ""),
+                    "citations": result.get("num_citations", 0),
+                    "scholar_id": result.get("author_id", []),
+                    "citation_url": result.get("citedby_url", ""),
+                }
+                page_data["results"].append(parsed_result)
+            except Exception as e:
+                logging.warning(f"Error parsing individual Google Scholar result: {str(e)}")
+                continue
 
-        # Extract total number of hits from the results
-        total = page_with_results.get("search_information", {}).get("total_results", 0)
-        page_data["total"] = int(total)
-        logging.info(f"Total results found for page {page}: {page_data['total']}")
-
-        if page_data["total"] > 0:
-            # Loop through the hits and append them to the results list
-            for result in page_with_results.get("organic_results", []):
-                page_data["results"].append(result)
-
+        logging.info(f"Parsed page {page}: {len(page_data['results'])} results")
         return page_data
 
     def get_configurated_url(self):
         """
-        Constructs the API URL with the search query and year filters for Google Scholar via SerpAPI.
+        Not used for scholarly (kept for API compatibility).
 
         Returns:
-            str: The formatted API URL for the request.
+            str: Empty string.
         """
-        # Ensure keywords are flattened into a single space-separated string
-        keywords_list = (
-            self.get_keywords()
-        )  # Assuming this returns a list of keyword sets
-        # Flatten the list of keywords into a single string for the query
-        keywords = "+".join(keywords_list)
-        year_start = int(self.get_year())
-        year_end = year_start + 1
-        # year_start, year_end = self.get_year_range()  # Assuming get_year_range() returns a tuple (min_year, max_year)
+        return ""
 
-        logging.info(
-            f"Constructed Google Scholar URL with keywords: {keywords} and years: {year_start} - {year_end}"
-        )
-        return f"{self.api_url}?engine=google_scholar&api_key={self.api_key}&q={keywords}&as_ylo={year_start}&as_yhi={year_end}&hl=en"
-
-    def get_year_range(self):
+    def runCollect(self):
         """
-        Returns the minimum and maximum year from the filter parameters.
+        Runs the collection process using scholarly.search_pubs() instead of URL-based API calls.
 
-        Returns:
-            tuple: A tuple containing (min_year, max_year).
+        This overrides the parent class method since scholarly uses a generator pattern
+        rather than paginated REST API calls.
         """
-        years = self.get_year()  # Assuming this returns a list of years
-        if years:
-            return (min(years), max(years))
-        return (None, None)
+        state_data = {
+            "state": self.state,
+            "last_page": self.lastpage,
+            "total_art": self.total_art,
+            "coll_art": self.nb_art_collected,
+            "update_date": str(date.today()),
+            "id_collect": self.collectId,
+        }
+
+        # Check if collection is already complete
+        if self.state == 1:
+            logging.info("Collection already completed.")
+            return state_data
+
+        # Build search query
+        keywords = self.get_keywords()
+        query = " ".join(keywords)  # Join keywords for search
+        year = self.get_year()
+
+        # Add year to query if specified
+        if year:
+            query += f" {year}"
+
+        logging.info(f"Starting Google Scholar collection with query: '{query}'")
+
+        try:
+            # Use scholarly.search_pubs() to get search results
+            search_query = scholarly.search_pubs(query)
+
+            page = int(self.get_lastpage()) + 1
+            results_batch = []
+            max_results = 100  # Limit to avoid excessive scraping
+
+            # Iterate through results
+            for idx, result in enumerate(search_query):
+                results_batch.append(result)
+
+                # Process in batches
+                if len(results_batch) >= self.max_by_page or idx >= max_results - 1:
+                    # Parse and save this batch
+                    page_data = self.parsePageResults(results_batch, page)
+
+                    # Log API usage (mock - scholarly doesn't provide response objects)
+                    self.log_api_usage(None, page, len(page_data["results"]))
+
+                    # Save results
+                    self.savePageResults(page_data, page)
+
+                    # Update state
+                    self.nb_art_collected += len(page_data["results"])
+                    self.set_lastpage(page)
+                    state_data["last_page"] = page
+                    state_data["coll_art"] = self.nb_art_collected
+                    state_data["total_art"] = self.nb_art_collected  # Estimate
+
+                    logging.info(f"Processed page {page}: {len(page_data['results'])} results. Total collected: {self.nb_art_collected}")
+
+                    # Move to next page
+                    page += 1
+                    results_batch = []
+
+                    # Rate limiting
+                    time.sleep(1.0 / self.rate_limit)
+
+                # Stop if we hit the max
+                if idx >= max_results - 1:
+                    logging.info(f"Reached maximum result limit ({max_results})")
+                    break
+
+            # Save any remaining results
+            if results_batch:
+                page_data = self.parsePageResults(results_batch, page)
+                self.savePageResults(page_data, page)
+                self.nb_art_collected += len(page_data["results"])
+                state_data["last_page"] = page
+                state_data["coll_art"] = self.nb_art_collected
+                state_data["total_art"] = self.nb_art_collected
+
+            # Mark as complete
+            state_data["state"] = 1
+            logging.info(f"Google Scholar collection complete. Total articles collected: {self.nb_art_collected}")
+
+        except Exception as e:
+            logging.error(f"Error during Google Scholar collection: {str(e)}")
+            state_data["state"] = 0
+            logging.info("Collection encountered an error, marked as incomplete")
+
+        return state_data
