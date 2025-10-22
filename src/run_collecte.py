@@ -32,7 +32,6 @@ config_files = {
     "main_config": "scilex.config.yml",
     "api_config": "api.config.yml",
 }
-print("HEY")
 # Load configurations
 configs = load_all_configs(config_files)
 
@@ -40,7 +39,6 @@ configs = load_all_configs(config_files)
 main_config = configs["main_config"]
 api_config = configs["api_config"]
 
-print("HEY")
 # Extract values from the main configuration
 output_dir = main_config["output_dir"]
 collect = main_config["collect"]

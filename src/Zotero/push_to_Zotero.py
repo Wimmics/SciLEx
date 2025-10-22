@@ -31,7 +31,6 @@ config_files = {
     "main_config": "scilex.config.yml",
     "api_config": "api.config.yml",
 }
-print("HEY")
 # Load configurations
 configs = load_all_configs(config_files)
 

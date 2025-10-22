@@ -8,8 +8,20 @@ import json
 import logging
 
 import src.citations.citations_tools as cit_tools
-from src.crawlers.aggregate import *
+from src.crawlers.aggregate import (
+    deduplicate,
+    SemanticScholartoZoteroFormat,
+    IstextoZoteroFormat,
+    ArxivtoZoteroFormat,
+    DBLPtoZoteroFormat,
+    HALtoZoteroFormat,
+    OpenAlextoZoteroFormat,
+    IEEEtoZoteroFormat,
+    SpringertoZoteroFormat,
+    ElseviertoZoteroFormat,
+)
 from src.crawlers.utils import load_all_configs
+import pandas as pd
 
 # Set up logging configuration
 logging.basicConfig(
@@ -19,22 +31,64 @@ logging.basicConfig(
 )
 
 config_files = {"main_config": "scilex.config.yml", "api_config": "api.config.yml"}
-print("HEY")
 # Load configurations
 configs = load_all_configs(config_files)
 # Access individual configurations
 main_config = configs["main_config"]
 api_config = configs["api_config"]
 
+# Format converters dispatcher - replaces eval() for security
+FORMAT_CONVERTERS = {
+    "SemanticScholar": SemanticScholartoZoteroFormat,
+    "Istex": IstextoZoteroFormat,
+    "Arxiv": ArxivtoZoteroFormat,
+    "DBLP": DBLPtoZoteroFormat,
+    "HAL": HALtoZoteroFormat,
+    "OpenAlex": OpenAlextoZoteroFormat,
+    "IEEE": IEEEtoZoteroFormat,
+    "Springer": SpringertoZoteroFormat,
+    "Elsevier": ElseviertoZoteroFormat,
+}
+
+def _keyword_matches_in_abstract(keyword, abstract_text):
+    """Check if keyword appears in abstract text (handles both dict and string formats)."""
+    if isinstance(abstract_text, dict) and "p" in abstract_text:
+        abstract_content = " ".join(abstract_text["p"]).lower()
+    else:
+        abstract_content = str(abstract_text).lower()
+    
+    return keyword in abstract_content
+
+
+def _record_passes_text_filter(record, keywords):
+    """Check if record contains any of the keywords in title or abstract."""
+    if not keywords:
+        return True
+    
+    abstract = record.get("abstract", "NA")
+    title = record.get("title", "").lower()
+    
+    for keyword in keywords:
+        # Check in title
+        if keyword in title:
+            return True
+        
+        # Check in abstract (if not "NA")
+        if str(abstract) != "NA" and _keyword_matches_in_abstract(keyword, abstract):
+            return True
+    
+    return False
+
+
 if __name__ == "__main__":
     txt_filters = main_config["aggregate_txt_filter"]
     get_citation = main_config["aggregate_get_citations"]
     dir_collect = os.path.join(main_config["output_dir"], main_config["collect_name"])
     state_path = os.path.join(dir_collect, "state_details.json")
-    print("START", state_path)
+    logging.info(f"Starting aggregation from {state_path}")
     all_data = []
     if os.path.isfile(state_path):
-        print("HEY")
+        logging.debug("State details file found, proceeding with aggregation")
         with open(state_path, encoding="utf-8") as read_file:
             state_details = json.load(read_file)
 
@@ -53,36 +107,14 @@ if __name__ == "__main__":
                                 os.path.join(current_collect_dir, path)
                             ) as json_file:
                                 current_page_data = json.load(json_file)
-                                print("read >", json_file)
+                                logging.debug(f"Loaded data from {json_file.name}")
                                 for row in current_page_data["results"]:
-                                    if (api_ + "toZoteroFormat") in dir():
-                                        # Use eval carefully; ideally, avoid it if possible.
-                                        res = eval(api_ + "toZoteroFormat(row)")
+                                    if api_ in FORMAT_CONVERTERS:
+                                        # Use dispatcher dictionary instead of eval for security
+                                        res = FORMAT_CONVERTERS[api_](row)
                                         if txt_filters:
-                                            found_smth = False
-                                            for kw in KW:
-                                                if str(res["abstract"]) != "NA":
-                                                    if type(res["abstract"]) == dict:
-                                                        if (
-                                                            kw in res["title"].lower()
-                                                            or kw
-                                                            in " ".join(
-                                                                res["abstract"]["p"]
-                                                            ).lower()
-                                                        ):
-                                                            found_smth = True
-                                                    elif (
-                                                        kw in res["title"].lower()
-                                                        or kw in res["abstract"].lower()
-                                                    ):
-                                                        found_smth = True
-                                                        break
-                                                else:
-                                                    if kw in res["title"].lower():
-                                                        found_smth = True
-                                                        break
-                                            found_smth = True
-                                            if found_smth:
+                                            # Use helper function for cleaner text filtering logic
+                                            if _record_passes_text_filter(res, KW):
                                                 all_data.append(res)
                                         else:
                                             all_data.append(res)
@@ -98,7 +130,7 @@ if __name__ == "__main__":
                 df_clean["nb_citation"] = ""
                 for index, row in df_clean.iterrows():
                     doi = str(row["DOI"])
-                    print(doi)
+                    logging.debug(f"Processing DOI: {doi}")
                     if doi and doi != "NA":
                         citations = cit_tools.getRefandCitFormatted(doi)
                         df_clean.loc[index, ["extra"]] = str(citations)

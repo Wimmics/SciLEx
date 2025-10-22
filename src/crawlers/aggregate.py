@@ -8,6 +8,7 @@ Created on Fri Feb 10 10:57:49 2023
 @version: 1.0.1
 """
 
+import logging
 from pandas.core.dtypes.inference import is_dict_like
 
 
@@ -46,60 +47,85 @@ def filter_data(df_input, filter_):
     return df_input[df_input["abstract"].str.contains("triple", case=False, na=False)]
 
 
+def _find_best_duplicate_index(duplicates_df, column_names):
+    """Find the best duplicate record based on data quality."""
+    quality_list = []
+    for i in range(len(duplicates_df)):
+        idx = duplicates_df.index[i]
+        qual = getquality(duplicates_df.loc[idx], column_names)
+        quality_list.append(qual)
+    
+    max_value = max(quality_list)
+    return quality_list.index(max_value)
+
+
+def _merge_duplicate_archives(archive_list, chosen_archive):
+    """Merge archive list with chosen archive marked with asterisk."""
+    archive_str = ";".join(archive_list)
+    return archive_str.replace(chosen_archive, chosen_archive + "*")
+
+
+def _fill_missing_values(row, column_values_dict, column_names):
+    """Fill missing values in row from alternative duplicates."""
+    for col in column_names:
+        if isNaN(row[col]):
+            row[col] = "NA"
+        if row[col] == "NA":
+            for value in column_values_dict[col]:
+                if not isNaN(value) and value != "NA":
+                    row[col] = value
+                    break
+    return row
+
+
 def deduplicate(df_input):
+    """Remove duplicate papers by DOI or title, keeping the best quality record."""
     df_output = df_input.copy()
     check_columns = ["DOI", "title"]
     column_names = list(df_output.columns.values)
 
     for col in check_columns:
-        if col in df_output.columns:
-            df2 = df_output[df_output[col] != "NA"]
-            df2 = df2.groupby([col])[col].count()
-            val_duplicate = df2[df2 > 1].index
+        if col not in df_output.columns:
+            continue
+            
+        # Find duplicates
+        non_na_df = df_output[df_output[col] != "NA"]
+        duplicate_counts = non_na_df.groupby([col])[col].count()
+        duplicate_values = duplicate_counts[duplicate_counts > 1].index
 
-            if len(val_duplicate) > 0:
-                print("FOUND DUPLICATES")
-                for val in val_duplicate:
-                    myDict = {key: [] for key in column_names}
-                    duplicates_temp = df_output[df_output[col] == val]
-                    quality_list = []
-                    archive_list = []
+        if len(duplicate_values) == 0:
+            continue
+            
+        logging.info(f"Found {len(duplicate_values)} duplicates by {col}")
+        
+        for dup_value in duplicate_values:
+            duplicates_temp = df_output[df_output[col] == dup_value]
+            column_values = {key: [] for key in column_names}
+            archive_list = []
 
-                    for i in range(len(duplicates_temp)):
-                        idx = duplicates_temp.index[i]
-                        archive_list.append(str(df_output.loc[idx]["archive"]))
-                        qual = getquality(df_output.loc[idx], column_names)
-                        quality_list.append(qual)
+            # Collect data from all duplicates
+            for idx in duplicates_temp.index:
+                archive_list.append(str(df_output.loc[idx]["archive"]))
+                for col_name in column_names:
+                    value = df_output.loc[idx, col_name]
+                    column_values[col_name].append("NA" if isNaN(value) else value)
 
-                        for k in column_names:
-                            value = df_output.loc[idx, k]
-                            myDict[k].append("NA" if isNaN(value) else value)
+            # Find best duplicate
+            best_idx = _find_best_duplicate_index(duplicates_temp, column_names)
+            best_record = duplicates_temp.iloc[best_idx].copy()
+            chosen_archive = str(best_record["archive"])
 
-                    max_value = max(quality_list)
-                    index_value = quality_list.index(max_value)
-                    archive_chosen = str(duplicates_temp.iloc[index_value]["archive"])
+            # Update archives field
+            best_record["archive"] = _merge_duplicate_archives(archive_list, chosen_archive)
 
-                    archive_str = ";".join(archive_list)
-                    archive_str = archive_str.replace(
-                        archive_chosen, archive_chosen + "*"
-                    )
+            # Fill missing values from other duplicates
+            best_record = _fill_missing_values(best_record, column_values, column_names)
 
-                    print("archive retained", archive_chosen)
-                    toAdd_temp = duplicates_temp.iloc[index_value].copy()
-
-                    for k in column_names:
-                        if isNaN(toAdd_temp[k]):
-                            toAdd_temp[k] = "NA"
-                        if toAdd_temp[k] == "NA":
-                            for val in myDict[k]:
-                                if not isNaN(val) and val != "NA":
-                                    toAdd_temp[k] = val
-                                    break
-                    toAdd_temp["archive"] = archive_str
-                    df_output = df_output.drop(duplicates_temp.index)
-                    df_output = pd.concat(
-                        [df_output, toAdd_temp.to_frame().T], ignore_index=True
-                    )
+            # Replace duplicates with merged record
+            df_output = df_output.drop(duplicates_temp.index)
+            df_output = pd.concat(
+                [df_output, best_record.to_frame().T], ignore_index=True
+            )
 
     return df_output
 
