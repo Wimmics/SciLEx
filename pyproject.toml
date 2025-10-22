@@ -92,7 +92,6 @@ line-length = 88
 fix = true
 indent-width = 4
 
-
 exclude = [
     ".bzr",
     ".direnv",

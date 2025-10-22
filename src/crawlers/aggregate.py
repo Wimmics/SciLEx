@@ -9,7 +9,16 @@ Created on Fri Feb 10 10:57:49 2023
 """
 
 import logging
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import pandas as pd
 from pandas.core.dtypes.inference import is_dict_like
+
+from src.constants import MISSING_VALUE, is_valid
 
 
 def safe_get(obj, key, default=None):
@@ -24,21 +33,21 @@ def safe_has_key(obj, key):
     return isinstance(obj, dict) and key in obj
 
 
-import pandas as pd
-
 ############
 # FUNCTION FOR AGGREGATIONS OF DATA
 ############
 
 
 def isNaN(num):
+    """Check if a value is NaN (deprecated - use is_valid from constants instead)."""
     return num != num
 
 
 def getquality(df_row, column_names):
+    """Calculate quality score based on non-missing values."""
     quality = 0
     for col in column_names:
-        if df_row[col] != "NA" and not isNaN(df_row[col]):
+        if is_valid(df_row.get(col)):
             quality += 1
     return quality
 
@@ -68,11 +77,12 @@ def _merge_duplicate_archives(archive_list, chosen_archive):
 def _fill_missing_values(row, column_values_dict, column_names):
     """Fill missing values in row from alternative duplicates."""
     for col in column_names:
-        if isNaN(row[col]):
-            row[col] = "NA"
-        if row[col] == "NA":
+        if not is_valid(row.get(col)):
+            row[col] = MISSING_VALUE
+
+        if row[col] == MISSING_VALUE:
             for value in column_values_dict[col]:
-                if not isNaN(value) and value != "NA":
+                if is_valid(value):
                     row[col] = value
                     break
     return row
@@ -87,15 +97,15 @@ def deduplicate(df_input):
     for col in check_columns:
         if col not in df_output.columns:
             continue
-            
-        # Find duplicates
-        non_na_df = df_output[df_output[col] != "NA"]
+
+        # Find duplicates - exclude missing values
+        non_na_df = df_output[df_output[col].apply(is_valid)]
         duplicate_counts = non_na_df.groupby([col])[col].count()
         duplicate_values = duplicate_counts[duplicate_counts > 1].index
 
         if len(duplicate_values) == 0:
             continue
-            
+
         logging.info(f"Found {len(duplicate_values)} duplicates by {col}")
         
         for dup_value in duplicate_values:

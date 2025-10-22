@@ -7,7 +7,10 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import logging
 
+import pandas as pd
+
 import src.citations.citations_tools as cit_tools
+from src.constants import MISSING_VALUE, is_valid
 from src.crawlers.aggregate import (
     deduplicate,
     SemanticScholartoZoteroFormat,
@@ -21,7 +24,6 @@ from src.crawlers.aggregate import (
     ElseviertoZoteroFormat,
 )
 from src.crawlers.utils import load_all_configs
-import pandas as pd
 
 # Set up logging configuration
 logging.basicConfig(
@@ -64,19 +66,19 @@ def _record_passes_text_filter(record, keywords):
     """Check if record contains any of the keywords in title or abstract."""
     if not keywords:
         return True
-    
-    abstract = record.get("abstract", "NA")
+
+    abstract = record.get("abstract", MISSING_VALUE)
     title = record.get("title", "").lower()
-    
+
     for keyword in keywords:
         # Check in title
         if keyword in title:
             return True
-        
-        # Check in abstract (if not "NA")
-        if str(abstract) != "NA" and _keyword_matches_in_abstract(keyword, abstract):
+
+        # Check in abstract (if valid)
+        if is_valid(abstract) and _keyword_matches_in_abstract(keyword, abstract):
             return True
-    
+
     return False
 
 
@@ -129,10 +131,10 @@ if __name__ == "__main__":
                 df_clean["nb_cited"] = ""
                 df_clean["nb_citation"] = ""
                 for index, row in df_clean.iterrows():
-                    doi = str(row["DOI"])
+                    doi = row.get("DOI")
                     logging.debug(f"Processing DOI: {doi}")
-                    if doi and doi != "NA":
-                        citations = cit_tools.getRefandCitFormatted(doi)
+                    if is_valid(doi):
+                        citations = cit_tools.getRefandCitFormatted(str(doi))
                         df_clean.loc[index, ["extra"]] = str(citations)
                         nb_ = cit_tools.countCitations(citations)
                         df_clean.loc[index, ["nb_cited"]] = nb_["nb_cited"]
