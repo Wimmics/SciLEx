@@ -68,11 +68,22 @@ class CollectCollection:
             data_query = coll["query"]
             collector = api_collectors[coll["api"]]
             api_key = None
+            inst_token = None  # For Elsevier institutional token
+            
             if coll["api"] in self.api_config:
                 api_key = self.api_config[coll["api"]]["api_key"]
+                # Check for institutional token (Elsevier only)
+                if coll["api"] == "Elsevier" and "inst_token" in self.api_config[coll["api"]]:
+                    inst_token = self.api_config[coll["api"]]["inst_token"]
+                    logging.info(f"Using institutional token for Elsevier API")
 
             repo = self.get_current_repo()
-            current_coll = collector(data_query, repo, api_key)
+            
+            # Initialize collector with institutional token if applicable
+            if coll["api"] == "Elsevier" and inst_token:
+                current_coll = collector(data_query, repo, api_key, inst_token)
+            else:
+                current_coll = collector(data_query, repo, api_key)
             res = current_coll.runCollect()
             self.update_state_details(
                 current_coll.api_name, str(current_coll.collectId), res

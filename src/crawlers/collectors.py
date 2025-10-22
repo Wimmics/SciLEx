@@ -1,8 +1,10 @@
 import json
 import logging
 import os
+import time
 import urllib
 from datetime import date
+from typing import Optional
 
 import requests
 from lxml import etree
@@ -54,6 +56,51 @@ class API_collector:
         self.max_by_page = 100
         self.api_url = ""
         self.state = data_query["state"]
+
+    def log_api_usage(self, response: Optional[requests.Response], page: int, results_count: int):
+        """
+        Log API usage statistics for monitoring and debugging.
+        
+        Args:
+            response: The API response object (or None if request failed)
+            page: The current page number
+            results_count: Number of results retrieved
+        """
+        if response is None:
+            logging.warning(f"{self.api_name} - Page {page}: Request failed, no response received")
+            return
+        
+        # Log basic request info
+        log_data = {
+            "api": self.api_name,
+            "page": page,
+            "results_count": results_count,
+            "status_code": response.status_code,
+            "response_time_ms": int(response.elapsed.total_seconds() * 1000),
+        }
+        
+        # Extract rate limit info from common header names
+        rate_limit_headers = {
+            "X-RateLimit-Limit": "rate_limit_total",
+            "X-RateLimit-Remaining": "rate_limit_remaining",
+            "X-RateLimit-Reset": "rate_limit_reset",
+            "Retry-After": "retry_after",
+        }
+        
+        for header, key in rate_limit_headers.items():
+            if header in response.headers:
+                log_data[key] = response.headers[header]
+        
+        # Log as structured JSON for easy parsing
+        logging.info(f"API_USAGE: {json.dumps(log_data)}")
+        
+        # Warn if approaching rate limits
+        if "rate_limit_remaining" in log_data:
+            remaining = int(log_data["rate_limit_remaining"])
+            if remaining < 10:
+                logging.warning(
+                    f"{self.api_name} API: Only {remaining} requests remaining in current period!"
+                )
 
     def set_lastpage(self, lastpage):
         self.lastpage = lastpage
@@ -126,17 +173,109 @@ class API_collector:
     def get_ratelimit(self):
         return self.rate_limit
 
-    def api_call_decorator(self, configurated_url):
-        print("REQUEST")
+    def api_call_decorator(self, configurated_url, max_retries=3):
+        """
+        Enhanced API call decorator with retry logic and comprehensive error handling.
+        
+        Args:
+            configurated_url: The URL to call
+            max_retries: Maximum number of retry attempts (default: 3)
+            
+        Returns:
+            Response object from the API
+        """
+        logging.debug(f"API Request to: {configurated_url}")
 
         @sleep_and_retry
         @limits(calls=self.get_ratelimit(), period=1)
         def access_rate_limited_decorated(configurated_url):
-            try:
-                resp = requests.get(configurated_url)
-            except:
-                print("PB AFTER REQUEST")
-            return resp
+            last_exception = None
+            
+            for attempt in range(max_retries):
+                try:
+                    resp = requests.get(configurated_url, timeout=30)
+                    resp.raise_for_status()
+                    
+                    # Log successful request with rate limit info
+                    logging.debug(f"{self.api_name} API: Request successful (attempt {attempt + 1}/{max_retries})")
+                    return resp
+                    
+                except requests.exceptions.HTTPError as e:
+                    status_code = e.response.status_code
+                    last_exception = e
+                    
+                    if status_code == 429:  # Too Many Requests
+                        wait_time = 2 ** attempt  # Exponential backoff
+                        logging.warning(
+                            f"{self.api_name} API rate limit exceeded. "
+                            f"Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries})"
+                        )
+                        if attempt < max_retries - 1:
+                            time.sleep(wait_time)
+                            continue
+                    elif status_code in [401, 403]:  # Authentication errors
+                        logging.error(
+                            f"{self.api_name} API authentication failed: {status_code}. "
+                            "Check your API key and credentials."
+                        )
+                        raise  # Don't retry auth errors
+                    elif status_code >= 500:  # Server errors
+                        wait_time = 2 ** attempt
+                        logging.warning(
+                            f"{self.api_name} API server error: {status_code}. "
+                            f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
+                        )
+                        if attempt < max_retries - 1:
+                            time.sleep(wait_time)
+                            continue
+                    else:
+                        logging.error(f"{self.api_name} API HTTP error {status_code}: {str(e)}")
+                        raise
+                        
+                except requests.exceptions.Timeout as e:
+                    last_exception = e
+                    wait_time = 2 ** attempt
+                    logging.warning(
+                        f"{self.api_name} API request timeout. "
+                        f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    if attempt < max_retries - 1:
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logging.error(f"{self.api_name} API: All retry attempts failed due to timeout")
+                        raise
+                        
+                except requests.exceptions.ConnectionError as e:
+                    last_exception = e
+                    wait_time = 2 ** attempt
+                    logging.warning(
+                        f"{self.api_name} API connection error. "
+                        f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
+                    )
+                    if attempt < max_retries - 1:
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logging.error(f"{self.api_name} API: All retry attempts failed due to connection error")
+                        raise
+                        
+                except requests.exceptions.RequestException as e:
+                    last_exception = e
+                    logging.error(
+                        f"{self.api_name} API request failed: {str(e)}. "
+                        f"Attempt {attempt + 1}/{max_retries}"
+                    )
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                    else:
+                        raise
+            
+            # If we exhausted all retries, raise the last exception
+            if last_exception:
+                logging.error(f"{self.api_name} API: All {max_retries} retry attempts exhausted")
+                raise last_exception
 
         return access_rate_limited_decorated(configurated_url)
 
@@ -228,11 +367,14 @@ class API_collector:
                 logging.info(f"Fetching data from URL: {url}")
 
                 response = self.api_call_decorator(url)  # Call the API
-                print("CALL")
+                logging.debug(f"{self.api_name} API call completed for page {page}")
                 try:
                     page_data = self.parsePageResults(
                         response, page
                     )  # Parse the response
+                    
+                    # Log API usage statistics
+                    self.log_api_usage(response, page, len(page_data.get("results", [])))
 
                     self.nb_art_collected += int(len(page_data["results"]))
                     nb_res = len(page_data["results"])
@@ -453,7 +595,9 @@ class IEEE_collector(API_collector):
         """
         super().__init__(filter_param, data_path, api_key)
         self.api_name = "IEEE"
-        self.rate_limit = 200
+        # Fixed: Official IEEE API rate limit is 10 requests/sec (not 200)
+        # See https://developer.ieee.org/docs for rate limit information
+        self.rate_limit = 10
         self.max_by_page = 25  # IEEE API max records per page is 25
         # self.api_key = ieee_api
         self.api_url = "https://ieeexploreapi.ieee.org/api/v1/search/articles"
@@ -571,12 +715,69 @@ class IEEE_collector(API_collector):
 class Elsevier_collector(API_collector):
     """Store file metadata from Elsevier API."""
 
-    def __init__(self, filter_param, data_path, api_key):
+    def __init__(self, filter_param, data_path, api_key, inst_token=None):
+        """
+        Initialize Elsevier Scopus API collector.
+        
+        Args:
+            filter_param: Filter parameters for the search
+            data_path: Path for saving data
+            api_key: Elsevier API key (required)
+            inst_token: Institutional token for enhanced access (optional but recommended)
+        """
         super().__init__(filter_param, data_path, api_key)
-        self.rate_limit = 8
-        self.max_by_page = 100
+        # Scopus API rate limits vary by subscription tier
+        # Default: 2 requests/sec for standard tier, 6-9 for institutional
+        self.rate_limit = 6  # Conservative rate for institutional access
+        self.max_by_page = 25  # Scopus API max is 25 per page
         self.api_name = "Elsevier"
         self.api_url = "https://api.elsevier.com/content/search/scopus"
+        self.inst_token = inst_token
+        logging.info(f"Initialized Elsevier collector with institutional token: {inst_token is not None}")
+
+    def api_call_decorator(self, configurated_url):
+        """
+        Custom API call with Elsevier-specific headers including institutional token.
+        
+        Args:
+            configurated_url: The URL to call
+            
+        Returns:
+            Response object from the API
+        """
+        @sleep_and_retry
+        @limits(calls=self.get_ratelimit(), period=1)
+        def access_rate_limited_decorated(configurated_url):
+            headers = {"X-ELS-APIKey": self.get_apikey(), "Accept": "application/json"}
+            
+            # Add institutional token if available (provides better access)
+            if self.inst_token:
+                headers["X-ELS-Insttoken"] = self.inst_token
+                logging.debug("Using institutional token for Elsevier API request")
+            
+            try:
+                resp = requests.get(configurated_url, headers=headers, timeout=30)
+                resp.raise_for_status()
+                
+                # Log API quota usage from response headers
+                if "X-RateLimit-Remaining" in resp.headers:
+                    logging.info(f"Elsevier API quota remaining: {resp.headers['X-RateLimit-Remaining']}")
+                
+                return resp
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 429:
+                    logging.error("Rate limit exceeded for Elsevier API. Consider reducing rate_limit.")
+                elif e.response.status_code == 401:
+                    logging.error("Authentication failed. Check your API key and institutional token.")
+                raise
+            except requests.exceptions.Timeout:
+                logging.error(f"Request timeout for URL: {configurated_url}")
+                raise
+            except requests.exceptions.RequestException as e:
+                logging.error(f"Request failed for URL: {configurated_url}. Error: {str(e)}")
+                raise
+
+        return access_rate_limited_decorated(configurated_url)
 
     def parsePageResults(self, response, page):
         print("parsePageResults")

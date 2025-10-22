@@ -9,6 +9,7 @@ sem_scholar:
     api_key: "YOUR_SEMANTIC_SCHOLAR_API_KEY"  # Optional - can work without
 elsevier:
     api_key: "YOUR_ELSEVIER_API_KEY"
+    inst_token: "YOUR_INSTITUTIONAL_TOKEN"  # Optional but recommended for better access
 ieee:
     api_key: "YOUR_IEEE_API_KEY"
 orcid:
