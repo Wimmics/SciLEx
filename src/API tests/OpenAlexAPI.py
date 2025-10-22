@@ -23,22 +23,24 @@ with open("/user/cringwal/home/Desktop/Scilex-main/src/scilex.config.yml") as ym
 
 
 def toZoteroFormat(row):
+    from src.constants import MISSING_VALUE
+    
     zotero_temp = {
-        "title": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
+        "title": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
     }
 
     # Genre pas clair

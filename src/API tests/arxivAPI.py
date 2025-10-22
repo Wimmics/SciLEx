@@ -5,6 +5,13 @@ Created on Wed Jan 18 14:36:15 2023
 @author: cringwal
 """
 
+import logging
+import sys
+import os
+
+# Add parent directory to path for imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import requests
 from lxml import etree
 from ratelimit import limits, sleep_and_retry
@@ -16,8 +23,14 @@ MAX_CALLS_PER_SECOND = 3
 @sleep_and_retry
 @limits(calls=MAX_CALLS_PER_SECOND, period=ONE_SEC)
 def access_rate_limited_api(url):
-    resp = requests.get(url)
-    return resp
+    """Access arXiv API with rate limiting."""
+    try:
+        resp = requests.get(url, timeout=30)
+        resp.raise_for_status()
+        return resp
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to access arXiv API at {url}: {e}")
+        return None
 
 
 year = 2017
@@ -32,39 +45,43 @@ arxiv_url = (
 
 
 def toZoteroFormat(row):
+    from src.constants import MISSING_VALUE
+    
     zotero_temp = {
-        "title": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
+        "title": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
     }
 
+    from src.constants import is_valid
+    
     # Genre pas clair
     zotero_temp["archive"] = "Arxiv"
-    if current["abstract"] != "" and current["abstract"] is not None:
+    if is_valid(current.get("abstract")):
         zotero_temp["abstract"] = row["abstract"]
-    if current["authors"] != "" and current["authors"] is not None:
+    if is_valid(current.get("authors")):
         zotero_temp["authors"] = ";".join(current["authors"])
-    if current["doi"] != "" and current["doi"] is not None:
+    if is_valid(current.get("doi")):
         zotero_temp["DOI"] = current["doi"]
-    if current["title"] != "" and current["title"] is not None:
+    if is_valid(current.get("title")):
         zotero_temp["title"] = row["title"]
-    if current["id"] != "" and current["id"] is not None:
+    if is_valid(current.get("id")):
         zotero_temp["archiveID"] = row["id"]
-    if current["published"] != "" and current["published"] is not None:
+    if is_valid(current.get("published")):
         zotero_temp["date"] = row["published"]
-    if current["journal"] != "" and current["journal"] is not None:
+    if is_valid(current.get("journal")):
         zotero_temp["journalAbbreviation"] = row["journal"]
 
     return zotero_temp
@@ -99,45 +116,60 @@ while has_more_pages and fewer_than_10k_results:
             auth_list.append(auth.xpath('*[local-name()="name"]')[0].text)
         current["authors"] = auth_list
 
+        # Extract optional fields with proper error handling
         try:
-            current["pdf"] = entry.xpath('*[local-name()="link" and @title="pdf"]')[
-                0
-            ].text
-        except:
-            print("NO pdf")
+            pdf_links = entry.xpath('*[local-name()="link" and @title="pdf"]')
+            if pdf_links:
+                current["pdf"] = pdf_links[0].text
+        except (IndexError, KeyError, AttributeError) as e:
+            logging.debug(f"No PDF link found for entry: {e}")
+
+        # Try to get DOI from multiple possible locations
         try:
-            current["doi"] = entry.xpath('*[local-name()="doi"]')[0].text
-        except:
-            try:
-                current["doi"] = entry.xpath('*[local-name()="link" and @title="doi"]')[
-                    0
-                ].text
-            except:
-                print("NO doi")
+            doi_elements = entry.xpath('*[local-name()="doi"]')
+            if doi_elements:
+                current["doi"] = doi_elements[0].text
+            else:
+                doi_links = entry.xpath('*[local-name()="link" and @title="doi"]')
+                if doi_links:
+                    current["doi"] = doi_links[0].text
+        except (IndexError, KeyError, AttributeError) as e:
+            logging.debug(f"No DOI found for entry: {e}")
 
         try:
-            current["comment"] = entry.xpath('*[local-name()="comment"]')[0].text
-        except:
-            print("NO comment")
-        # cuurent["url"]=entry.xpath('*[local-name()=" arxiv:comment"]')[0].text
+            comment_elements = entry.xpath('*[local-name()="comment"]')
+            if comment_elements:
+                current["comment"] = comment_elements[0].text
+        except (IndexError, KeyError, AttributeError) as e:
+            logging.debug(f"No comment found for entry: {e}")
+
         try:
-            current["journal"] = entry.xpath('*[local-name()="journal_ref"]')[0].text
-        except:
-            print("NO journal")
+            journal_elements = entry.xpath('*[local-name()="journal_ref"]')
+            if journal_elements:
+                current["journal"] = journal_elements[0].text
+        except (IndexError, KeyError, AttributeError) as e:
+            logging.debug(f"No journal found for entry: {e}")
+
         try:
-            main_cat = entry.xpath('*[local-name()="primary_category"]')[0].attrib[
-                "term"
-            ]
-        except:
-            print("NO main categories")
+            primary_cat = entry.xpath('*[local-name()="primary_category"]')
+            if primary_cat:
+                main_cat = primary_cat[0].attrib["term"]
+            else:
+                main_cat = None
+        except (IndexError, KeyError, AttributeError) as e:
+            logging.debug(f"No main category found for entry: {e}")
+            main_cat = None
+
         try:
             categories = entry.xpath('*[local-name()="category"]')
             cat_list = []
             for cat in categories:
-                cat_list.append(cat.attrib["term"])
+                if "term" in cat.attrib:
+                    cat_list.append(cat.attrib["term"])
             current["categories"] = cat_list
-        except:
-            print("NO categories")
+        except (IndexError, KeyError, AttributeError) as e:
+            logging.debug(f"No categories found for entry: {e}")
+            current["categories"] = []
         results.append(current)
     # loop through partial list of results
     # results = page_with_results['response']

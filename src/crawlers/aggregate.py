@@ -118,7 +118,7 @@ def deduplicate(df_input):
                 archive_list.append(str(df_output.loc[idx]["archive"]))
                 for col_name in column_names:
                     value = df_output.loc[idx, col_name]
-                    column_values[col_name].append("NA" if isNaN(value) else value)
+                    column_values[col_name].append(MISSING_VALUE if isNaN(value) else value)
 
             # Find best duplicate
             best_idx = _find_best_duplicate_index(duplicates_temp, column_names)
@@ -144,23 +144,23 @@ def SemanticScholartoZoteroFormat(row):
     # print(">>SemanticScholartoZoteroFormat")
     # bookSection?
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
     zotero_temp["archive"] = "SemanticScholar"
     #### publicationTypes is a list Zotero only take one value
@@ -216,7 +216,7 @@ def SemanticScholartoZoteroFormat(row):
             zotero_temp["pages"] = journal_pages
             if zotero_temp["itemType"] == "book":
                 zotero_temp["itemType"] = "bookSection"
-        if zotero_temp["itemType"] == "NA":
+        if not is_valid(zotero_temp.get("itemType")):
             # if the journal field is defined but we dont know the itemType yet (for ex Reviews), we assume it's journal article
             zotero_temp["itemType"] = "journalArticle"
         if journal_name:
@@ -224,7 +224,7 @@ def SemanticScholartoZoteroFormat(row):
         if journal_volume:
             zotero_temp["volume"] = journal_volume
 
-    if zotero_temp["itemType"] == "NA":
+    if not is_valid(zotero_temp.get("itemType")):
         # default to Manuscript type to make sure there is a type, otherwise the push to Zotero doesn't work
         zotero_temp["itemType"] = "Manuscript"
 
@@ -261,23 +261,23 @@ def SemanticScholartoZoteroFormat(row):
 
 def IstextoZoteroFormat(row):
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
     # Genre pas clair
     zotero_temp["archive"] = "Istex"
@@ -358,23 +358,23 @@ def IstextoZoteroFormat(row):
 
 def ArxivtoZoteroFormat(row):
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
     # Genre pas clair
     zotero_temp["archive"] = "Arxiv"
@@ -400,23 +400,23 @@ def ArxivtoZoteroFormat(row):
 
 def DBLPtoZoteroFormat(row):
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
     zotero_temp["archiveID"] = row["@id"]
     row = row["info"]
@@ -464,23 +464,23 @@ def DBLPtoZoteroFormat(row):
 
 def HALtoZoteroFormat(row):
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
     zotero_temp["archiveID"] = row["halId_s"]
     zotero_temp["archive"] = "HAL"
@@ -518,23 +518,23 @@ def HALtoZoteroFormat(row):
 # Abstract must be recomposed...
 def OpenAlextoZoteroFormat(row):
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
 
     zotero_temp["archive"] = "OpenAlex"
@@ -612,23 +612,23 @@ def OpenAlextoZoteroFormat(row):
 
 def IEEEtoZoteroFormat(row):
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
 
     zotero_temp["archive"] = "IEEE"
@@ -699,23 +699,23 @@ def IEEEtoZoteroFormat(row):
 
 def SpringertoZoteroFormat(row):
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
 
     zotero_temp["archive"] = "Springer"
@@ -781,23 +781,23 @@ def SpringertoZoteroFormat(row):
 
 def ElseviertoZoteroFormat(row):
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
-        "DOI": "NA",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
 
     zotero_temp["archive"] = "Elsevier"

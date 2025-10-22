@@ -68,7 +68,8 @@ for row in all_data2.itertuples():
         # ""
         # "PWC:"
 
-    if str(row.Short_Title) not in ["nan", "", "NA"]:
+    from src.constants import is_valid
+    if is_valid(row.Short_Title):
         label_t = str(row.Short_Title)
         if "," in str(row.Short_Title):
             label_t = str(row.Short_Title).split(", ")[0]
@@ -77,11 +78,7 @@ for row in all_data2.itertuples():
         temp = temp.replace(".0", "")
         all_data.at[row.index_col, "gephi_label"] = temp
 
-    elif str(row.Author) not in ["nan", "", "NA"] and str(row.Publication_Year) not in [
-        "nan",
-        "",
-        "NA",
-    ]:
+    elif is_valid(row.Author) and is_valid(row.Publication_Year):
         temp = [
             txt.strip()
             for txt in str(row.Author).replace(";", ",").replace("  ", "").split(",")

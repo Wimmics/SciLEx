@@ -274,7 +274,8 @@ if pushToZotero:
                             #     toADD["shortTitle"]=dict_papers[url]["shortname"]
 
                             if paper_url[archive]["code"] != "" and (
-                                item["data"]["archiveLocation"] in ["", "na", "NA"]
+                                from src.constants import is_valid
+                                not is_valid(item.get("data", {}).get("archiveLocation"))
                             ):
                                 toADD["archiveLocation"] = paper_url[archive]["code"]
                             else:
@@ -308,7 +309,7 @@ if pushToZotero:
                         # "archiveLocation":datasets_url[archive]["name"]
                         #     toADD["shortTitle"]=dict_papers[url]["shortname"]
                         if paper_url[arch_url]["code"] != "" and (
-                            item["data"]["archiveLocation"] in ["", "na", "NA"]
+                            not is_valid(item.get("data", {}).get("archiveLocation"))
                         ):
                             toADD["archiveLocation"] = paper_url[arch_url]["code"]
                         else:

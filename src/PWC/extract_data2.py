@@ -39,26 +39,28 @@ def getWriteToken():
 
 
 def PaperWithCodetoZoteroFormat(row):
+    from src.constants import MISSING_VALUE
+    
     # print(">>SemanticScholartoZoteroFormat")
     # bookSection?
     zotero_temp = {
-        "title": "NA",
-        "publisher": "NA",
-        "itemType": "NA",
-        "authors": "NA",
-        "language": "NA",
-        "abstract": "NA",
-        "archiveID": "NA",
-        "archive": "NA",
-        "date": "NA",
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
         "DOI": "",
-        "url": "NA",
-        "rights": "NA",
-        "pages": "NA",
-        "journalAbbreviation": "NA",
-        "volume": "NA",
-        "serie": "NA",
-        "issue": "NA",
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
     }
     zotero_temp["archive"] = row["paper_url"]
     #### publicationTypes is a list Zotero only take one value
@@ -404,7 +406,8 @@ if pushData:
                 templates_dict = {}
                 row = PaperWithCodetoZoteroFormat(models_data_[k])
                 itemType = row["itemType"]
-                if itemType != "" and itemType != "NA" and not pd.isna(itemType):
+                from src.constants import is_valid
+                if is_valid(itemType):
                     if itemType not in templates_dict:
                         resp = requests.get(
                             "https://api.zotero.org/items/new?itemType=" + itemType
@@ -450,7 +453,7 @@ if pushData:
                     if "authors" in row:
                         if (
                             row["authors"] != ""
-                            and row["authors"] != "NA"
+                            and is_valid(row.get("authors"))
                             and not pd.isna(row["authors"])
                         ):
                             authors = row["authors"].split(";")

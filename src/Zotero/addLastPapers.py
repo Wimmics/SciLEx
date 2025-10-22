@@ -54,7 +54,8 @@ current_col_key = None
 
 for _index, row in data.iterrows():
     itemType = row["itemType"]
-    if itemType != "" and itemType != "NA" and not pd.isna(itemType):
+    from src.constants import is_valid
+    if is_valid(itemType):
         if itemType not in templates_dict:
             resp = requests.get("https://api.zotero.org/items/new?itemType=" + itemType)
             template = resp.json()
@@ -89,7 +90,7 @@ for _index, row in data.iterrows():
         if "authors" in row:
             if (
                 row["authors"] != ""
-                and row["authors"] != "NA"
+                and is_valid(row.get("authors"))
                 and not pd.isna(row["authors"])
             ):
                 authors = row["authors"].split(";")

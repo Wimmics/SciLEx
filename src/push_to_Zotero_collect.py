@@ -197,7 +197,8 @@ if __name__ == "__main__":
         itemType = row["itemType"]
         if itemType == "bookSection":
             itemType = "journalArticle"
-        if itemType != "" and itemType != "NA" and not pd.isna(itemType):
+        from src.constants import is_valid
+        if is_valid(itemType):
             if itemType not in templates_dict:
                 resp = requests.get(
                     "https://api.zotero.org/items/new?itemType=" + itemType
@@ -234,7 +235,7 @@ if __name__ == "__main__":
             if "authors" in row:
                 if (
                     row["authors"] != ""
-                    and row["authors"] != "NA"
+                    and is_valid(row.get("authors"))
                     and not pd.isna(row["authors"])
                 ):
                     authors = row["authors"].split(";")
@@ -246,13 +247,13 @@ if __name__ == "__main__":
 
             if (
                 current_temp["url"] == ""
-                or current_temp["url"].upper() == "NA"
+                or not is_valid(current_temp.get("url"))
                 or current_temp["url"].upper() == "NAN"
             ):
                 if (
                     pd.notna(row["DOI"])
                     and str(row["DOI"]) != ""
-                    and str(row["DOI"]).upper() != "NA"
+                    and is_valid(row.get("DOI"))
                     and str(row["DOI"]).upper() != "NAN"
                 ):
                     current_temp["url"] = row["DOI"]

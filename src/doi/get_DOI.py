@@ -127,7 +127,8 @@ if getDataInit:
                         if "DOI" in paper["data"]:
                             # print(paper["data"]["DOI"])
                             if (
-                                paper["data"]["DOI"] in ["", "nan", "NAN", "NA"]
+                                from src.constants import is_valid
+                                not is_valid(paper.get("data", {}).get("DOI"))
                             ) and "/" not in paper["data"]["DOI"]:
                                 papers_to_update[paper["key"]] = {
                                     "title": paper["data"]["title"],
