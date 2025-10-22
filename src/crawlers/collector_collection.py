@@ -50,16 +50,76 @@ class Filter_param:
 
 class CollectCollection:
     def __init__(self, main_config, api_config):
-        print("INIT COLLECTION")
+        logging.info("Initializing collection")
         self.main_config = main_config
         self.api_config = api_config
         self.state_details = {}
         self.state_details = {"global": -1, "details": {}}
         self.init_collection_collect()
 
+    def validate_api_keys(self):
+        """Validate that required API keys are present before starting collection"""
+        logging.info("Validating API keys...")
+        apis_requiring_keys = {
+            "IEEE": "api_key",
+            "Springer": "api_key", 
+            "Elsevier": ["api_key", "inst_token"],
+        }
+        
+        missing_keys = []
+        apis_to_use = self.main_config.get("apis", [])
+        
+        for api in apis_to_use:
+            if api in apis_requiring_keys:
+                required_keys = apis_requiring_keys[api]
+                if not isinstance(required_keys, list):
+                    required_keys = [required_keys]
+                
+                api_config = self.api_config.get(api, {})
+                for key in required_keys:
+                    if not api_config.get(key):
+                        missing_keys.append(f"{api}.{key}")
+                        logging.warning(f"Missing API key: {api}.{key}")
+        
+        if missing_keys:
+            logging.warning(f"Missing API keys for: {', '.join(missing_keys)}")
+            logging.warning("Collections from these APIs will likely fail")
+            return False
+        
+        logging.info("API key validation passed")
+        return True
+
+    def init_progress_tracking(self, total_jobs):
+        """Initialize progress tracking"""
+        self.total_jobs = total_jobs
+        self.completed_jobs = 0
+        self.progress_lock = multiprocessing.Lock()
+    
+    def update_progress(self):
+        """Update progress counter (thread-safe)"""
+        with self.progress_lock:
+            self.completed_jobs += 1
+            progress_pct = (self.completed_jobs / self.total_jobs) * 100
+            logging.info(f"Progress: {self.completed_jobs}/{self.total_jobs} ({progress_pct:.1f}%) collections completed")
+
     def job_collect(self, collector):
-        res = collector.runCollect()
-        self.update_state_details(collector.api_name, str(collector.collectId), res)
+        try:
+            res = collector.runCollect()
+            self.update_state_details(collector.api_name, str(collector.collectId), res)
+            self.update_progress()
+        except Exception as e:
+            logging.error(f"Error during collection for {collector.api_name}: {str(e)}")
+            # Mark as failed in state
+            error_state = {
+                "state": -1,  # -1 indicates error
+                "error": str(e),
+                "last_page": 0
+            }
+            try:
+                self.update_state_details(collector.api_name, str(collector.collectId), error_state)
+            except Exception as state_error:
+                logging.error(f"Failed to update state after error: {str(state_error)}")
+            self.update_progress()
 
     def run_job_collects(self, collect_list):
         for idx in range(len(collect_list)):
@@ -130,9 +190,7 @@ class CollectCollection:
         ):
             keyword_combinations = self.main_config["keywords"][0]
 
-        print("==========================")
-        print(keyword_combinations)
-        print("==========================")
+        logging.debug(f"Generated {len(keyword_combinations)} keyword combinations")
         # Generate all combinations using Cartesian product
         ### ADD LETTER FIELDS
         # combinations = product(keyword_combinations, self.years, self.apis, self.fields)
@@ -151,7 +209,7 @@ class CollectCollection:
                 {"keyword": [keyword_group], "year": year, "api": api}
                 for keyword_group, year, api in combinations
             ]
-        print(queries)
+        logging.info(f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs")
         queries_by_api = {}
         for query in queries:
             if query["api"] not in queries_by_api:
@@ -174,9 +232,12 @@ class CollectCollection:
     def update_state_details(self, api, idx, state_data):
         repo = self.get_current_repo()
         state_path = os.path.join(repo, "state_details.json")
-        if os.path.isfile(state_path):
-            with open(state_path, encoding="utf-8") as read_file:
-                state_orig = json.load(read_file)
+        
+        # Use lock for entire read-modify-write operation to prevent race conditions
+        with lock:
+            if os.path.isfile(state_path):
+                with open(state_path, encoding="utf-8") as read_file:
+                    state_orig = json.load(read_file)
 
                 for k in state_data:
                     state_orig["details"][api]["by_query"][str(idx)][k] = state_data[k]
@@ -203,11 +264,9 @@ class CollectCollection:
                     state_orig["global"] = 0
 
                 self.state_details = state_orig
-
-                with lock:
-                    self.save_state_details()
-        else:
-            logging.warning("Missing state details file")
+                self.save_state_details()
+            else:
+                logging.warning("Missing state details file")
 
     def init_state_details(self, queries_by_api):
         """
@@ -251,7 +310,7 @@ class CollectCollection:
             os.makedirs(repo)
             with open(os.path.join(repo, "config_used.yml"), "w") as f:
                 yaml.dump(self.main_config, f)
-            print("ICI")
+            logging.info("Building query composition")
             queries_by_api = self.queryCompositor()
 
             self.init_state_details(queries_by_api)
@@ -261,6 +320,10 @@ class CollectCollection:
         self.load_state_details()
 
     def create_collects_jobs(self):
+        """Validate API keys and create collection jobs"""
+        # Validate API keys before starting
+        self.validate_api_keys()
+
         """
         Create the collection of jobs depending of the history and run it in parallel
         """
@@ -280,9 +343,7 @@ class CollectCollection:
                             n_coll += 1
                     if len(current_api_job) > 0:
                         jobs_list.append(current_api_job)
-        print("JOB LIST")
-        print(jobs_list)
-        logging.info("Number of collect to conduct:" + str(n_coll))
+        logging.info(f"Number of collections to conduct: {n_coll}")
         num_cores = multiprocessing.cpu_count()
         if len(jobs_list) < num_cores:
             num_cores = len(jobs_list)
@@ -291,9 +352,17 @@ class CollectCollection:
 
         logging.info("Number of collects to run:" + str(len(jobs_list)))
         logging.info("Number of parallel processes:" + str(num_cores))
+
+        # Initialize progress tracking
+        self.init_progress_tracking(len(jobs_list))
+
         pool = multiprocessing.Pool(processes=num_cores)
-        result = pool.map_async(self.run_job_collects, jobs_list)
-        result.wait()
+        try:
+            result = pool.map_async(self.run_job_collects, jobs_list)
+            result.wait()
+        finally:
+            pool.close()
+            pool.join()
 
         # FIRST ATTEMPT > not ordered by api > could lead to ratelimit overload
         # random.shuffle(jobs_list)

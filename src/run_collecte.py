@@ -14,6 +14,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
+import yaml
 from datetime import datetime
 
 from src.crawlers.aggregate import *

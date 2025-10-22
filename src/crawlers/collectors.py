@@ -132,7 +132,7 @@ class API_collector:
 
     def savePageResults(self, global_data, page):
         self.createCollectDir()
-        print(self.get_collectDir() + "/page_" + str(page))
+        logging.debug(f"Saving page {page} results to {self.get_collectDir()}")
         with open(
             self.get_collectDir() + "/page_" + str(page), "w", encoding="utf8"
         ) as json_file:
@@ -311,8 +311,7 @@ class API_collector:
 
         page = int(self.get_lastpage()) + 1  # Start from the next page
         has_more_pages = True
-        print("<<<<<<<<<<<<<", page)
-
+        logging.debug(f"Starting collection from page {page}")
         # Determine if there are fewer than 10,000 results based on collection size
         fewer_than_10k_results = self.big_collect == 0
 
@@ -352,18 +351,14 @@ class API_collector:
 
         else:
             # If this is a DBLP collector, follow the normal process
-            print("NOT SPRINGER<<<<<<<<<<<<<")
-            print("more pages ?", has_more_pages)
-            print("fewer_than_10k_results ? ", fewer_than_10k_results)
+
             while has_more_pages and fewer_than_10k_results:
-                print("NEW PAGE")
+
                 offset = self.get_offset(page)  # Calculate the current offset
-                print("url before")
-                print(offset)
+
                 url = self.get_configurated_url().format(
                     offset
                 )  # Construct the API URL
-                print("url after")
 
                 logging.info(f"Fetching data from URL: {url}")
 
@@ -379,22 +374,18 @@ class API_collector:
 
                     self.nb_art_collected += int(len(page_data["results"]))
                     nb_res = len(page_data["results"])
-                    print("---------")
-                    print(nb_res)
-                    print(nb_res == 0)
-                    print("---------")
+
                     # Determine if more pages are available based on results returned
                     if nb_res != 0:
                         has_more_pages = nb_res == self.get_max_by_page()
                     else:
                         has_more_pages = False
-                    print("has_more_pages>", has_more_pages)
+
                     if isinstance(self, Arxiv_collector):
                         page_data["results"] = [
                             x for x in page_data["results"] if x is not None
                         ]
-
-                    print("NB ART COLLECTED >", self.nb_art_collected)
+                    logging.debug(f"Articles collected so far: {self.nb_art_collected}")
                     # Save the page results for future use
                     self.savePageResults(page_data, page)
                     # Update the last page collected
@@ -490,7 +481,7 @@ class SemanticScholar_collector(API_collector):
         Returns:
             dict: A dictionary containing metadata about the collected results, including the total count and the results themselves.
         """
-        print("Parse")
+
         page_data = {
             "date_search": str(date.today()),
             "id_collect": self.get_collectId(),
@@ -500,11 +491,11 @@ class SemanticScholar_collector(API_collector):
         }
 
         try:
-            print("BFEFORE")
+
             page_with_results = response.json()
-            print(page_with_results)
+
             page_data["total"] = int(page_with_results.get("total", 0))
-            print(page_data["total"])
+
             if page_data["total"] > 0:
                 for result in page_with_results.get("data", []):
                     parsed_result = {
@@ -547,9 +538,7 @@ class SemanticScholar_collector(API_collector):
             str: The formatted API URL for the bulk API with the constructed query parameters.
         """
         # Process keywords: Join multiple keywords with ' AND '
-        print(">>>>>>>>>>>>>>>>>>>")
-        print("KEYWORD")
-        print(self.get_keywords())
+
         query_keywords = "|".join(
             self.get_keywords()
         )  # Assuming this returns a list of keyword sets
@@ -781,7 +770,7 @@ class Elsevier_collector(API_collector):
         return access_rate_limited_decorated(configurated_url)
 
     def parsePageResults(self, response, page):
-        print("parsePageResults")
+
         """Parse the JSON response from Elsevier API and return structured data."""
         page_data = {
             "date_search": str(date.today()),
@@ -792,7 +781,7 @@ class Elsevier_collector(API_collector):
         }
 
         page_with_results = response.json()
-        print(page_with_results)
+
         # Loop through partial list of results
         results = page_with_results["search-results"]
         total = results["opensearch:totalResults"]
@@ -804,7 +793,7 @@ class Elsevier_collector(API_collector):
         return page_data
 
     def construct_search_query(self):
-        print("construct_search_query")
+
         """
         Constructs a search query for the API from the keyword sets.
         The format will be:
@@ -826,12 +815,11 @@ class Elsevier_collector(API_collector):
 
         # Join all formatted keyword groups with ' AND '
         # search_query = ' AND '.join(formatted_keyword_groups)
-        print("end construct query")
-        print(search_query)
+
         return search_query
 
     def get_configurated_url(self):
-        print("get_configurated_url")
+
         """Constructs the API URL with the search query and publication year filters."""
         # Construct the search query
         keywords_query = (
@@ -882,11 +870,10 @@ class DBLP_collector(API_collector):
             "total": 0,  # Total number of results found
             "results": [],  # List to hold the collected results
         }
-        print("INSIDE")
+
         # Parse the JSON response
         page_with_results = response.json()
 
-        print("AFTER")
         # Extract the total number of hits from the results
         results = page_with_results["result"]
         total = results["hits"]["@total"]
@@ -895,11 +882,9 @@ class DBLP_collector(API_collector):
 
         if page_data["total"] > 0:
             # Loop through the hits and append them to the results list
-            print("TOTAL")
-            print(results["hits"].keys())
+
             for result in results["hits"]["hit"]:
                 page_data["results"].append(result)
-            print("OK")
 
         return page_data
 
