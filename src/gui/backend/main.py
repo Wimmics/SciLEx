@@ -6,6 +6,7 @@ from .config import settings
 from .database import init_db
 from .api import config as config_api
 from .api import jobs as jobs_api
+from .websocket import handlers as ws_handlers
 
 app = FastAPI(
     title=settings.app_name,
@@ -25,6 +26,7 @@ app.add_middleware(
 # Register routers
 app.include_router(config_api.router)
 app.include_router(jobs_api.router)
+app.include_router(ws_handlers.router)
 
 
 @app.on_event("startup")

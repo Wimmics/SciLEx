@@ -7,6 +7,7 @@ from ..database import get_db
 from ..schemas.job import JobCreate, JobResponse, JobDetail, JobStatus
 from ..services.job_manager import JobManager
 from ..services.config_sync import ConfigSyncService
+from ..services.job_runner import job_runner
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 job_manager = JobManager()
@@ -31,13 +32,17 @@ async def start_job(job_data: JobCreate, db: Session = Depends(get_db)):
     # Add initial log
     job_manager.add_log(db, job.id, "INFO", "Job created and queued")
 
-    # TODO: Actually start the background job
-    # For now, just return the job ID
+    # Start the background job
+    try:
+        job_runner.start_job(job.id, config_snapshot)
+    except Exception as e:
+        job_manager.update_job_status(db, job.id, JobStatus.FAILED, error_message=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to start job: {str(e)}")
 
     return {
         "job_id": job.id,
         "status": "queued",
-        "message": "Job created successfully"
+        "message": "Job started successfully"
     }
 
 
