@@ -8,6 +8,7 @@ import json
 import logging
 
 import pandas as pd
+from tqdm import tqdm
 
 import src.citations.citations_tools as cit_tools
 from src.constants import MISSING_VALUE, is_valid
@@ -88,9 +89,19 @@ if __name__ == "__main__":
     txt_filters = main_config["aggregate_txt_filter"]
     get_citation = main_config["aggregate_get_citations"]
     dir_collect = os.path.join(main_config["output_dir"], main_config["collect_name"])
+    # Get output filename from config, with fallback and handle leading slashes
+    output_filename = main_config.get("aggregate_file", "FileAggreg.csv").lstrip("/")
     state_path = os.path.join(dir_collect, "state_details.json")
     logging.info(f"Starting aggregation from {state_path}")
     all_data = []
+
+    # Check if state file exists
+    if not os.path.isfile(state_path):
+        logging.error(f"State file not found: {state_path}")
+        logging.error(f"Collection directory '{dir_collect}' does not contain state_details.json")
+        logging.error("Please run collection first (python src/run_collecte.py) or check 'collect_name' in scilex.config.yml")
+        sys.exit(1)
+
     if os.path.isfile(state_path):
         logging.debug("State details file found, proceeding with aggregation")
         with open(state_path, encoding="utf-8") as read_file:
@@ -132,7 +143,13 @@ if __name__ == "__main__":
                 df_clean["extra"] = ""
                 df_clean["nb_cited"] = ""
                 df_clean["nb_citation"] = ""
-                for index, row in df_clean.iterrows():
+
+                total_papers = len(df_clean)
+                papers_with_doi = df_clean["DOI"].apply(is_valid).sum()
+                logging.info(f"Fetching citation data for {papers_with_doi}/{total_papers} papers with valid DOIs")
+                logging.info("This may take 10-30 minutes depending on paper count (rate limit: ~5 papers/second)")
+
+                for index, row in tqdm(df_clean.iterrows(), total=total_papers, desc="Fetching citations", unit="paper"):
                     doi = row.get("DOI")
                     logging.debug(f"Processing DOI: {doi}")
                     if is_valid(doi):
@@ -143,9 +160,12 @@ if __name__ == "__main__":
                         df_clean.loc[index, ["nb_citation"]] = nb_["nb_citations"]
 
             # Save to CSV
+            output_path = os.path.join(dir_collect, output_filename)
+            logging.info(f"Saving {len(df_clean)} aggregated papers to {output_path}")
             df_clean.to_csv(
-                os.path.join(dir_collect, "FileAggreg.csv"),
+                output_path,
                 sep=";",
                 quotechar='"',
                 quoting=csv.QUOTE_NONNUMERIC,
             )
+            logging.info(f"Aggregation complete! Results saved to {output_path}")

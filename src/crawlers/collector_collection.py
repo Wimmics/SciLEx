@@ -72,9 +72,9 @@ def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name)
                 _update_state_worker(repo, coll["api"], str(data_query.get("id_collect", 0)), error_state)
             except Exception as state_error:
                 logging.error(f"Failed to update state after error: {str(state_error)}")
-        
-        if not is_last:
-            time.sleep(2)
+
+        # Note: Removed fixed 2-second delay - rate limiting is now handled per-API
+        # by individual collectors using configured rate limits from api.config.yml
 
 
 def _update_state_worker(repo, api, idx, state_data):
@@ -241,8 +241,8 @@ class CollectCollection:
                 current_coll.api_name, str(current_coll.collectId), res
             )
 
-            if not is_last:
-                time.sleep(2)
+            # Note: Removed fixed 2-second delay - rate limiting is now handled per-API
+            # by individual collectors using configured rate limits from api.config.yml
 
     def get_current_repo(self):
         return os.path.join(

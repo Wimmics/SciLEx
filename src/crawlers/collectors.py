@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import urllib
+import yaml
 from datetime import date
 from typing import Optional
 
@@ -42,12 +43,26 @@ class Filter_param:
 
 
 class API_collector:
+    # Default rate limits (fallback if config not available)
+    DEFAULT_RATE_LIMITS = {
+        'SemanticScholar': 1.0,
+        'OpenAlex': 10.0,
+        'Arxiv': 3.0,
+        'IEEE': 10.0,
+        'Elsevier': 6.0,
+        'Springer': 1.5,
+        'HAL': 10.0,
+        'DBLP': 10.0,
+        'GoogleScholar': 2.0,
+        'Crossref': 3.0,
+    }
+
     def __init__(self, data_query, data_path, api_key):
         # In second
         self.api_key = api_key
         self.api_name = "None"
         self.filter_param = Filter_param(data_query["year"], data_query["keyword"])
-        self.rate_limit = 10
+        self.rate_limit = 10  # Will be overridden by load_rate_limit_from_config()
         self.datadir = data_path
         self.collectId = data_query["id_collect"]
         self.total_art = int(data_query["total_art"])
@@ -57,6 +72,46 @@ class API_collector:
         self.max_by_page = 100
         self.api_url = ""
         self.state = data_query["state"]
+
+    def load_rate_limit_from_config(self):
+        """
+        Load rate limit for this API from the configuration file.
+        Falls back to DEFAULT_RATE_LIMITS if config is not available.
+
+        This method should be called after self.api_name is set in subclass __init__.
+        """
+        try:
+            # Try to find api.config.yml in the src directory
+            config_path = os.path.join(os.path.dirname(__file__), '..', 'api.config.yml')
+
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    config = yaml.safe_load(f)
+
+                if config and 'rate_limits' in config and self.api_name in config['rate_limits']:
+                    configured_limit = float(config['rate_limits'][self.api_name])
+                    self.rate_limit = configured_limit
+                    logging.info(
+                        f"{self.api_name}: Using configured rate limit of {configured_limit} req/sec"
+                    )
+                    return
+        except Exception as e:
+            logging.warning(
+                f"{self.api_name}: Could not load rate limit from config: {e}. Using default."
+            )
+
+        # Fall back to default rate limits
+        if self.api_name in self.DEFAULT_RATE_LIMITS:
+            default_limit = self.DEFAULT_RATE_LIMITS[self.api_name]
+            self.rate_limit = default_limit
+            logging.info(
+                f"{self.api_name}: Using default rate limit of {default_limit} req/sec"
+            )
+        else:
+            # Keep the existing rate_limit value (usually set in subclass)
+            logging.info(
+                f"{self.api_name}: Using hardcoded rate limit of {self.rate_limit} req/sec"
+            )
 
     def log_api_usage(self, response: Optional[requests.Response], page: int, results_count: int):
         """
@@ -454,10 +509,11 @@ class SemanticScholar_collector(API_collector):
             data_path (str): Path to save the collected data.
         """
         super().__init__(filter_param, data_path, api_key)
-        self.rate_limit = 100  # API allows 100 requests per minute
-        self.max_by_page = 100  # Maximum number of results per page
         self.api_name = "SemanticScholar"
         self.api_url = "https://api.semanticscholar.org/graph/v1/paper/search"
+        self.max_by_page = 100  # Maximum number of results per page
+        # Load rate limit from config (defaults to 1 req/sec with API key)
+        self.load_rate_limit_from_config()
 
     def api_call_decorator(self, configurated_url):
         @sleep_and_retry
@@ -1394,14 +1450,16 @@ class Springer_collector(API_collector):
             data_path (str): Path to save the data.
         """
         super().__init__(filter_param, data_path, api_key)
-        self.rate_limit = 8
-        self.max_by_page = 100
         self.api_name = "Springer"
+        self.max_by_page = 100
         #     self.api_key = springer_api
 
         # Define both API URLs
         self.meta_url = "http://api.springernature.com/meta/v2/json"
         self.openaccess_url = "http://api.springernature.com/openaccess/json"
+
+        # Load rate limit from config (defaults to 1.5 req/sec for Basic tier)
+        self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
         """
