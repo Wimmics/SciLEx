@@ -26,6 +26,14 @@ from src.crawlers.aggregate import (
     GoogleScholartoZoteroFormat,
 )
 from src.crawlers.utils import load_all_configs
+from src.quality_validation import (
+    apply_quality_filters,
+    generate_data_completeness_report,
+)
+from src.keyword_validation import (
+    generate_keyword_validation_report,
+    filter_by_keywords,
+)
 
 # Set up logging configuration
 logging.basicConfig(
@@ -135,10 +143,34 @@ if __name__ == "__main__":
                                             all_data.append(res)
                     # Create DataFrame and save aggregated results
             df = pd.DataFrame(all_data)
+            logging.info(f"Aggregated {len(df)} papers from all APIs")
+
+            # Deduplicate records
             df_clean = deduplicate(df)
-            df_clean.reset_index(
-                drop=True, inplace=True
-            )  # Reset index after deduplication
+            df_clean.reset_index(drop=True, inplace=True)
+            logging.info(f"After deduplication: {len(df_clean)} unique papers")
+
+            # Apply quality filters if configured
+            quality_filters = main_config.get("quality_filters", {})
+            if quality_filters:
+                logging.info("Applying quality filters...")
+                generate_report = quality_filters.get("generate_quality_report", True)
+                df_clean, quality_report = apply_quality_filters(
+                    df_clean, quality_filters, generate_report
+                )
+                logging.info(f"After quality filtering: {len(df_clean)} papers remaining")
+
+            # Generate data completeness report
+            if quality_filters.get("generate_quality_report", True):
+                completeness_report = generate_data_completeness_report(df_clean)
+                logging.info(completeness_report)
+
+            # Generate keyword validation report
+            keywords = main_config.get("keywords", [])
+            if keywords and quality_filters.get("generate_quality_report", True):
+                keyword_report = generate_keyword_validation_report(df_clean, keywords)
+                logging.info(keyword_report)
+
             if get_citation:
                 df_clean["extra"] = ""
                 df_clean["nb_cited"] = ""

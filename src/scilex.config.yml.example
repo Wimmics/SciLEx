@@ -22,6 +22,41 @@ aggregate_get_citations: true
 aggregate_file: '/aggregated_results.csv'
 
 # ============================================================================
+# QUALITY FILTERS
+# ============================================================================
+
+# Configure quality thresholds for filtering collected papers
+# These filters are applied during aggregation to ensure data quality
+quality_filters:
+  # Require papers to have a DOI (improves citation tracking and prevents duplicates)
+  # Google Scholar often lacks DOIs - set to false if using primarily GScholar
+  require_doi: false
+
+  # Require papers to have an abstract
+  # Set to true for thorough literature reviews, false for bibliometric studies
+  require_abstract: true
+
+  # Minimum abstract length in words (detects truncated or stub abstracts)
+  # Typical values: 50-100 words. Set to 0 to disable.
+  min_abstract_words: 50
+
+  # Maximum abstract length in words (detects copy-paste errors or non-abstracts)
+  # Typical values: 500-1000 words. Set to 0 to disable.
+  max_abstract_words: 1000
+
+  # Require publication year to be present
+  # Essential for temporal analysis and citation tracking
+  require_year: true
+
+  # Minimum number of authors (detects incomplete records)
+  # Set to 0 to disable, 1 for at least one author
+  min_author_count: 1
+
+  # Generate quality validation report during aggregation
+  # Reports show: papers filtered, reasons for filtering, data completeness stats
+  generate_quality_report: true
+
+# ============================================================================
 # API SELECTION
 # ============================================================================
 

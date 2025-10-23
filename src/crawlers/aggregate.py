@@ -44,11 +44,56 @@ def isNaN(num):
 
 
 def getquality(df_row, column_names):
-    """Calculate quality score based on non-missing values."""
+    """Calculate quality score based on weighted field importance.
+
+    Field importance weights:
+    - Critical fields (DOI, title, authors, date): 5 points each
+    - Important fields (abstract, journal, volume, issue, publisher): 3 points each
+    - Nice-to-have fields (pages, rights, language, url, etc.): 1 point each
+
+    Special rules:
+    - Penalize Google Scholar records without DOI (-2 points)
+    - Bonus for having both volume and issue (+1 point)
+    """
+    # Define field importance weights
+    critical_fields = {"DOI", "title", "authors", "date"}
+    important_fields = {"abstract", "journalAbbreviation", "volume", "issue", "publisher"}
+    # All other fields get weight 1
+
     quality = 0
+    has_volume = False
+    has_issue = False
+    is_google_scholar = False
+    has_doi = False
+
     for col in column_names:
-        if is_valid(df_row.get(col)):
-            quality += 1
+        value = df_row.get(col)
+        if is_valid(value):
+            # Apply weighted scoring
+            if col in critical_fields:
+                quality += 5
+                if col == "DOI":
+                    has_doi = True
+            elif col in important_fields:
+                quality += 3
+                if col == "volume":
+                    has_volume = True
+                elif col == "issue":
+                    has_issue = True
+            else:
+                quality += 1
+
+            # Track if this is a Google Scholar record
+            if col == "archive" and "GoogleScholar" in str(value):
+                is_google_scholar = True
+
+    # Apply bonuses and penalties
+    if has_volume and has_issue:
+        quality += 1  # Bonus for complete bibliographic info
+
+    if is_google_scholar and not has_doi:
+        quality = max(0, quality - 2)  # Penalize GScholar without DOI
+
     return quality
 
 
