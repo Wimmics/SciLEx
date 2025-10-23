@@ -3,6 +3,7 @@ import logging
 import multiprocessing
 import os
 import time
+from datetime import date
 from itertools import product
 
 import yaml
@@ -24,6 +25,97 @@ api_collectors = {
 
 global lock
 lock = multiprocessing.Lock()
+
+
+# Global worker function for multiprocessing (must be at module level for pickling)
+def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name):
+    """
+    Worker function for multiprocessing that can be properly serialized.
+    This must be at module level (not in a class) for spawn mode to work.
+    """
+    repo = os.path.join(output_dir, collect_name)
+    
+    for idx in range(len(collect_list)):
+        is_last = idx == len(collect_list) - 1
+        coll = collect_list[idx]
+        data_query = coll["query"]
+        collector_class = api_collectors[coll["api"]]
+        api_key = None
+        inst_token = None
+        
+        if coll["api"] in api_config:
+            api_key = api_config[coll["api"]].get("api_key")
+            if coll["api"] == "Elsevier" and "inst_token" in api_config[coll["api"]]:
+                inst_token = api_config[coll["api"]]["inst_token"]
+                logging.info(f"Using institutional token for Elsevier API")
+        
+        try:
+            # Initialize collector
+            if coll["api"] == "Elsevier" and inst_token:
+                current_coll = collector_class(data_query, repo, api_key, inst_token)
+            else:
+                current_coll = collector_class(data_query, repo, api_key)
+            
+            # Run collection
+            res = current_coll.runCollect()
+            
+            # Update state
+            _update_state_worker(repo, current_coll.api_name, str(current_coll.collectId), res)
+            
+            logging.info(f"Completed collection for {coll['api']} query {data_query.get('id_collect', 'unknown')}")
+            
+        except Exception as e:
+            logging.error(f"Error during collection for {coll['api']}: {str(e)}")
+            # Mark as failed in state
+            error_state = {"state": -1, "error": str(e), "last_page": 0}
+            try:
+                _update_state_worker(repo, coll["api"], str(data_query.get("id_collect", 0)), error_state)
+            except Exception as state_error:
+                logging.error(f"Failed to update state after error: {str(state_error)}")
+        
+        if not is_last:
+            time.sleep(2)
+
+
+def _update_state_worker(repo, api, idx, state_data):
+    """Helper function to update state file in a thread-safe way"""
+    state_path = os.path.join(repo, "state_details.json")
+    
+    with lock:
+        if os.path.isfile(state_path):
+            with open(state_path, encoding="utf-8") as read_file:
+                state_orig = json.load(read_file)
+            
+            # Update query state
+            for k in state_data:
+                state_orig["details"][api]["by_query"][str(idx)][k] = state_data[k]
+            
+            # Check if API is finished
+            finished_local = True
+            for k in state_orig["details"][api]["by_query"]:
+                q = state_orig["details"][api]["by_query"][k]
+                if q["state"] != 1:
+                    finished_local = False
+            
+            if finished_local:
+                state_orig["details"][api]["state"] = 1
+            else:
+                state_orig["details"][api]["state"] = 0
+            
+            # Check if all APIs are finished
+            finished_global = True
+            for api_ in state_orig["details"]:
+                if state_orig["details"][api_]["state"] != 1:
+                    finished_global = False
+            
+            if finished_global:
+                state_orig["global"] = 1
+            else:
+                state_orig["global"] = 0
+            
+            # Save state
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(state_orig, f, ensure_ascii=False, indent=4)
 
 
 class Filter_param:
@@ -356,9 +448,16 @@ class CollectCollection:
         # Initialize progress tracking
         self.init_progress_tracking(len(jobs_list))
 
+        # Prepare data for worker functions (must be serializable)
+        worker_args = [
+            (job_list, self.api_config, self.main_config["output_dir"], self.main_config["collect_name"])
+            for job_list in jobs_list
+        ]
+        
         pool = multiprocessing.Pool(processes=num_cores)
         try:
-            result = pool.map_async(self.run_job_collects, jobs_list)
+            # Use starmap to pass multiple arguments to worker function
+            result = pool.starmap_async(_run_job_collects_worker, worker_args)
             result.wait()
         finally:
             pool.close()

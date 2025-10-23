@@ -70,7 +70,8 @@ print(f"Keywords: {keywords}")
 print(f"APIS: {apis}")
 
 
-if __name__ == "__main__":
+def main():
+    """Main function to run collection - required for multiprocessing on macOS/Windows"""
     # Log the overall process with timestamps
     logging.info(f"Systematic review search started at {datetime.now()}")
     logging.info("================BEGIN Systematic Review Search================")
@@ -79,5 +80,9 @@ if __name__ == "__main__":
     colle_col.create_collects_jobs()
 
     logging.info("================END Systematic Review Search================")
-
     logging.info(f"Systematic review search ended at {datetime.now()}")
+
+
+if __name__ == "__main__":
+    # This guard is required for multiprocessing on macOS/Windows (spawn mode)
+    main()
