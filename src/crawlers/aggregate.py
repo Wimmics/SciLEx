@@ -40,7 +40,12 @@ def safe_has_key(obj, key):
 
 
 def isNaN(num):
-    """Check if a value is NaN (deprecated - use is_valid from constants instead)."""
+    """
+    DEPRECATED: Use is_valid() from src.constants instead.
+
+    This function is deprecated and should not be used in new code.
+    It has been replaced by the more comprehensive is_valid() function.
+    """
     return num != num
 
 
@@ -175,7 +180,7 @@ def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.90):
                 archive_list.append(str(df_output.loc[idx]["archive"]))
                 for col_name in column_names:
                     value = df_output.loc[idx, col_name]
-                    column_values[col_name].append(MISSING_VALUE if isNaN(value) else value)
+                    column_values[col_name].append(MISSING_VALUE if not is_valid(value) else value)
 
             # Find best duplicate
             best_idx = _find_best_duplicate_index(duplicates_temp, column_names)
@@ -240,7 +245,7 @@ def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.90):
                     archive_list.append(str(df_output.loc[idx, "archive"]))
                     for col_name in column_names:
                         value = df_output.loc[idx, col_name]
-                        column_values[col_name].append(MISSING_VALUE if isNaN(value) else value)
+                        column_values[col_name].append(MISSING_VALUE if not is_valid(value) else value)
 
                 # Find best duplicate
                 best_idx = _find_best_duplicate_index(duplicates_temp, column_names)
