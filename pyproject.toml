@@ -81,6 +81,12 @@ dependencies = [
     "websocket-client==1.8.0",
     "wrapt==1.17.3",
     "wsproto==1.2.0",
+    # Web GUI dependencies
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "sqlalchemy>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "watchdog>=3.0.0",
 ]
 
 [project.optional-dependencies]
