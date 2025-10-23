@@ -1,228 +1,158 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Created on Mon Jan 30 16:06:58 2023
+Script to push aggregated papers to Zotero collection.
 
-@author: cringwal
+This script reads aggregated paper data and pushes it to a specified
+Zotero collection, handling duplicates and creating the collection if needed.
 """
-#from collector_collection import CollectCollection
-#from aggregate import *
+
 import logging
-from datetime import datetime
-from src.crawlers.utils import load_all_configs
-import requests
-from time import sleep
-import random
-import string
-import json
-import pandas as pd
 import os
-import sys
+from datetime import datetime
+
+import pandas as pd
+
+from src.constants import is_valid
+from src.crawlers.utils import load_all_configs
+from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
+
 # Set up logging configuration
 logging.basicConfig(
-    level=logging.INFO,  # Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format='%(asctime)s - %(levelname)s - %(message)s',  # Log message format
-    datefmt='%Y-%m-%d %H:%M:%S'  # Date format
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 
-# Define the configuration files to load
-config_files = {
-    "main_config": "scilex.config.yml",
-    "api_config": "api.config.yml",
-}
-print("HEY")
-# Load configurations
-configs = load_all_configs(config_files)
 
-# Access individual configurations
-main_config = configs["main_config"]
-api_config = configs["api_config"]
+def load_aggregated_data(config: dict) -> pd.DataFrame:
+    """
+    Load aggregated paper data from CSV file.
+
+    Args:
+        config: Main configuration dictionary with output_dir, collect_name, aggregate_file
+
+    Returns:
+        DataFrame containing aggregated paper data
+    """
+    dir_collect = os.path.join(config["output_dir"], config["collect_name"])
+    aggr_file = config["aggregate_file"]
+    file_path = dir_collect + aggr_file
+
+    logging.info(f"Loading data from: {file_path}")
+    data = pd.read_csv(file_path, delimiter="\t")
+    logging.info(f"Loaded {len(data)} papers")
+
+    return data
 
 
-def getWriteToken():
-    return ''.join(random.choices(string.ascii_uppercase + string.ascii_lowercase, k=32))
-import yaml
+def push_new_items_to_zotero(
+    data: pd.DataFrame,
+    zotero_api: ZoteroAPI,
+    collection_key: str,
+    existing_urls: list[str],
+) -> dict[str, int]:
+    """
+    Push new items to Zotero collection.
+
+    Args:
+        data: DataFrame containing paper metadata
+        zotero_api: ZoteroAPI client instance
+        collection_key: Key of the target collection
+        existing_urls: List of URLs already in the collection
+
+    Returns:
+        Dictionary with counts: {"success": n, "failed": m, "skipped": k}
+    """
+    results = {"success": 0, "failed": 0, "skipped": 0}
+    templates_cache = {}
+
+    logging.info("Processing papers for upload...")
+
+    for _index, row in data.iterrows():
+        # Prepare Zotero item from row
+        item = prepare_zotero_item(row, collection_key, templates_cache)
+
+        if item is None:
+            results["skipped"] += 1
+            continue
+
+        # Check for duplicate URL
+        item_url = item.get("url")
+        if not is_valid(item_url):
+            logging.warning(f"Skipping paper without valid URL: {row.get('title', 'Unknown')}")
+            results["skipped"] += 1
+            continue
+
+        if item_url in existing_urls:
+            logging.debug(f"Skipping duplicate URL: {item_url}")
+            results["skipped"] += 1
+            continue
+
+        # Post the item
+        if zotero_api.post_item(item):
+            results["success"] += 1
+        else:
+            results["failed"] += 1
+
+    return results
+
+
+def main():
+    """Main execution function."""
+    logging.info(f"Zotero push process started at {datetime.now()}")
+    logging.info("=" * 60)
+
+    # Load configurations
+    config_files = {
+        "main_config": "scilex.config.yml",
+        "api_config": "api.config.yml",
+    }
+    configs = load_all_configs(config_files)
+    main_config = configs["main_config"]
+    api_config = configs["api_config"]
+
+    # Extract Zotero configuration
+    user_id = api_config["Zotero"]["user_id"]
+    user_role = api_config["Zotero"]["user_mode"]
+    api_key = api_config["Zotero"]["api_key"]
+    collection_name = main_config.get("collect_name", "new_models")
+
+    # Initialize Zotero API client
+    logging.info(f"Initializing Zotero API client for {user_role} {user_id}")
+    zotero_api = ZoteroAPI(user_id, user_role, api_key)
+
+    # Get or create collection
+    logging.info(f"Looking for collection: '{collection_name}'")
+    collection = zotero_api.get_or_create_collection(collection_name)
+
+    if not collection:
+        logging.error(f"Failed to get or create collection '{collection_name}'")
+        return
+
+    collection_key = collection["data"]["key"]
+    logging.info(f"Using collection key: {collection_key}")
+
+    # Get existing URLs to avoid duplicates
+    logging.info("Fetching existing items in collection...")
+    existing_urls = zotero_api.get_existing_item_urls(collection_key)
+    logging.info(f"Found {len(existing_urls)} existing items")
+
+    # Load aggregated data
+    data = load_aggregated_data(main_config)
+
+    # Push new items
+    logging.info("=" * 60)
+    logging.info("Starting upload of new papers...")
+    results = push_new_items_to_zotero(data, zotero_api, collection_key, existing_urls)
+
+    # Log summary
+    logging.info("=" * 60)
+    logging.info("Upload complete!")
+    logging.info(f"✅ Successfully uploaded: {results['success']} papers")
+    logging.info(f"❌ Failed to upload: {results['failed']} papers")
+    logging.info(f"⏭️  Skipped (duplicates/invalid): {results['skipped']} papers")
+    logging.info(f"Process completed at {datetime.now()}")
+
 
 if __name__ == "__main__":
-    # Log the overall process with timestamps
-    logging.info(f"Systematic review search started at {datetime.now()}")
-    logging.info("================BEGIN Systematic Review Search================")
-
-    user_id=api_config["Zotero"]["user_id"]
-    user_role=api_config["Zotero"]["user_mode"]
-    api_key=api_config["Zotero"]["api_key"]
-    research_coll=main_config["collect_name"]
-
-    dir_collect=os.path.join(main_config['output_dir'], main_config['collect_name'])
-    aggr_file=main_config["aggregate_file"]
-
-    print(dir_collect)
-    # collect_dir="/user/cringwal/home/Desktop/THESE YEAR1/SAT/"+research_coll
-    # file_to_push=os.path.join(dir_collect,aggr_file)
-   # print(file_to_push)
-    data = pd.read_csv(dir_collect+aggr_file, delimiter="\t")
-    print(data)
-    #sys.exit()
-    print("DONE")
-    relevant_data=data #[data["relevant"].fillna(-1).astype('int')==1]
-    # as such, all entries are considered to be relevant
-    templates_dict={}
-
-    libs="/collections"
-    #users / "+str(user_id)+"
-    #url="https://api.zotero.org/users/"+str(user_id)+libs
-    headers={'Zotero-API-Key':api_key}
-    current_col_key=None
-    if(user_role=="group"):
-        url = "https://api.zotero.org/groups/"+str(user_id)+"/collections"
-    elif(user_role=="user"):
-        url = "https://api.zotero.org/users/"+str(user_id)+"/collections"
-    if (user_role == "group"):
-        url2 = "https://api.zotero.org/groups/" + str(user_id) + "/"
-    elif (user_role == "user"):
-        url2 = "https://api.zotero.org/users/" + str(user_id) + "/"
-    print("BEFORE")
-   # while current_col_key is None :
-    r_collections = requests.get(url+"?limit=100?start=0", headers=headers)
-    #print(url+"/survey_re_collabstep"+libs)
-    if (r_collections.status_code == 200):
-        data_collections = r_collections.json()
-        found_parent = False
-        print(data_collections)
-        papers_by_coll={}
-        exits_url=[]
-        lib=None
-        for d in data_collections:
-            print(d["data"])
-            if ( d["data"]["name"] == "new_models"):
-                print("FOUND current Collection >", d["data"]["name"])
-                lib=d
-                current_col_key = d["data"]["key"]
-                break
-        print(current_col_key)
-
-        if current_col_key is None:
-            ## CREATE COLLECTION
-            print("CREATECOLL")
-            headers = {'Zotero-API-Key': api_key, 'Zotero-Write-Token': getWriteToken(),
-                       "Content-Type": "application/json"}
-            body = json.dumps([{"name": research_coll}])
-            print(body)
-            #req2 = requests.post(url + "/collections", headers=headers, data=body)
-        else:
-            print(lib)
-            dict_papers = {}
-            papers_url=[]
-            name = lib["data"]["name"]
-            nb_items = lib["meta"]["numItems"]
-            key = lib["key"]
-            print(nb_items)
-            if(int(nb_items)>0):
-                    dict_papers = {"key": key, "nbItems": nb_items, "name": name, "items": []}
-                    start = 0
-                    r_items = requests.get(url2 + "/items?limit=100&start=" + str(start), headers=headers)
-                    if (r_items.status_code == 200):
-                        print(url2)
-                        items = r_items.json()
-                        for row in items:
-                            print(row)
-                            if ("collections" in row["data"].keys()):
-                                if (current_col_key in row["data"]["collections"]):
-                                    print("JEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
-                                    exits_url.append(row["data"]["url"])
-                        nb_res = int(r_items.headers["Total-Results"])
-
-                        while (nb_res > start + 100):
-                            print(start)
-                            if (start != 0):
-                                r_items = requests.get(url + libs + key + "/items?limit=100&start=" + str(start),
-                                                       headers=headers)
-                                if (r_items.status_code == 200):
-                                    #dict_papers["items"]
-                                    items=r_items.json()
-                                    for row in items:
-                                        print(row)
-                                        if ("collections" in row["data"].keys()):
-                                            if (current_col_key in row["data"]["collections"]):
-                                                print("JEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
-                                                exits_url.append(row["data"]["url"])
-
-                            start += 100
-                    #papers_by_coll[name] = dict_papers
-
-
-
-    print(">>>>>>>>>>>> ADD NEW PAPERS")
-    print(exits_url)
-    #sys.exit()
-    for index, row in relevant_data.iterrows():
-
-        itemType=row["itemType"]
-        if(itemType=="bookSection"):
-            itemType="journalArticle"
-        if(itemType!="" and itemType!="NA" and pd.isna(itemType) == False):
-            if(itemType not in templates_dict.keys()):
-
-                resp = requests.get("https://api.zotero.org/items/new?itemType="+itemType)
-                template=resp.json()
-                templates_dict[itemType]=template
-            current_temp=templates_dict[itemType]
-            current_temp["collections"]=[current_col_key]
-            common_cols=["publisher","title","date","DOI","archive","url","rights","pages","journalAbbreviation","conferenceName","volume","issue"]
-
-            for col in common_cols:
-                if(col in current_temp.keys() and col in row.keys()):
-                    current_temp[col]=str(row[col])
-           # if("DOI" not in current_temp.keys() and "DOI" in row.keys()):
-            #    if (row["DOI"] != "" and row["DOI"].upper() != "NA" and row["DOI"].upper() != "NAN"):
-           #         current_temp["DOI"]=row["DOI"]
-            #if ("url" not in current_temp.keys() and "url" in row.keys()):
-            #    if (row["url"] != "" and row["url"].upper() != "NA" and row["url"].upper() != "NAN"):
-            #        current_temp["url"] = row["url"]
-
-
-            current_temp["abstractNote"]=str(row["abstract"])
-            if("archiveLocation" in current_temp.keys()):
-                current_temp["archiveLocation"]=str(row["archiveID"])
-
-            template_authors=current_temp["creators"][0].copy()
-            auth_list=[]
-            if("authors" in row.keys()):
-                if(row["authors"]!="" and row["authors"]!="NA" and pd.isna(row["authors"]) == False):
-                    authors=row["authors"].split(";")
-                    for auth in authors:
-                        current_auth=template_authors.copy()
-                        current_auth["firstName"]=auth
-                        auth_list.append(current_auth)
-                    current_temp["creators"]=auth_list
-
-            if (current_temp["url"] == "" or current_temp["url"].upper() == "NA" or current_temp[
-                "url"].upper() == "NAN"):
-                if (current_temp["DOI"] != "" and current_temp["DOI"].upper() != "NA" and current_temp[
-                    "DOI"].upper() != "NAN"):
-
-                    current_temp["url"] = current_temp["DOI"]
-                else:
-                    current_temp["url"]=None
-                 #if("http" not in current_temp["DOI"]):
-
-
-            if(current_temp["url"]!= None ):
-                if current_temp["url"] not in exits_url:
-
-                    print(">>>>"+current_temp["url"])
-                    body = json.dumps([current_temp])
-                    print(row["title"])
-                    headers={'Zotero-API-Key':api_key,'Zotero-Write-Token':getWriteToken(),"Content-Type":"application/json"}
-
-                    req2 = requests.post(url2+"items", headers=headers,data=body)
-                    print(req2)
-                    print(row)
-            else:
-                print("PB with following :")
-                print(current_temp)
-               # print(url2+"/items")
-
-
-
-
+    main()

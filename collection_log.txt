@@ -1,0 +1,62 @@
+warning: `VIRTUAL_ENV=src/.venv` does not match the project environment path `.venv` and will be ignored; use `--active` to target the active environment instead
+2025-10-22 17:15:44 - INFO - Systematic review search started at 2025-10-22 17:15:44.230965
+2025-10-22 17:15:44 - INFO - ================BEGIN Systematic Review Search================
+2025-10-22 17:15:44 - INFO - Initializing collection
+2025-10-22 17:15:44 - INFO - Building query composition
+2025-10-22 17:15:44 - INFO - Generated 4896 total queries across 8 APIs
+2025-10-22 17:15:44 - INFO - Validating API keys...
+2025-10-22 17:15:44 - WARNING - Missing API key: IEEE.api_key
+2025-10-22 17:15:44 - WARNING - Missing API key: Elsevier.api_key
+2025-10-22 17:15:44 - WARNING - Missing API key: Elsevier.inst_token
+2025-10-22 17:15:44 - WARNING - Missing API keys for: IEEE.api_key, Elsevier.api_key, Elsevier.inst_token
+2025-10-22 17:15:44 - WARNING - Collections from these APIs will likely fail
+2025-10-22 17:15:44 - INFO - Number of collections to conduct: 4896
+2025-10-22 17:15:44 - INFO - Number of collects to run:8
+2025-10-22 17:15:44 - INFO - Number of parallel processes:8
+Output Directory: output
+Collect: True
+Years: [2023, 2024, 2025]
+Keywords: [['multi-agent system', 'multi-agent systems', 'agentic system', 'agent memory', 'external memory', 'long-term memory', 'memory management', 'context management', 'context window', 'context rot', 'memory persistence', 'persistent memory', 'agent orchestration', 'llm', 'large language model', 'large language models', 'llms'], ['knowledge graph', 'knowledge graphs', 'semantic network', 'semantic networks', 'ontology', 'ontologies', 'graph memory', 'graph-based memory', 'semantic memory', 'structured memory', 'semantic compression', 'knowledge representation']]
+APIS: ['SemanticScholar', 'OpenAlex', 'GoogleScholar', 'IEEE', 'Elsevier', 'HAL', 'DBLP', 'Arxiv']
+Output Directory: output
+Collect: True
+Years: [2023, 2024, 2025]
+Keywords: [['multi-agent system', 'multi-agent systems', 'agentic system', 'agent memory', 'external memory', 'long-term memory', 'memory management', 'context management', 'context window', 'context rot', 'memory persistence', 'persistent memory', 'agent orchestration', 'llm', 'large language model', 'large language models', 'llms'], ['knowledge graph', 'knowledge graphs', 'semantic network', 'semantic networks', 'ontology', 'ontologies', 'graph memory', 'graph-based memory', 'semantic memory', 'structured memory', 'semantic compression', 'knowledge representation']]
+APIS: ['SemanticScholar', 'OpenAlex', 'GoogleScholar', 'IEEE', 'Elsevier', 'HAL', 'DBLP', 'Arxiv']
+Output Directory: output
+Collect: True
+Years: [2023, 2024, 2025]
+Keywords: [['multi-agent system', 'multi-agent systems', 'agentic system', 'agent memory', 'external memory', 'long-term memory', 'memory management', 'context management', 'context window', 'context rot', 'memory persistence', 'persistent memory', 'agent orchestration', 'llm', 'large language model', 'large language models', 'llms'], ['knowledge graph', 'knowledge graphs', 'semantic network', 'semantic networks', 'ontology', 'ontologies', 'graph memory', 'graph-based memory', 'semantic memory', 'structured memory', 'semantic compression', 'knowledge representation']]
+APIS: ['SemanticScholar', 'OpenAlex', 'GoogleScholar', 'IEEE', 'Elsevier', 'HAL', 'DBLP', 'Arxiv']
+Output Directory: output
+Collect: True
+Years: [2023, 2024, 2025]
+Keywords: [['multi-agent system', 'multi-agent systems', 'agentic system', 'agent memory', 'external memory', 'long-term memory', 'memory management', 'context management', 'context window', 'context rot', 'memory persistence', 'persistent memory', 'agent orchestration', 'llm', 'large language model', 'large language models', 'llms'], ['knowledge graph', 'knowledge graphs', 'semantic network', 'semantic networks', 'ontology', 'ontologies', 'graph memory', 'graph-based memory', 'semantic memory', 'structured memory', 'semantic compression', 'knowledge representation']]
+APIS: ['SemanticScholar', 'OpenAlex', 'GoogleScholar', 'IEEE', 'Elsevier', 'HAL', 'DBLP', 'Arxiv']
+Output Directory: output
+Collect: True
+Years: [2023, 2024, 2025]
+Keywords: [['multi-agent system', 'multi-agent systems', 'agentic system', 'agent memory', 'external memory', 'long-term memory', 'memory management', 'context management', 'context window', 'context rot', 'memory persistence', 'persistent memory', 'agent orchestration', 'llm', 'large language model', 'large language models', 'llms'], ['knowledge graph', 'knowledge graphs', 'semantic network', 'semantic networks', 'ontology', 'ontologies', 'graph memory', 'graph-based memory', 'semantic memory', 'structured memory', 'semantic compression', 'knowledge representation']]
+APIS: ['SemanticScholar', 'OpenAlex', 'GoogleScholar', 'IEEE', 'Elsevier', 'HAL', 'DBLP', 'Arxiv']
+Output Directory: output
+Collect: True
+Years: [2023, 2024, 2025]
+Keywords: [['multi-agent system', 'multi-agent systems', 'agentic system', 'agent memory', 'external memory', 'long-term memory', 'memory management', 'context management', 'context window', 'context rot', 'memory persistence', 'persistent memory', 'agent orchestration', 'llm', 'large language model', 'large language models', 'llms'], ['knowledge graph', 'knowledge graphs', 'semantic network', 'semantic networks', 'ontology', 'ontologies', 'graph memory', 'graph-based memory', 'semantic memory', 'structured memory', 'semantic compression', 'knowledge representation']]
+APIS: ['SemanticScholar', 'OpenAlex', 'GoogleScholar', 'IEEE', 'Elsevier', 'HAL', 'DBLP', 'Arxiv']
+Output Directory: output
+Collect: True
+Years: [2023, 2024, 2025]
+Keywords: [['multi-agent system', 'multi-agent systems', 'agentic system', 'agent memory', 'external memory', 'long-term memory', 'memory management', 'context management', 'context window', 'context rot', 'memory persistence', 'persistent memory', 'agent orchestration', 'llm', 'large language model', 'large language models', 'llms'], ['knowledge graph', 'knowledge graphs', 'semantic network', 'semantic networks', 'ontology', 'ontologies', 'graph memory', 'graph-based memory', 'semantic memory', 'structured memory', 'semantic compression', 'knowledge representation']]
+APIS: ['SemanticScholar', 'OpenAlex', 'GoogleScholar', 'IEEE', 'Elsevier', 'HAL', 'DBLP', 'Arxiv']
+Output Directory: output
+Collect: True
+Years: [2023, 2024, 2025]
+Keywords: [['multi-agent system', 'multi-agent systems', 'agentic system', 'agent memory', 'external memory', 'long-term memory', 'memory management', 'context management', 'context window', 'context rot', 'memory persistence', 'persistent memory', 'agent orchestration', 'llm', 'large language model', 'large language models', 'llms'], ['knowledge graph', 'knowledge graphs', 'semantic network', 'semantic networks', 'ontology', 'ontologies', 'graph memory', 'graph-based memory', 'semantic memory', 'structured memory', 'semantic compression', 'knowledge representation']]
+APIS: ['SemanticScholar', 'OpenAlex', 'GoogleScholar', 'IEEE', 'Elsevier', 'HAL', 'DBLP', 'Arxiv']
+Output Directory: output
+Collect: True
+Years: [2023, 2024, 2025]
+Keywords: [['multi-agent system', 'multi-agent systems', 'agentic system', 'agent memory', 'external memory', 'long-term memory', 'memory management', 'context management', 'context window', 'context rot', 'memory persistence', 'persistent memory', 'agent orchestration', 'llm', 'large language model', 'large language models', 'llms'], ['knowledge graph', 'knowledge graphs', 'semantic network', 'semantic networks', 'ontology', 'ontologies', 'graph memory', 'graph-based memory', 'semantic memory', 'structured memory', 'semantic compression', 'knowledge representation']]
+APIS: ['SemanticScholar', 'OpenAlex', 'GoogleScholar', 'IEEE', 'Elsevier', 'HAL', 'DBLP', 'Arxiv']
+2025-10-22 17:15:44 - INFO - ================END Systematic Review Search================
+2025-10-22 17:15:44 - INFO - Systematic review search ended at 2025-10-22 17:15:44.792690

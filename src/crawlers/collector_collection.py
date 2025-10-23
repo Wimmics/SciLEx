@@ -1,17 +1,14 @@
-import logging
-
-
-from .utils import load_all_configs
-from itertools import product
-from .collectors import *
-import os
-import yaml
 import json
-import random
-import time
+import logging
 import multiprocessing
-import threading
+import os
+import time
+from datetime import date
+from itertools import product
 
+import yaml
+
+from .collectors import *
 
 api_collectors = {
     "DBLP": DBLP_collector,
@@ -28,6 +25,98 @@ api_collectors = {
 
 global lock
 lock = multiprocessing.Lock()
+
+
+# Global worker function for multiprocessing (must be at module level for pickling)
+def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name):
+    """
+    Worker function for multiprocessing that can be properly serialized.
+    This must be at module level (not in a class) for spawn mode to work.
+    """
+    repo = os.path.join(output_dir, collect_name)
+    
+    for idx in range(len(collect_list)):
+        is_last = idx == len(collect_list) - 1
+        coll = collect_list[idx]
+        data_query = coll["query"]
+        collector_class = api_collectors[coll["api"]]
+        api_key = None
+        inst_token = None
+        
+        if coll["api"] in api_config:
+            api_key = api_config[coll["api"]].get("api_key")
+            if coll["api"] == "Elsevier" and "inst_token" in api_config[coll["api"]]:
+                inst_token = api_config[coll["api"]]["inst_token"]
+                logging.info(f"Using institutional token for Elsevier API")
+        
+        try:
+            # Initialize collector
+            if coll["api"] == "Elsevier" and inst_token:
+                current_coll = collector_class(data_query, repo, api_key, inst_token)
+            else:
+                current_coll = collector_class(data_query, repo, api_key)
+            
+            # Run collection
+            res = current_coll.runCollect()
+            
+            # Update state
+            _update_state_worker(repo, current_coll.api_name, str(current_coll.collectId), res)
+            
+            logging.info(f"Completed collection for {coll['api']} query {data_query.get('id_collect', 'unknown')}")
+            
+        except Exception as e:
+            logging.error(f"Error during collection for {coll['api']}: {str(e)}")
+            # Mark as failed in state
+            error_state = {"state": -1, "error": str(e), "last_page": 0}
+            try:
+                _update_state_worker(repo, coll["api"], str(data_query.get("id_collect", 0)), error_state)
+            except Exception as state_error:
+                logging.error(f"Failed to update state after error: {str(state_error)}")
+
+        # Note: Removed fixed 2-second delay - rate limiting is now handled per-API
+        # by individual collectors using configured rate limits from api.config.yml
+
+
+def _update_state_worker(repo, api, idx, state_data):
+    """Helper function to update state file in a thread-safe way"""
+    state_path = os.path.join(repo, "state_details.json")
+    
+    with lock:
+        if os.path.isfile(state_path):
+            with open(state_path, encoding="utf-8") as read_file:
+                state_orig = json.load(read_file)
+            
+            # Update query state
+            for k in state_data:
+                state_orig["details"][api]["by_query"][str(idx)][k] = state_data[k]
+            
+            # Check if API is finished
+            finished_local = True
+            for k in state_orig["details"][api]["by_query"]:
+                q = state_orig["details"][api]["by_query"][k]
+                if q["state"] != 1:
+                    finished_local = False
+            
+            if finished_local:
+                state_orig["details"][api]["state"] = 1
+            else:
+                state_orig["details"][api]["state"] = 0
+            
+            # Check if all APIs are finished
+            finished_global = True
+            for api_ in state_orig["details"]:
+                if state_orig["details"][api_]["state"] != 1:
+                    finished_global = False
+            
+            if finished_global:
+                state_orig["global"] = 1
+            else:
+                state_orig["global"] = 0
+            
+            # Save state
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(state_orig, f, ensure_ascii=False, indent=4)
+
 
 class Filter_param:
     def __init__(self, year, keywords, focus):
@@ -50,42 +139,115 @@ class Filter_param:
     def get_focus(self):
         return self.focus
 
+
 class CollectCollection:
-    def __init__(self, main_config,api_config):
-        print("INIT COLLECTION")
+    def __init__(self, main_config, api_config):
+        logging.info("Initializing collection")
         self.main_config = main_config
         self.api_config = api_config
         self.state_details = {}
-        self.state_details = {"global":-1,"details":{}}
+        self.state_details = {"global": -1, "details": {}}
         self.init_collection_collect()
 
-    def job_collect(self,collector):
-        res = collector.runCollect()
-        self.update_state_details( collector.api_name , str(collector.collectId), res)
+    def validate_api_keys(self):
+        """Validate that required API keys are present before starting collection"""
+        logging.info("Validating API keys...")
+        apis_requiring_keys = {
+            "IEEE": "api_key",
+            "Springer": "api_key", 
+            "Elsevier": ["api_key", "inst_token"],
+        }
+        
+        missing_keys = []
+        apis_to_use = self.main_config.get("apis", [])
+        
+        for api in apis_to_use:
+            if api in apis_requiring_keys:
+                required_keys = apis_requiring_keys[api]
+                if not isinstance(required_keys, list):
+                    required_keys = [required_keys]
+                
+                api_config = self.api_config.get(api, {})
+                for key in required_keys:
+                    if not api_config.get(key):
+                        missing_keys.append(f"{api}.{key}")
+                        logging.warning(f"Missing API key: {api}.{key}")
+        
+        if missing_keys:
+            logging.warning(f"Missing API keys for: {', '.join(missing_keys)}")
+            logging.warning("Collections from these APIs will likely fail")
+            return False
+        
+        logging.info("API key validation passed")
+        return True
 
-    def run_job_collects(self,collect_list):
+    def init_progress_tracking(self, total_jobs):
+        """Initialize progress tracking"""
+        self.total_jobs = total_jobs
+        self.completed_jobs = 0
+        self.progress_lock = multiprocessing.Lock()
+    
+    def update_progress(self):
+        """Update progress counter (thread-safe)"""
+        with self.progress_lock:
+            self.completed_jobs += 1
+            progress_pct = (self.completed_jobs / self.total_jobs) * 100
+            logging.info(f"Progress: {self.completed_jobs}/{self.total_jobs} ({progress_pct:.1f}%) collections completed")
+
+    def job_collect(self, collector):
+        try:
+            res = collector.runCollect()
+            self.update_state_details(collector.api_name, str(collector.collectId), res)
+            self.update_progress()
+        except Exception as e:
+            logging.error(f"Error during collection for {collector.api_name}: {str(e)}")
+            # Mark as failed in state
+            error_state = {
+                "state": -1,  # -1 indicates error
+                "error": str(e),
+                "last_page": 0
+            }
+            try:
+                self.update_state_details(collector.api_name, str(collector.collectId), error_state)
+            except Exception as state_error:
+                logging.error(f"Failed to update state after error: {str(state_error)}")
+            self.update_progress()
+
+    def run_job_collects(self, collect_list):
         for idx in range(len(collect_list)):
-
-            is_last = idx == len(collect_list)-1
-            coll=collect_list[idx]
+            is_last = idx == len(collect_list) - 1
+            coll = collect_list[idx]
             data_query = coll["query"]
-            collector=api_collectors[coll["api"]]
-            api_key=None
-            if(coll["api"] in self.api_config.keys()):
+            collector = api_collectors[coll["api"]]
+            api_key = None
+            inst_token = None  # For Elsevier institutional token
+            
+            if coll["api"] in self.api_config:
                 api_key = self.api_config[coll["api"]]["api_key"]
+                # Check for institutional token (Elsevier only)
+                if coll["api"] == "Elsevier" and "inst_token" in self.api_config[coll["api"]]:
+                    inst_token = self.api_config[coll["api"]]["inst_token"]
+                    logging.info(f"Using institutional token for Elsevier API")
 
-            repo=self.get_current_repo()
-            current_coll=collector(data_query, repo,api_key)
+            repo = self.get_current_repo()
+            
+            # Initialize collector with institutional token if applicable
+            if coll["api"] == "Elsevier" and inst_token:
+                current_coll = collector(data_query, repo, api_key, inst_token)
+            else:
+                current_coll = collector(data_query, repo, api_key)
             res = current_coll.runCollect()
-            self.update_state_details( current_coll.api_name , str(current_coll.collectId), res)
+            self.update_state_details(
+                current_coll.api_name, str(current_coll.collectId), res
+            )
 
-            if not is_last:
-                time.sleep(2)
-
+            # Note: Removed fixed 2-second delay - rate limiting is now handled per-API
+            # by individual collectors using configured rate limits from api.config.yml
 
     def get_current_repo(self):
-
-        return os.path.join(self.main_config['output_dir'], self.main_config['collect_name'])
+        return os.path.join(
+            self.main_config["output_dir"], self.main_config["collect_name"]
+        )
 
     def queryCompositor(self):
         """
@@ -95,28 +257,38 @@ class CollectCollection:
 
         # Generate all combinations of keywords from two different groups
         keyword_combinations = []
-        two_list_k=False
+        two_list_k = False
         #### CASE EVERYTHING OK
-        if (len(self.main_config['keywords']) == 2 and len(self.main_config['keywords'][0]) != 0 and len(self.main_config['keywords'][1]) != 0):
-            two_list_k=True
+        if (
+            len(self.main_config["keywords"]) == 2
+            and len(self.main_config["keywords"][0]) != 0
+            and len(self.main_config["keywords"][1]) != 0
+        ):
+            two_list_k = True
             keyword_combinations = [
-                list(pair) for pair in product(self.main_config['keywords'][0],self.main_config['keywords'][1])
+                list(pair)
+                for pair in product(
+                    self.main_config["keywords"][0], self.main_config["keywords"][1]
+                )
             ]
         #### CASE ONLY ONE LIST
-        elif (len(self.main_config['keywords']) == 2 and len(self.main_config['keywords'][0]) != 0 and len(self.main_config['keywords'][1]) == 0):
-            keyword_combinations = self.main_config['keywords'][0]
+        elif (
+            len(self.main_config["keywords"]) == 2
+            and len(self.main_config["keywords"][0]) != 0
+            and len(self.main_config["keywords"][1]) == 0
+        ) or (
+            len(self.main_config["keywords"]) == 1
+            and len(self.main_config["keywords"][0]) != 0
+        ):
+            keyword_combinations = self.main_config["keywords"][0]
 
-        #### CASE ONLY ONE LIST
-        elif (len(self.main_config['keywords']) == 1 and len(self.main_config['keywords'][0]) != 0):
-            keyword_combinations = self.main_config['keywords'][0]
-
-        print("==========================")
-        print(keyword_combinations)
-        print("==========================")
+        logging.debug(f"Generated {len(keyword_combinations)} keyword combinations")
         # Generate all combinations using Cartesian product
         ### ADD LETTER FIELDS
         # combinations = product(keyword_combinations, self.years, self.apis, self.fields)
-        combinations = product(keyword_combinations, self.main_config['years'], self.main_config['apis'])
+        combinations = product(
+            keyword_combinations, self.main_config["years"], self.main_config["apis"]
+        )
 
         # Create a list of dictionaries with the combinations
         if two_list_k:
@@ -129,12 +301,14 @@ class CollectCollection:
                 {"keyword": [keyword_group], "year": year, "api": api}
                 for keyword_group, year, api in combinations
             ]
-        print(queries)
+        logging.info(f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs")
         queries_by_api = {}
         for query in queries:
-            if (query["api"] not in queries_by_api.keys()):
+            if query["api"] not in queries_by_api:
                 queries_by_api[query["api"]] = []
-            queries_by_api[query["api"]].append({"keyword":query["keyword"], "year":query["year"]})
+            queries_by_api[query["api"]].append(
+                {"keyword": query["keyword"], "year": query["year"]}
+            )
 
         return queries_by_api
 
@@ -142,80 +316,85 @@ class CollectCollection:
         repo = self.get_current_repo()
         state_path = os.path.join(repo, "state_details.json")
         if os.path.isfile(state_path):
-            with open(state_path, mode="r", encoding="utf-8") as read_file:
+            with open(state_path, encoding="utf-8") as read_file:
                 self.state_details = json.load(read_file)
         else:
-
             logging.warning("Missing state details file")
 
-    def update_state_details(self,api,idx, state_data):
+    def update_state_details(self, api, idx, state_data):
         repo = self.get_current_repo()
         state_path = os.path.join(repo, "state_details.json")
-        if os.path.isfile(state_path):
-            with open(state_path, mode="r", encoding="utf-8") as read_file:
-                state_orig=json.load(read_file)
+        
+        # Use lock for entire read-modify-write operation to prevent race conditions
+        with lock:
+            if os.path.isfile(state_path):
+                with open(state_path, encoding="utf-8") as read_file:
+                    state_orig = json.load(read_file)
 
-                for k in state_data.keys():
-                    state_orig["details"][api]["by_query"][str(idx)][k]=state_data[k]
+                for k in state_data:
+                    state_orig["details"][api]["by_query"][str(idx)][k] = state_data[k]
 
-                finished_local=True
-                for k in state_orig["details"][api]["by_query"].keys():
-                    q=state_orig["details"][api]["by_query"][k]
-                    if q["state"]!=1:
-                        finished_local=False
+                finished_local = True
+                for k in state_orig["details"][api]["by_query"]:
+                    q = state_orig["details"][api]["by_query"][k]
+                    if q["state"] != 1:
+                        finished_local = False
 
                 if finished_local:
-                    state_orig["details"][api]["state"]=1
+                    state_orig["details"][api]["state"] = 1
                 else:
-                    state_orig["details"][api]["state"]=0
+                    state_orig["details"][api]["state"] = 0
 
-                finished_global=True
-                for api_ in state_orig["details"].keys():
-                    if state_orig["details"][api_]["state"]!=1:
-                        finished_global=False
+                finished_global = True
+                for api_ in state_orig["details"]:
+                    if state_orig["details"][api_]["state"] != 1:
+                        finished_global = False
 
                 if finished_global:
-                    state_orig["global"]=1
+                    state_orig["global"] = 1
                 else:
-                    state_orig["global"]=0
+                    state_orig["global"] = 0
 
-                self.state_details=state_orig
+                self.state_details = state_orig
+                self.save_state_details()
+            else:
+                logging.warning("Missing state details file")
 
-                with lock:
-                    self.save_state_details()
-        else:
-
-            logging.warning("Missing state details file")
-
-    def init_state_details(self,queries_by_api):
+    def init_state_details(self, queries_by_api):
         """
         Init. state details files used to follow the collect history
         """
         self.state_details["global"] = 0
         self.state_details["details"] = {}
         for api in queries_by_api:
-            if api not in self.state_details["details"].keys():
+            if api not in self.state_details["details"]:
                 self.state_details["details"][api] = {}
                 self.state_details["details"][api]["state"] = -1
                 self.state_details["details"][api]["by_query"] = {}
-                queries=queries_by_api[api]
-                for idx in range(len( queries)):
-                    self.state_details["details"][api]["by_query"][idx]={}
+                queries = queries_by_api[api]
+                for idx in range(len(queries)):
+                    self.state_details["details"][api]["by_query"][idx] = {}
                     self.state_details["details"][api]["by_query"][idx]["state"] = -1
-                    self.state_details["details"][api]["by_query"][idx]["id_collect"] = idx
+                    self.state_details["details"][api]["by_query"][idx][
+                        "id_collect"
+                    ] = idx
                     self.state_details["details"][api]["by_query"][idx]["last_page"] = 0
                     self.state_details["details"][api]["by_query"][idx]["total_art"] = 0
                     self.state_details["details"][api]["by_query"][idx]["coll_art"] = 0
-                    self.state_details["details"][api]["by_query"][idx]["update_date"] = str(date.today())
-                    for k in queries[idx].keys():
-                        if(k not in self.state_details["details"][api]["by_query"][idx].keys()):
-                            self.state_details["details"][api]["by_query"][idx][k] = queries[idx][k]
+                    self.state_details["details"][api]["by_query"][idx][
+                        "update_date"
+                    ] = str(date.today())
+                    for k in queries[idx]:
+                        if k not in self.state_details["details"][api]["by_query"][idx]:
+                            self.state_details["details"][api]["by_query"][idx][k] = (
+                                queries[idx][k]
+                            )
 
     def save_state_details(self):
         repo = self.get_current_repo()
-        state_path=os.path.join(repo, "state_details.json")
-        with open(state_path, 'w', encoding='utf-8') as f:
-             json.dump(   self.state_details, f, ensure_ascii=False, indent=4)
+        state_path = os.path.join(repo, "state_details.json")
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(self.state_details, f, ensure_ascii=False, indent=4)
 
     def init_collection_collect(self):
         repo = self.get_current_repo()
@@ -223,7 +402,7 @@ class CollectCollection:
             os.makedirs(repo)
             with open(os.path.join(repo, "config_used.yml"), "w") as f:
                 yaml.dump(self.main_config, f)
-            print("ICI")
+            logging.info("Building query composition")
             queries_by_api = self.queryCompositor()
 
             self.init_state_details(queries_by_api)
@@ -232,44 +411,62 @@ class CollectCollection:
 
         self.load_state_details()
 
-
     def create_collects_jobs(self):
+        """Validate API keys and create collection jobs"""
+        # Validate API keys before starting
+        self.validate_api_keys()
+
         """
         Create the collection of jobs depending of the history and run it in parallel
         """
-        jobs_list=[]
-        n_coll=0
+        jobs_list = []
+        n_coll = 0
         if self.state_details["global"] == 0 or self.state_details["global"] == -1:
-            for api in self.state_details["details"].keys():
-
+            for api in self.state_details["details"]:
                 current_api_job = []
-                if( self.state_details["details"][api]["state"]== -1 or self.state_details["details"][api]["state"]==0):
-                    for k in  self.state_details["details"][api]["by_query"].keys():
-                        query=self.state_details["details"][api]["by_query"][k]
-                        if(query["state"]!=1):
-                            current_api_job.append({"query":query,"api":api})
-                            n_coll+=1
-                    if(len(current_api_job)>0):
+                if (
+                    self.state_details["details"][api]["state"] == -1
+                    or self.state_details["details"][api]["state"] == 0
+                ):
+                    for k in self.state_details["details"][api]["by_query"]:
+                        query = self.state_details["details"][api]["by_query"][k]
+                        if query["state"] != 1:
+                            current_api_job.append({"query": query, "api": api})
+                            n_coll += 1
+                    if len(current_api_job) > 0:
                         jobs_list.append(current_api_job)
-        print("JOB LIST")
-        print(jobs_list)
-        logging.info("Number of collect to conduct:" + str(n_coll))
+        logging.info(f"Number of collections to conduct: {n_coll}")
         num_cores = multiprocessing.cpu_count()
-        if(len(jobs_list)<num_cores):
+        if len(jobs_list) < num_cores:
             num_cores = len(jobs_list)
         else:
             num_cores = multiprocessing.cpu_count()
 
         logging.info("Number of collects to run:" + str(len(jobs_list)))
         logging.info("Number of parallel processes:" + str(num_cores))
+
+        # Initialize progress tracking
+        self.init_progress_tracking(len(jobs_list))
+
+        # Prepare data for worker functions (must be serializable)
+        worker_args = [
+            (job_list, self.api_config, self.main_config["output_dir"], self.main_config["collect_name"])
+            for job_list in jobs_list
+        ]
+        
         pool = multiprocessing.Pool(processes=num_cores)
-        result=pool.map_async(self.run_job_collects,jobs_list)
-        result.wait()
+        try:
+            # Use starmap to pass multiple arguments to worker function
+            result = pool.starmap_async(_run_job_collects_worker, worker_args)
+            result.wait()
+        finally:
+            pool.close()
+            pool.join()
 
         # FIRST ATTEMPT > not ordered by api > could lead to ratelimit overload
-        #random.shuffle(jobs_list)
-        #coll_coll=[]
-        #for job in jobs_list:
+        # random.shuffle(jobs_list)
+        # coll_coll=[]
+        # for job in jobs_list:
         #    data_query=job["query"]
         #    collector=api_collectors[job["api"]]
         #    api_key=None
@@ -278,6 +475,4 @@ class CollectCollection:
         #    repo=self.get_current_repo()
         #    coll_coll.append(collector(data_query, repo,api_key))
 
-        #result=pool.map_async(self.job_collect, coll_coll)
-
-
+        # result=pool.map_async(self.job_collect, coll_coll)

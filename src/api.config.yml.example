@@ -1,0 +1,93 @@
+zotero:
+    api_key: "YOUR_ZOTERO_API_KEY"
+    user_mode: "user"  # or "group" for group libraries
+google_scholar:
+    # Google Scholar uses the free 'scholarly' Python package with automatic proxy rotation
+    # No API key needed! The collection may be slower than paid APIs due to web scraping
+    # and proxy rotation, but it's completely free
+    enabled: true  # Set to false to disable Google Scholar collection
+springer:
+    api_key: "YOUR_SPRINGER_API_KEY"
+sem_scholar:
+    api_key: "YOUR_SEMANTIC_SCHOLAR_API_KEY"  # Optional - can work without
+elsevier:
+    api_key: "YOUR_ELSEVIER_API_KEY"
+    inst_token: "YOUR_INSTITUTIONAL_TOKEN"  # Optional but recommended for better access
+ieee:
+    api_key: "YOUR_IEEE_API_KEY"
+orcid:
+    dir: 'YOUR_WORK_DIRECTORY'
+    client_id: "YOUR_ORCID_CLIENT_ID"
+    client_secret: "YOUR_ORCID_CLIENT_SECRET"
+
+# ============================================================================
+# RATE LIMITING CONFIGURATION
+# ============================================================================
+# Dynamic rate limits for each API provider (requests per second)
+# These limits prevent 429 "Too Many Requests" errors and ensure compliance
+# with each provider's terms of service.
+#
+# Note: These are CONSERVATIVE values. If you have premium/institutional access,
+# you may be able to increase some limits. Check your API dashboard for details.
+# ============================================================================
+
+rate_limits:
+    # Semantic Scholar API
+    # - With API key: 1 req/sec (official limit)
+    # - Without key: Shared pool of 5000 req/5min
+    # - Source: https://www.semanticscholar.org/product/api
+    SemanticScholar: 1.0
+
+    # OpenAlex API
+    # - Free tier: 10 req/sec, 100,000 req/day
+    # - Premium tier: Higher limits available
+    # - Source: https://docs.openalex.org/how-to-use-the-api/rate-limits-and-authentication
+    OpenAlex: 10.0
+
+    # arXiv API
+    # - Recommended: 3 req/sec (1 call every 3 seconds)
+    # - Max 30,000 results per request
+    # - Source: https://info.arxiv.org/help/api/user-manual.html
+    Arxiv: 3.0
+
+    # IEEE Xplore API
+    # - Standard: 10 req/sec
+    # - Daily quota: 200 requests (may vary by account)
+    # - Source: https://developer.ieee.org/docs
+    IEEE: 10.0
+
+    # Elsevier Scopus API
+    # - Varies by subscription tier (6-25 req/sec typical)
+    # - Default quota: 20,000 req/week per API
+    # - Conservative setting for institutional access
+    # - Source: https://dev.elsevier.com/api_key_settings.html
+    Elsevier: 6.0
+
+    # Springer Nature API
+    # - Basic tier: 100 req/min (1.67 req/sec)
+    # - Premium tier: 300 req/min (5 req/sec)
+    # - Using 1.5 req/sec as safe default for Basic tier
+    # - Source: https://dev.springernature.com/docs/rate-limit-details/rate-limits/
+    Springer: 1.5
+
+    # HAL (French Open Archive)
+    # - No official rate limit documented
+    # - Conservative limit to be respectful
+    HAL: 10.0
+
+    # DBLP Computer Science Bibliography
+    # - No official rate limit documented
+    # - Conservative limit to be respectful
+    DBLP: 10.0
+
+    # Google Scholar (via scholarly package)
+    # - Uses web scraping with proxy rotation
+    # - Conservative rate to avoid blocking
+    # - ~2 requests per second with proxies
+    GoogleScholar: 2.0
+
+    # Crossref API
+    # - Polite pool: ~50 req/sec (with mailto in User-Agent)
+    # - Using 3 req/sec as conservative default
+    # - Source: https://github.com/CrossRef/rest-api-doc
+    Crossref: 3.0

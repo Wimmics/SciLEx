@@ -1,0 +1,206 @@
+# ============================================================================
+# SciLEx Main Configuration File - Template
+# ============================================================================
+# Copy this file to 'scilex.config.yml' and customize for your research project
+# Each collection run uses these parameters to search academic databases
+
+# ============================================================================
+# AGGREGATION SETTINGS
+# ============================================================================
+
+# Apply text filters during aggregation (filters papers based on abstract content)
+# Set to 'true' to enable filtering, 'false' to keep all collected papers
+aggregate_txt_filter: true
+
+# Automatically fetch citation data for collected papers after aggregation
+# Uses OpenCitations API to build citation networks
+# Set to 'true' to get citations, 'false' to skip (faster but less complete)
+aggregate_get_citations: true
+
+# Output filename for aggregated results (relative to output_dir/collect_name/)
+# The aggregated CSV will be saved as: output_dir/collect_name/aggregate_file
+aggregate_file: '/aggregated_results.csv'
+
+# ============================================================================
+# QUALITY FILTERS
+# ============================================================================
+
+# Configure quality thresholds for filtering collected papers
+# These filters are applied during aggregation to ensure data quality
+quality_filters:
+  # Require papers to have a DOI (improves citation tracking and prevents duplicates)
+  # Google Scholar often lacks DOIs - set to false if using primarily GScholar
+  require_doi: false
+
+  # Require papers to have an abstract
+  # Set to true for thorough literature reviews, false for bibliometric studies
+  require_abstract: true
+
+  # Minimum abstract length in words (detects truncated or stub abstracts)
+  # Typical values: 50-100 words. Set to 0 to disable.
+  min_abstract_words: 50
+
+  # Maximum abstract length in words (detects copy-paste errors or non-abstracts)
+  # Typical values: 500-1000 words. Set to 0 to disable.
+  max_abstract_words: 1000
+
+  # Require publication year to be present
+  # Essential for temporal analysis and citation tracking
+  require_year: true
+
+  # Minimum number of authors (detects incomplete records)
+  # Set to 0 to disable, 1 for at least one author
+  min_author_count: 1
+
+  # Generate quality validation report during aggregation
+  # Reports show: papers filtered, reasons for filtering, data completeness stats
+  generate_quality_report: true
+
+  # === Phase 2 Features (Advanced Quality Control) ===
+
+  # Use fuzzy title matching to catch duplicates with typos/formatting differences
+  # Recommended: true (improves deduplication by 10-20%)
+  use_fuzzy_matching: true
+
+  # Fuzzy matching threshold (0.0-1.0)
+  # 0.95 = very strict (only minor typos), 0.90 = recommended, 0.85 = lenient
+  fuzzy_threshold: 0.90
+
+  # Validate abstract quality (detect truncation, boilerplate, encoding issues)
+  # Set to true to get detailed abstract quality reports
+  validate_abstracts: false
+
+  # Minimum abstract quality score (0-100) if validate_abstracts is true
+  # Papers below this score are flagged but not removed unless filter_by_abstract_quality is true
+  min_abstract_quality_score: 50
+
+  # Filter out papers with poor abstract quality
+  # Only applies if validate_abstracts is true
+  filter_by_abstract_quality: false
+
+  # Track which APIs found which papers and analyze overlap
+  # Generates reports showing API value, overlap, and optimization recommendations
+  # Recommended: true (helps optimize future API selection)
+  track_duplicate_sources: true
+
+# ============================================================================
+# API SELECTION
+# ============================================================================
+
+# List of APIs to query for papers
+# Available options:
+#   - SemanticScholar: Best for AI/CS papers, excellent metadata, citations (API key optional)
+#   - OpenAlex: Comprehensive open database, all disciplines, free
+#   - IEEE: Engineering/tech papers (requires API key)
+#   - Elsevier: Broad coverage via ScienceDirect (requires API key + institutional token)
+#   - Springer: Scientific papers (requires API key)
+#   - HAL: French open archive, multidisciplinary, free
+#   - DBLP: Computer science bibliography, free
+#   - Arxiv: Preprints, mostly physics/CS/math, free
+#   - GoogleScholar: Broadest coverage but slower (free, uses web scraping)
+apis:
+  - SemanticScholar
+  - OpenAlex
+  - GoogleScholar
+  - IEEE
+
+# ============================================================================
+# COLLECTION CONTROL
+# ============================================================================
+
+# Enable/disable the collection phase
+# Set to 'true' to run collection, 'false' to skip (useful when only aggregating existing data)
+collect: true
+
+# Name for this collection run
+# Creates a timestamped directory: output_dir/collect_name_YYYYMMDD_HHMMSS/
+# Use descriptive names like: 'rag_survey', 'knowledge_graphs_2024', 'llm_agents'
+collect_name: my_research_project
+
+# Email address (optional, used by some APIs for rate limit increases)
+# Some APIs like Arxiv give better rate limits with a valid email
+email: your.email@example.com
+
+# ============================================================================
+# SEARCH FIELDS
+# ============================================================================
+
+# Fields to search in
+# Most APIs support:
+#   - title: Paper titles only
+#   - abstract: Abstract text only
+#   - title+abstract: Both (recommended for better recall)
+fields:
+  - title
+  - abstract
+
+# ============================================================================
+# SEARCH KEYWORDS
+# ============================================================================
+
+# Keywords for paper search - supports two modes:
+#
+# MODE 1: Single keyword group (papers matching ANY keyword)
+# keywords:
+#   - ["machine learning", "deep learning", "neural networks"]
+#
+# MODE 2: Two keyword groups (papers matching ANY from group 1 AND ANY from group 2)
+# This creates a Cartesian product: (keyword1_group1 AND keyword2_group2) OR ...
+# Example below searches for papers about RAG/LLMs AND knowledge graphs
+keywords:
+  - ["RAG", "Retrieval Augmented Generation", "LLM", "Large Language Model", "GPT"]
+  - ["Knowledge Graph", "knowledge graphs", "semantic network", "ontology"]
+
+# Note: Keywords are case-insensitive on most APIs
+# Use variations and synonyms for better coverage
+# For single-concept searches, just use one group:
+# keywords:
+#   - ["quantum computing", "quantum computer", "qubits"]
+#   - []  # Empty second group
+
+# ============================================================================
+# OUTPUT DIRECTORY
+# ============================================================================
+
+# Base directory for all output files
+# Results will be saved in: output_dir/collect_name_YYYYMMDD_HHMMSS/
+# Each API creates its own subdirectory: SemanticScholar/, IEEE/, etc.
+output_dir: output
+
+# ============================================================================
+# YEAR RANGE
+# ============================================================================
+
+# List of years to search
+# Creates separate queries for each year (allows resuming if interrupted)
+# For range 2020-2024, list: [2020, 2021, 2022, 2023, 2024]
+# Or for recent papers only: [2023, 2024, 2025]
+years:
+  - 2023
+  - 2024
+  - 2025
+
+# ============================================================================
+# EXAMPLE CONFIGURATIONS
+# ============================================================================
+
+# Example 1: Broad survey across multiple databases
+# apis: [SemanticScholar, OpenAlex, IEEE, Springer, GoogleScholar]
+# keywords:
+#   - ["machine learning", "deep learning"]
+#   - []
+# years: [2020, 2021, 2022, 2023, 2024]
+
+# Example 2: Focused search with two concept groups
+# apis: [SemanticScholar, OpenAlex]
+# keywords:
+#   - ["federated learning", "distributed learning"]
+#   - ["privacy", "differential privacy", "secure computation"]
+# years: [2022, 2023, 2024]
+
+# Example 3: Quick test with free APIs only
+# apis: [OpenAlex, Arxiv, HAL, DBLP]
+# keywords:
+#   - ["quantum computing"]
+#   - []
+# years: [2024]
