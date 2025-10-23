@@ -56,6 +56,33 @@ quality_filters:
   # Reports show: papers filtered, reasons for filtering, data completeness stats
   generate_quality_report: true
 
+  # === Phase 2 Features (Advanced Quality Control) ===
+
+  # Use fuzzy title matching to catch duplicates with typos/formatting differences
+  # Recommended: true (improves deduplication by 10-20%)
+  use_fuzzy_matching: true
+
+  # Fuzzy matching threshold (0.0-1.0)
+  # 0.95 = very strict (only minor typos), 0.90 = recommended, 0.85 = lenient
+  fuzzy_threshold: 0.90
+
+  # Validate abstract quality (detect truncation, boilerplate, encoding issues)
+  # Set to true to get detailed abstract quality reports
+  validate_abstracts: false
+
+  # Minimum abstract quality score (0-100) if validate_abstracts is true
+  # Papers below this score are flagged but not removed unless filter_by_abstract_quality is true
+  min_abstract_quality_score: 50
+
+  # Filter out papers with poor abstract quality
+  # Only applies if validate_abstracts is true
+  filter_by_abstract_quality: false
+
+  # Track which APIs found which papers and analyze overlap
+  # Generates reports showing API value, overlap, and optimization recommendations
+  # Recommended: true (helps optimize future API selection)
+  track_duplicate_sources: true
+
 # ============================================================================
 # API SELECTION
 # ============================================================================

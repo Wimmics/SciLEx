@@ -19,6 +19,7 @@ import pandas as pd
 from pandas.core.dtypes.inference import is_dict_like
 
 from src.constants import MISSING_VALUE, is_valid
+from src.fuzzy_matching import are_titles_fuzzy_duplicates
 
 
 def safe_get(obj, key, default=None):
@@ -133,8 +134,19 @@ def _fill_missing_values(row, column_values_dict, column_names):
     return row
 
 
-def deduplicate(df_input):
-    """Remove duplicate papers by DOI or title, keeping the best quality record."""
+def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.90):
+    """
+    Remove duplicate papers by DOI, exact title, and fuzzy title matching.
+
+    Args:
+        df_input: Input DataFrame
+        use_fuzzy_matching: Whether to use fuzzy title matching (default: True)
+        fuzzy_threshold: Similarity threshold for fuzzy matching (default: 0.90)
+                        0.95 = very strict, 0.90 = recommended, 0.85 = lenient
+
+    Returns:
+        Deduplicated DataFrame
+    """
     df_output = df_input.copy()
     check_columns = ["DOI", "title"]
     column_names = list(df_output.columns.values)
@@ -181,6 +193,78 @@ def deduplicate(df_input):
             df_output = pd.concat(
                 [df_output, best_record.to_frame().T], ignore_index=True
             )
+
+    # Fuzzy title matching pass (after exact matching)
+    if use_fuzzy_matching and "title" in df_output.columns:
+        logging.info(f"Running fuzzy title matching (threshold={fuzzy_threshold})...")
+        fuzzy_duplicates_found = 0
+
+        # Build list of titles for comparison
+        titles_to_check = []
+        for idx in df_output.index:
+            title = df_output.loc[idx, "title"]
+            if is_valid(title):
+                titles_to_check.append((idx, title))
+
+        # Find fuzzy duplicates
+        processed_indices = set()
+
+        for i, (idx_i, title_i) in enumerate(titles_to_check):
+            if idx_i in processed_indices:
+                continue
+
+            fuzzy_match_indices = [idx_i]
+
+            # Compare with remaining titles
+            for idx_j, title_j in titles_to_check[i + 1:]:
+                if idx_j in processed_indices:
+                    continue
+
+                is_duplicate, similarity = are_titles_fuzzy_duplicates(
+                    title_i, title_j, fuzzy_threshold
+                )
+
+                if is_duplicate and similarity < 1.0:  # Exclude exact matches (already handled)
+                    fuzzy_match_indices.append(idx_j)
+                    processed_indices.add(idx_j)
+
+            # If we found fuzzy duplicates, merge them
+            if len(fuzzy_match_indices) > 1:
+                fuzzy_duplicates_found += 1
+                duplicates_temp = df_output.loc[fuzzy_match_indices]
+                column_values = {key: [] for key in column_names}
+                archive_list = []
+
+                # Collect data from all duplicates
+                for idx in duplicates_temp.index:
+                    archive_list.append(str(df_output.loc[idx, "archive"]))
+                    for col_name in column_names:
+                        value = df_output.loc[idx, col_name]
+                        column_values[col_name].append(MISSING_VALUE if isNaN(value) else value)
+
+                # Find best duplicate
+                best_idx = _find_best_duplicate_index(duplicates_temp, column_names)
+                best_record = duplicates_temp.iloc[best_idx].copy()
+                chosen_archive = str(best_record["archive"])
+
+                # Update archives field
+                best_record["archive"] = _merge_duplicate_archives(archive_list, chosen_archive)
+
+                # Fill missing values from other duplicates
+                best_record = _fill_missing_values(best_record, column_values, column_names)
+
+                # Replace duplicates with merged record
+                df_output = df_output.drop(duplicates_temp.index)
+                df_output = pd.concat(
+                    [df_output, best_record.to_frame().T], ignore_index=True
+                )
+
+                processed_indices.add(idx_i)
+
+        if fuzzy_duplicates_found > 0:
+            logging.info(f"Found {fuzzy_duplicates_found} fuzzy duplicate groups")
+        else:
+            logging.info("No fuzzy duplicates found")
 
     return df_output
 

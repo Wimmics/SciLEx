@@ -34,6 +34,11 @@ from src.keyword_validation import (
     generate_keyword_validation_report,
     filter_by_keywords,
 )
+from src.abstract_validation import (
+    validate_dataframe_abstracts,
+    filter_by_abstract_quality,
+)
+from src.duplicate_tracking import analyze_and_report_duplicates
 
 # Set up logging configuration
 logging.basicConfig(
@@ -145,8 +150,10 @@ if __name__ == "__main__":
             df = pd.DataFrame(all_data)
             logging.info(f"Aggregated {len(df)} papers from all APIs")
 
-            # Deduplicate records
-            df_clean = deduplicate(df)
+            # Deduplicate records (with fuzzy matching if configured)
+            use_fuzzy = quality_filters.get("use_fuzzy_matching", True) if quality_filters else True
+            fuzzy_threshold = quality_filters.get("fuzzy_threshold", 0.90) if quality_filters else 0.90
+            df_clean = deduplicate(df, use_fuzzy_matching=use_fuzzy, fuzzy_threshold=fuzzy_threshold)
             df_clean.reset_index(drop=True, inplace=True)
             logging.info(f"After deduplication: {len(df_clean)} unique papers")
 
@@ -170,6 +177,32 @@ if __name__ == "__main__":
             if keywords and quality_filters.get("generate_quality_report", True):
                 keyword_report = generate_keyword_validation_report(df_clean, keywords)
                 logging.info(keyword_report)
+
+            # Abstract quality validation (Phase 2)
+            if quality_filters.get("validate_abstracts", False):
+                logging.info("Validating abstract quality...")
+                min_quality_score = quality_filters.get("min_abstract_quality_score", 50)
+                df_clean, abstract_stats = validate_dataframe_abstracts(
+                    df_clean,
+                    min_quality_score=min_quality_score,
+                    generate_report=quality_filters.get("generate_quality_report", True)
+                )
+
+                # Optionally filter by abstract quality
+                if quality_filters.get("filter_by_abstract_quality", False):
+                    df_clean = filter_by_abstract_quality(
+                        df_clean,
+                        min_quality_score=min_quality_score
+                    )
+                    logging.info(f"After abstract quality filtering: {len(df_clean)} papers remaining")
+
+            # Duplicate source tracking (Phase 2)
+            if quality_filters.get("track_duplicate_sources", True):
+                logging.info("Analyzing duplicate sources and API overlap...")
+                analyzer, metadata_quality = analyze_and_report_duplicates(
+                    df_clean,
+                    generate_report=quality_filters.get("generate_quality_report", True)
+                )
 
             if get_citation:
                 df_clean["extra"] = ""
