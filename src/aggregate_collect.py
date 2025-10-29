@@ -284,14 +284,14 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             # Submit all tasks
             future_to_index = {}
-            for index, row in df_clean.iloc[start_index:].iterrows():
+            for position, (df_index, row) in enumerate(df_clean.iloc[start_index:].iterrows(), start=start_index):
                 doi = row.get("DOI")
                 future = executor.submit(
                     _fetch_citation_for_paper,
-                    index, doi, stats, checkpoint_interval, checkpoint_path,
+                    position, doi, stats, checkpoint_interval, checkpoint_path,
                     extras, nb_citeds, nb_citations
                 )
-                future_to_index[future] = index
+                future_to_index[future] = position
 
             # Process completed tasks
             for future in as_completed(future_to_index):

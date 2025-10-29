@@ -573,6 +573,7 @@ class SemanticScholar_collector(API_collector):
                         "open_access_pdf": result.get("openAccessPdf", {}).get(
                             "url", ""
                         ),
+                        "DOI": result.get("externalIds", {}).get("DOI", ""),
                     }
                     page_data["results"].append(parsed_result)
 
