@@ -35,7 +35,7 @@ SciLEx provides end-to-end tools to:
 ```bash
 git clone <repository>
 cd SciLEx
-uv sync  # or: pip install -r requirements.txt
+uv sync
 ```
 
 **Configure APIs:**
@@ -48,6 +48,17 @@ cp src/api.config.yml.example src/api.config.yml
 ```bash
 cp src/scilex.config.yml.example src/scilex.config.yml
 # Set keywords, years, APIs, and output directory
+```
+
+**Install spacy model (for fuzzy matching):**
+```bash
+uv pip install en-core-web-sm
+```
+
+**Optional environment variables:**
+```bash
+# Create .env file if you want to customize behavior (see .env.example)
+cp .env.example .env
 ```
 
 ### 3. Run Collection Workflow

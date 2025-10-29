@@ -415,7 +415,7 @@ class API_collector:
                     offset
                 )  # Construct the API URL
 
-                logging.info(f"Fetching data from URL: {url}")
+                logging.debug(f"Fetching data from URL: {url}")
 
                 response = self.api_call_decorator(url)  # Call the API
                 logging.debug(f"{self.api_name} API call completed for page {page}")
@@ -621,7 +621,7 @@ class SemanticScholar_collector(API_collector):
             f"&fields={fields}"
         )
 
-        logging.info(f"Constructed API URL: {url}")
+        logging.debug(f"Constructed API URL: {url}")
         return url
 
 
@@ -674,7 +674,7 @@ class IEEE_collector(API_collector):
             # Extract the total number of records
             total_records = page_with_results.get("total_records", 0)
             page_data["total"] = int(total_records)
-            logging.info(f"Total results found for page {page}: {page_data['total']}")
+            logging.debug(f"Total results found for page {page}: {page_data['total']}")
 
             # Extract articles
             articles = page_with_results.get("articles", [])
@@ -963,7 +963,7 @@ class DBLP_collector(API_collector):
         years_query = str(self.get_year())
         # Combine keywords and years into the query string
         query = f"{keywords_query} year:{years_query}:"
-        logging.info(f"Constructed query for API: {query}")
+        logging.debug(f"Constructed query for API: {query}")
 
         # Return the final API URL
         return f"{self.api_url}?q={query}&format=json&h={self.max_by_page}&f={{}}"
@@ -1052,7 +1052,7 @@ class OpenAlex_collector(API_collector):
             f"&per-page={self.max_by_page}&mailto={self.api_key}&page={{}}"
         )
 
-        logging.info(f"Configured URL: {api_url}")
+        logging.debug(f"Configured URL: {api_url}")
         return api_url
 
     def get_offset(self, page):
@@ -1186,7 +1186,7 @@ class HAL_collector(API_collector):
             f"{year_filter}&wt=json&rows={self.max_by_page}&start={{}}"
         )
 
-        logging.info(f"Configured URL: {configured_url}")
+        logging.debug(f"Configured URL: {configured_url}")
         return configured_url
 
 
@@ -1249,7 +1249,7 @@ class Arxiv_collector(API_collector):
         total_raw = tree.xpath('*[local-name()="totalResults"]')
         page_data["total"] = int(total_raw[0].text) if total_raw else 0
 
-        logging.info(f"Parsed {len(page_data['results'])} results from page {page}.")
+        logging.debug(f"Parsed {len(page_data['results'])} results from page {page}.")
         return page_data
 
     def extract_authors(self, entry):
@@ -1317,7 +1317,7 @@ class Arxiv_collector(API_collector):
         # Join all formatted keyword groups with ' +AND+ '
         search_query = "+AND+".join(formatted_keyword_groups)
         search_query = search_query + "&" + year_arg
-        logging.info(f"Constructed search query: {search_query}")
+        logging.debug(f"Constructed search query: {search_query}")
         return search_query
 
     def get_configurated_url(self):
@@ -1434,7 +1434,7 @@ class Istex_collector(API_collector):
             f"{self.api_url}?q={query}&output=*&size={self.max_by_page}&from={{}}"
         )
 
-        logging.info(f"Configured URL: {configured_url}")
+        logging.debug(f"Configured URL: {configured_url}")
         return configured_url
 
 
@@ -1551,8 +1551,8 @@ class Springer_collector(API_collector):
             f"{self.openaccess_url}?q={keywords_query}&api_key={self.api_key}"
         )
 
-        logging.info(f"Constructed query for meta: {meta_url}")
-        logging.info(f"Constructed query for openaccess: {openaccess_url}")
+        logging.debug(f"Constructed query for meta: {meta_url}")
+        logging.debug(f"Constructed query for openaccess: {openaccess_url}")
 
         return [meta_url, openaccess_url]
 

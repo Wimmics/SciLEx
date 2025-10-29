@@ -41,13 +41,10 @@ from src.quality_validation import (
     apply_quality_filters,
     generate_data_completeness_report,
 )
+from src.logging_config import setup_logging, log_section
 
-# Set up logging configuration
-logging.basicConfig(
-    level=logging.INFO,  # Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format="%(asctime)s - %(levelname)s - %(message)s",  # Log message format
-    datefmt="%Y-%m-%d %H:%M:%S",  # Date format
-)
+# Set up logging configuration with environment variable support
+setup_logging()
 
 config_files = {"main_config": "scilex.config.yml", "api_config": "api.config.yml"}
 # Load configurations
@@ -327,7 +324,14 @@ if __name__ == "__main__":
                         help="Number of parallel workers for citation fetching (default: 3)")
     parser.add_argument("--checkpoint-interval", type=int, default=100,
                         help="Save checkpoint every N papers (default: 100)")
+    parser.add_argument("--auto-install-spacy", action="store_true",
+                        help="Automatically install spacy model without prompting")
     args = parser.parse_args()
+
+    logger = logging.getLogger(__name__)
+
+    # Log aggregation start
+    log_section(logger, "SciLEx Data Aggregation")
 
     txt_filters = main_config["aggregate_txt_filter"]
     get_citation = main_config["aggregate_get_citations"] and not args.skip_citations
@@ -335,13 +339,37 @@ if __name__ == "__main__":
     # Get output filename from config, with fallback and handle leading slashes
     output_filename = main_config.get("aggregate_file", "FileAggreg.csv").lstrip("/")
     state_path = os.path.join(dir_collect, "state_details.json")
-    logging.info(f"Starting aggregation from {state_path}")
+
+    logger.info(f"Collection directory: {dir_collect}")
+    logger.info(f"Text filtering: {'enabled' if txt_filters else 'disabled'}")
+    logger.info(f"Citation fetching: {'enabled' if get_citation else 'disabled (use --skip-citations to disable)'}")
+
     all_data = []
 
     # Load fuzzy keyword matching configuration
     quality_filters = main_config.get("quality_filters", {})
     use_fuzzy_keywords = quality_filters.get("use_fuzzy_keyword_matching", False)
     fuzzy_keyword_threshold = quality_filters.get("fuzzy_keyword_threshold", 0.85)
+
+    # Check for spacy model if fuzzy matching is enabled
+    if use_fuzzy_keywords or quality_filters.get("use_fuzzy_matching", True):
+        from src.utils.spacy_utils import ensure_spacy_model
+        from src.fuzzy_matching import get_nlp
+
+        # Suppress warnings during initial check (we'll handle it properly)
+        get_nlp(suppress_warning=True)
+
+        logging.info("Checking spacy dependencies for fuzzy matching...")
+        model_available = ensure_spacy_model(
+            model_name="en_core_web_sm",
+            auto_install=args.auto_install_spacy,  # Auto-install if flag set
+            silent=False
+        )
+
+        if model_available:
+            logging.info("Spacy model verified ✓")
+        else:
+            logging.warning("Continuing without spacy model (using fallback normalization)")
 
     # Initialize fuzzy keyword matching report if enabled
     fuzzy_keyword_report = None

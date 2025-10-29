@@ -21,13 +21,13 @@ from datetime import datetime
 from src.crawlers.aggregate import *
 from src.crawlers.collector_collection import CollectCollection
 from src.crawlers.utils import load_all_configs
+from src.logging_config import setup_logging, log_section
 
-# Set up logging configuration
-logging.basicConfig(
-    level=logging.INFO,  # Set logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    format="%(asctime)s - %(levelname)s - %(message)s",  # Log message format
-    datefmt="%Y-%m-%d %H:%M:%S",  # Date format
-)
+# Set up logging configuration with environment variable support
+# LOG_LEVEL=DEBUG python src/run_collecte.py    # For debugging
+# LOG_LEVEL=WARNING python src/run_collecte.py  # For quiet mode
+# LOG_COLOR=false python src/run_collecte.py    # Disable colors
+setup_logging()
 
 # Define the configuration files to load
 config_files = {
@@ -73,9 +73,13 @@ print(f"APIS: {apis}")
 
 def main():
     """Main function to run collection - required for multiprocessing on macOS/Windows"""
-    # Log the overall process with timestamps
-    logging.info(f"Systematic review search started at {datetime.now()}")
-    logging.info("================BEGIN Systematic Review Search================")
+    logger = logging.getLogger(__name__)
+    start_time = datetime.now()
+
+    # Log collection start
+    log_section(logger, "SciLEx Systematic Review Collection")
+    logger.info(f"Started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Configuration: {len(keywords[0]) if keywords else 0} keywords, {len(years)} years, {len(apis)} APIs")
 
     colle_col = CollectCollection(main_config, api_config)
 
@@ -83,27 +87,37 @@ def main():
     # Set USE_ASYNC_COLLECTION=false to use legacy sync pipeline
     use_async = os.environ.get('USE_ASYNC_COLLECTION', 'true').lower() != 'false'
 
+    logger.info(f"Pipeline mode: {'ASYNC (optimized)' if use_async else 'SYNC (legacy)'}")
+
     if use_async:
-        logging.info("Using ASYNC collection pipeline (Phase 1 optimization)")
         asyncio.run(colle_col.run_async_collection())
     else:
-        logging.info("Using SYNC collection pipeline (legacy - set USE_ASYNC_COLLECTION=false)")
         colle_col.create_collects_jobs()
 
-    logging.info("================END Systematic Review Search================")
-    logging.info(f"Systematic review search ended at {datetime.now()}")
+    # Log completion
+    end_time = datetime.now()
+    elapsed = (end_time - start_time).total_seconds()
+    log_section(logger, "Collection Complete")
+    logger.info(f"Finished at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Total time: {elapsed:.1f}s ({elapsed/60:.1f}m)")
 
 
 async def main_async():
     """Async entry point for collection"""
-    logging.info(f"Systematic review search started at {datetime.now()}")
-    logging.info("================BEGIN Systematic Review Search (ASYNC)================")
+    logger = logging.getLogger(__name__)
+    start_time = datetime.now()
+
+    log_section(logger, "SciLEx Systematic Review Collection (ASYNC)")
+    logger.info(f"Started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     colle_col = CollectCollection(main_config, api_config)
     await colle_col.run_async_collection()
 
-    logging.info("================END Systematic Review Search (ASYNC)================")
-    logging.info(f"Systematic review search ended at {datetime.now()}")
+    end_time = datetime.now()
+    elapsed = (end_time - start_time).total_seconds()
+    log_section(logger, "Collection Complete")
+    logger.info(f"Finished at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"Total time: {elapsed:.1f}s ({elapsed/60:.1f}m)")
 
 
 if __name__ == "__main__":

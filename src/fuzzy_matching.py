@@ -20,22 +20,57 @@ from src.constants import is_valid, is_missing
 
 # Load spacy model once (lazy loading)
 _nlp = None
+_nlp_checked = False  # Track if we've already checked/warned
 
-def get_nlp():
-    """Lazy load spacy model to avoid startup penalty."""
-    global _nlp
-    if _nlp is None:
+def get_nlp(suppress_warning: bool = False):
+    """
+    Lazy load spacy model to avoid startup penalty.
+
+    Args:
+        suppress_warning: If True, don't log warning on first failure (used during pre-installation check)
+
+    Returns:
+        Spacy nlp object or None if not available
+    """
+    global _nlp, _nlp_checked
+
+    if _nlp is None and not _nlp_checked:
         try:
             _nlp = spacy.load("en_core_web_sm")
+            _nlp_checked = True
         except OSError:
-            # Model not installed, log warning and use simple fallback
-            logging.warning(
-                "Spacy model 'en_core_web_sm' not found. "
-                "Install with: python -m spacy download en_core_web_sm. "
-                "Falling back to simple normalization."
-            )
+            _nlp_checked = True
+            # Only log warning if not suppressed (e.g., during pre-installation check)
+            if not suppress_warning:
+                logging.warning(
+                    "Spacy model 'en_core_web_sm' not found. "
+                    "Install with: python -m spacy download en_core_web_sm. "
+                    "Falling back to simple normalization."
+                )
             _nlp = None
     return _nlp
+
+
+def reload_spacy_model():
+    """
+    Force reload of spacy model (call after installation).
+
+    Returns:
+        True if model loaded successfully, False otherwise
+    """
+    global _nlp, _nlp_checked
+
+    _nlp = None
+    _nlp_checked = False
+
+    try:
+        _nlp = spacy.load("en_core_web_sm")
+        _nlp_checked = True
+        return True
+    except OSError:
+        _nlp_checked = True
+        _nlp = None
+        return False
 
 
 def normalize_title_simple(title: str) -> str:

@@ -12,6 +12,15 @@ import yaml
 from .collectors import *
 from .async_wrapper import AsyncCollectorWrapper
 
+# Import centralized logging utilities
+try:
+    from src.logging_config import ProgressTracker, log_api_start, log_api_complete
+except ImportError:
+    # Fallback if logging_config not available
+    ProgressTracker = None
+    log_api_start = None
+    log_api_complete = None
+
 api_collectors = {
     "DBLP": DBLP_collector,
     "Arxiv": Arxiv_collector,
@@ -49,7 +58,7 @@ def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name)
             api_key = api_config[coll["api"]].get("api_key")
             if coll["api"] == "Elsevier" and "inst_token" in api_config[coll["api"]]:
                 inst_token = api_config[coll["api"]]["inst_token"]
-                logging.info(f"Using institutional token for Elsevier API")
+                logging.debug(f"Using institutional token for Elsevier API")
         
         try:
             # Initialize collector
@@ -63,8 +72,8 @@ def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name)
             
             # Update state
             _update_state_worker(repo, current_coll.api_name, str(current_coll.collectId), res)
-            
-            logging.info(f"Completed collection for {coll['api']} query {data_query.get('id_collect', 'unknown')}")
+
+            logging.debug(f"Completed collection for {coll['api']} query {data_query.get('id_collect', 'unknown')}")
             
         except Exception as e:
             logging.error(f"Error during collection for {coll['api']}: {str(e)}")
@@ -167,34 +176,32 @@ class CollectCollection:
 
     def validate_api_keys(self):
         """Validate that required API keys are present before starting collection"""
-        logging.info("Validating API keys...")
+        logger = logging.getLogger(__name__)
         apis_requiring_keys = {
             "IEEE": "api_key",
-            "Springer": "api_key", 
+            "Springer": "api_key",
             "Elsevier": ["api_key", "inst_token"],
         }
-        
+
         missing_keys = []
         apis_to_use = self.main_config.get("apis", [])
-        
+
         for api in apis_to_use:
             if api in apis_requiring_keys:
                 required_keys = apis_requiring_keys[api]
                 if not isinstance(required_keys, list):
                     required_keys = [required_keys]
-                
+
                 api_config = self.api_config.get(api, {})
                 for key in required_keys:
                     if not api_config.get(key):
                         missing_keys.append(f"{api}.{key}")
-                        logging.warning(f"Missing API key: {api}.{key}")
-        
+
         if missing_keys:
-            logging.warning(f"Missing API keys for: {', '.join(missing_keys)}")
-            logging.warning("Collections from these APIs will likely fail")
+            logger.warning(f"Missing API keys: {', '.join(missing_keys)} - these collections will likely fail")
             return False
-        
-        logging.info("API key validation passed")
+
+        logger.debug("API key validation passed")
         return True
 
     def init_progress_tracking(self, total_jobs):
@@ -298,7 +305,9 @@ class CollectCollection:
         ):
             keyword_combinations = self.main_config["keywords"][0]
 
-        logging.debug(f"Generated {len(keyword_combinations)} keyword combinations")
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Generated {len(keyword_combinations)} keyword combinations")
+
         # Generate all combinations using Cartesian product
         ### ADD LETTER FIELDS
         # combinations = product(keyword_combinations, self.years, self.apis, self.fields)
@@ -317,7 +326,7 @@ class CollectCollection:
                 {"keyword": [keyword_group], "year": year, "api": api}
                 for keyword_group, year, api in combinations
             ]
-        logging.info(f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs")
+        logger.debug(f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs")
         queries_by_api = {}
         for query in queries:
             if query["api"] not in queries_by_api:
@@ -436,12 +445,12 @@ class CollectCollection:
 
     def create_collects_jobs(self):
         """Validate API keys and create collection jobs"""
+        logger = logging.getLogger(__name__)
+
         # Validate API keys before starting
         self.validate_api_keys()
 
-        """
-        Create the collection of jobs depending of the history and run it in parallel
-        """
+        # Create the collection of jobs depending of the history and run it in parallel
         jobs_list = []
         n_coll = 0
         if self.state_details["global"] == 0 or self.state_details["global"] == -1:
@@ -458,21 +467,19 @@ class CollectCollection:
                             n_coll += 1
                     if len(current_api_job) > 0:
                         jobs_list.append(current_api_job)
-        logging.info(f"Number of collections to conduct: {n_coll}")
-        
+
         # Check if there are any jobs to process
         if len(jobs_list) == 0:
-            logging.warning("No collections to conduct. Collection may already be complete.")
-            logging.warning("To restart collection, delete the output directory or reset state.")
+            logger.warning("No collections to conduct. Collection may already be complete.")
+            logger.warning("To restart collection, delete the output directory or reset state.")
             return
-        
+
         # Calculate number of processes - simplified logic
         num_cores = min(len(jobs_list), multiprocessing.cpu_count())
         if num_cores < 1:
             num_cores = 1
 
-        logging.info("Number of collects to run:" + str(len(jobs_list)))
-        logging.info("Number of parallel processes:" + str(num_cores))
+        logger.info(f"Starting sync collection: {n_coll} queries using {num_cores} parallel processes")
 
         # Initialize progress tracking
         self.init_progress_tracking(len(jobs_list))
@@ -516,7 +523,7 @@ class CollectCollection:
         Optionally uses StateManager for SQLite-based state persistence (Phase 1B).
         Expected speedup: 2.5-3x (async) to 3-4x (async + StateManager).
         """
-        logging.info("Starting async collection using AsyncCollectorWrapper")
+        logger = logging.getLogger(__name__)
 
         # Validate API keys before starting
         self.validate_api_keys()
@@ -542,8 +549,8 @@ class CollectCollection:
                             })
                             n_coll += 1
 
-        logging.info(f"Number of collections to conduct (async): {n_coll}")
-        logging.info(f"Running {len(set(c['api'] for c in collections))} APIs in parallel")
+        num_apis = len(set(c['api'] for c in collections))
+        logger.info(f"Starting async collection: {n_coll} queries across {num_apis} APIs")
 
         # Initialize progress tracking
         self.init_progress_tracking(n_coll)
@@ -553,38 +560,37 @@ class CollectCollection:
 
         try:
             # Run all collections in parallel (respecting per-API rate limits)
-            logging.info("Starting parallel async collection...")
             start_time = time.time()
 
             results = await wrapper.run_collections_parallel(collections)
 
             elapsed_time = time.time() - start_time
-            logging.info(f"Async collection completed in {elapsed_time:.1f} seconds")
+            logger.info(f"Async collection completed in {elapsed_time:.1f}s")
 
             # Update state with results
             # Use StateManager batch updates if enabled (Phase 1B optimization)
             if self.state_manager:
-                logging.info("Using StateManager for batch state updates...")
-                
+                logger.debug("Using StateManager for batch state updates...")
+
                 # Group updates by API for batch processing
                 updates_by_api = {}
                 for i, result in enumerate(results):
                     if i < len(collections):
                         api = collections[i]['api']
                         query_id = str(collections[i]['query'].get('id_collect', i))
-                        
+
                         if api not in updates_by_api:
                             updates_by_api[api] = {}
-                        
+
                         updates_by_api[api][query_id] = result
-                
+
                 # Batch update queries in StateManager (10 per write vs 1 per write)
                 for api, updates in updates_by_api.items():
                     try:
                         await self.state_manager.batch_update_queries(api, updates)
-                        logging.info(f"StateManager: Batched {len(updates)} updates for {api}")
+                        logger.debug(f"StateManager: Batched {len(updates)} updates for {api}")
                     except Exception as e:
-                        logging.warning(f"StateManager batch update failed for {api}: {str(e)}")
+                        logger.warning(f"StateManager batch update failed for {api}: {str(e)}")
                         # Fall back to JSON updates
                         for query_id, result in updates.items():
                             self.update_state_details(api, query_id, result)
@@ -611,22 +617,18 @@ class CollectCollection:
         This is the main entry point for running collections asynchronously.
         Optionally initializes StateManager for SQLite-based state persistence.
         """
-        logging.info("=" * 70)
-        logging.info("Starting SciLEx Async Collection")
-        logging.info("=" * 70)
+        logger = logging.getLogger(__name__)
 
         try:
             # Initialize StateManager if enabled (Phase 1B optimization)
             if self.state_manager:
-                logging.info("Initializing StateManager for SQLite persistence...")
+                logger.debug("Initializing StateManager for SQLite persistence...")
                 await self.state_manager.initialize()
-                logging.info("StateManager initialized - using SQLite for state persistence")
-            
+                logger.debug("StateManager initialized - using SQLite for state persistence")
+
             await self.create_collects_jobs_async()
 
-            logging.info("=" * 70)
-            logging.info("Async collection completed successfully")
-            logging.info("=" * 70)
+            logger.info("All collections completed successfully")
 
         except Exception as e:
             logging.error(f"Async collection failed: {str(e)}")
