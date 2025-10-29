@@ -13,34 +13,34 @@ import pandas as pd
 from tqdm import tqdm
 
 import src.citations.citations_tools as cit_tools
+from src.abstract_validation import (
+    filter_by_abstract_quality,
+    validate_dataframe_abstracts,
+)
 from src.constants import MISSING_VALUE, is_valid
 from src.crawlers.aggregate import (
-    deduplicate,
-    SemanticScholartoZoteroFormat,
-    IstextoZoteroFormat,
     ArxivtoZoteroFormat,
     DBLPtoZoteroFormat,
-    HALtoZoteroFormat,
-    OpenAlextoZoteroFormat,
-    IEEEtoZoteroFormat,
-    SpringertoZoteroFormat,
     ElseviertoZoteroFormat,
     GoogleScholartoZoteroFormat,
+    HALtoZoteroFormat,
+    IEEEtoZoteroFormat,
+    IstextoZoteroFormat,
+    OpenAlextoZoteroFormat,
+    SemanticScholartoZoteroFormat,
+    SpringertoZoteroFormat,
+    deduplicate,
 )
 from src.crawlers.utils import load_all_configs
+from src.duplicate_tracking import analyze_and_report_duplicates
+from src.keyword_validation import (
+    filter_by_keywords,
+    generate_keyword_validation_report,
+)
 from src.quality_validation import (
     apply_quality_filters,
     generate_data_completeness_report,
 )
-from src.keyword_validation import (
-    generate_keyword_validation_report,
-    filter_by_keywords,
-)
-from src.abstract_validation import (
-    validate_dataframe_abstracts,
-    filter_by_abstract_quality,
-)
-from src.duplicate_tracking import analyze_and_report_duplicates
 
 # Set up logging configuration
 logging.basicConfig(
@@ -80,23 +80,70 @@ def _keyword_matches_in_abstract(keyword, abstract_text):
     return keyword in abstract_content
 
 
-def _record_passes_text_filter(record, keywords):
-    """Check if record contains any of the keywords in title or abstract."""
+def _record_passes_text_filter(
+    record,
+    keywords,
+    use_fuzzy=False,
+    fuzzy_threshold=0.85,
+    fuzzy_report=None
+):
+    """Check if record contains any of the keywords in title or abstract.
+    
+    Args:
+        record: Paper record dictionary
+        keywords: List of keywords to check
+        use_fuzzy: If True, use fuzzy keyword matching (default: False)
+        fuzzy_threshold: Similarity threshold for fuzzy matching (default: 0.85)
+        fuzzy_report: Optional FuzzyKeywordMatchReport to track statistics
+        
+    Returns:
+        bool: True if at least one keyword matches
+    """
     if not keywords:
         return True
 
     abstract = record.get("abstract", MISSING_VALUE)
-    title = record.get("title", "").lower()
+    title = record.get("title", "")
+    
+    # Combine title and abstract for fuzzy matching
+    combined_text = f"{title} {abstract if is_valid(abstract) else ''}"
 
+    # Try exact matching first (fast path)
+    title_lower = title.lower()
     for keyword in keywords:
+        keyword_lower = keyword.lower()
+        
         # Check in title
-        if keyword in title:
+        if keyword_lower in title_lower:
+            if fuzzy_report:
+                fuzzy_report.add_exact_match()
             return True
 
         # Check in abstract (if valid)
         if is_valid(abstract) and _keyword_matches_in_abstract(keyword, abstract):
+            if fuzzy_report:
+                fuzzy_report.add_exact_match()
             return True
 
+    # If exact match failed and fuzzy enabled, try fuzzy matching
+    if use_fuzzy:
+        from src.crawlers.fuzzy_keyword_matching import check_keywords_in_text_fuzzy
+        
+        is_match, matches = check_keywords_in_text_fuzzy(
+            keywords, combined_text, threshold=fuzzy_threshold, require_all=False
+        )
+        
+        if is_match and fuzzy_report:
+            # Record the best fuzzy match
+            best_match = max(matches, key=lambda x: x[1])  # Get highest similarity
+            fuzzy_report.add_fuzzy_match(best_match[0], best_match[1], best_match[2])
+            
+        if is_match:
+            return True
+
+    # No match found
+    if fuzzy_report:
+        fuzzy_report.add_no_match()
     return False
 
 
@@ -291,6 +338,18 @@ if __name__ == "__main__":
     logging.info(f"Starting aggregation from {state_path}")
     all_data = []
 
+    # Load fuzzy keyword matching configuration
+    quality_filters = main_config.get("quality_filters", {})
+    use_fuzzy_keywords = quality_filters.get("use_fuzzy_keyword_matching", False)
+    fuzzy_keyword_threshold = quality_filters.get("fuzzy_keyword_threshold", 0.85)
+
+    # Initialize fuzzy keyword matching report if enabled
+    fuzzy_keyword_report = None
+    if txt_filters and use_fuzzy_keywords:
+        from src.crawlers.fuzzy_keyword_matching import FuzzyKeywordMatchReport
+        fuzzy_keyword_report = FuzzyKeywordMatchReport()
+        logging.info(f"Fuzzy keyword matching enabled (threshold={fuzzy_keyword_threshold})")
+
     # Check if state file exists
     if not os.path.isfile(state_path):
         logging.error(f"State file not found: {state_path}")
@@ -325,7 +384,12 @@ if __name__ == "__main__":
                                         res = FORMAT_CONVERTERS[api_](row)
                                         if txt_filters:
                                             # Use helper function for cleaner text filtering logic
-                                            if _record_passes_text_filter(res, KW):
+                                            if _record_passes_text_filter(
+                                                res, KW,
+                                                use_fuzzy=use_fuzzy_keywords,
+                                                fuzzy_threshold=fuzzy_keyword_threshold,
+                                                fuzzy_report=fuzzy_keyword_report
+                                            ):
                                                 all_data.append(res)
                                         else:
                                             all_data.append(res)
@@ -333,12 +397,17 @@ if __name__ == "__main__":
             df = pd.DataFrame(all_data)
             logging.info(f"Aggregated {len(df)} papers from all APIs")
 
+            # Display fuzzy keyword matching report if enabled
+            if fuzzy_keyword_report:
+                fuzzy_report_text = fuzzy_keyword_report.generate_report()
+                logging.info(fuzzy_report_text)
+
             # Get quality filters configuration
             quality_filters = main_config.get("quality_filters", {})
 
             # Deduplicate records (with fuzzy matching if configured)
             use_fuzzy = quality_filters.get("use_fuzzy_matching", True) if quality_filters else True
-            fuzzy_threshold = quality_filters.get("fuzzy_threshold", 0.90) if quality_filters else 0.90
+            fuzzy_threshold = quality_filters.get("fuzzy_threshold", 0.95) if quality_filters else 0.95
             df_clean = deduplicate(df, use_fuzzy_matching=use_fuzzy, fuzzy_threshold=fuzzy_threshold)
             df_clean.reset_index(drop=True, inplace=True)
             logging.info(f"After deduplication: {len(df_clean)} unique papers")
@@ -360,7 +429,11 @@ if __name__ == "__main__":
             # Generate keyword validation report
             keywords = main_config.get("keywords", [])
             if keywords and quality_filters.get("generate_quality_report", True):
-                keyword_report = generate_keyword_validation_report(df_clean, keywords)
+                keyword_report = generate_keyword_validation_report(
+                    df_clean, keywords,
+                    use_fuzzy=use_fuzzy_keywords,
+                    fuzzy_threshold=fuzzy_keyword_threshold
+                )
                 logging.info(keyword_report)
 
             # Abstract quality validation (Phase 2)

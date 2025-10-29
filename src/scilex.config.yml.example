@@ -62,9 +62,21 @@ quality_filters:
   # Recommended: true (improves deduplication by 10-20%)
   use_fuzzy_matching: true
 
-  # Fuzzy matching threshold (0.0-1.0)
-  # 0.95 = very strict (only minor typos), 0.90 = recommended, 0.85 = lenient
-  fuzzy_threshold: 0.90
+  # Fuzzy matching threshold (0.0-1.0) for title deduplication
+  # 0.95 = very strict (only minor typos), 0.85 = lenient
+  fuzzy_threshold: 0.95
+
+  # Use fuzzy keyword matching during aggregation text filtering
+  # Catches papers with keyword variations (e.g., "ML" matches "machine learning")
+  # Helps find papers with abbreviations, stemming differences, related terms
+  # Recommended: false (opt-in feature, slightly slower aggregation)
+  use_fuzzy_keyword_matching: false
+
+  # Fuzzy keyword matching threshold (0.0-1.0)
+  # Lower than title matching since keywords are shorter
+  # 0.90 = very strict, 0.85 = recommended, 0.80 = lenient
+  # Example matches at 0.85: "algorithm" → "algorithms", "ML" → "machine learning"
+  fuzzy_keyword_threshold: 0.85
 
   # Validate abstract quality (detect truncation, boilerplate, encoding issues)
   # Set to true to get detailed abstract quality reports

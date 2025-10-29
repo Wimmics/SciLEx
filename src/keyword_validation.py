@@ -44,7 +44,10 @@ def check_keyword_in_text(keyword: str, text: str) -> bool:
 
 
 def check_keywords_in_paper(
-    record: Dict, keywords: List[List[str]]
+    record: Dict,
+    keywords: List[List[str]],
+    use_fuzzy: bool = False,
+    fuzzy_threshold: float = 0.85
 ) -> Tuple[bool, List[str]]:
     """
     Check if paper contains search keywords in title or abstract.
@@ -53,6 +56,8 @@ def check_keywords_in_paper(
         record: Paper record dictionary
         keywords: Keyword groups (same format as scilex config)
                   [[group1_kw1, group1_kw2], [group2_kw1, group2_kw2]]
+        use_fuzzy: If True, use fuzzy keyword matching (default: False)
+        fuzzy_threshold: Similarity threshold for fuzzy matching (default: 0.85)
 
     Returns:
         (found, matched_keywords): Whether keywords found and list of matched keywords
@@ -63,6 +68,33 @@ def check_keywords_in_paper(
 
     matched_keywords = []
 
+    # Use fuzzy matching if enabled
+    if use_fuzzy:
+        from src.crawlers.fuzzy_keyword_matching import (
+            check_keywords_in_text_fuzzy,
+            check_dual_keywords_fuzzy
+        )
+
+        # Handle single keyword group
+        if len(keywords) == 1 or (len(keywords) == 2 and not keywords[1]):
+            keyword_group = keywords[0]
+            found, matches = check_keywords_in_text_fuzzy(
+                keyword_group, combined_text, fuzzy_threshold, require_all=False
+            )
+            matched_keywords = [m[0] for m in matches]  # Extract keyword names
+            return found, matched_keywords
+
+        # Handle two keyword groups (must match from both groups)
+        if len(keywords) == 2 and keywords[0] and keywords[1]:
+            found, matches = check_dual_keywords_fuzzy(
+                keywords[0], keywords[1], combined_text, fuzzy_threshold
+            )
+            matched_keywords = [m[0] for m in matches]  # Extract keyword names
+            return found, matched_keywords
+
+        return False, []
+
+    # Use exact matching (original behavior)
     # Handle single keyword group
     if len(keywords) == 1 or (len(keywords) == 2 and not keywords[1]):
         keyword_group = keywords[0]
@@ -93,7 +125,10 @@ def check_keywords_in_paper(
 
 
 def generate_keyword_validation_report(
-    df: pd.DataFrame, keywords: List[List[str]]
+    df: pd.DataFrame,
+    keywords: List[List[str]],
+    use_fuzzy: bool = False,
+    fuzzy_threshold: float = 0.85
 ) -> str:
     """
     Generate a report on keyword presence in collected papers.
@@ -101,6 +136,8 @@ def generate_keyword_validation_report(
     Args:
         df: DataFrame with paper records
         keywords: Keyword groups from config
+        use_fuzzy: If True, use fuzzy keyword matching (default: False)
+        fuzzy_threshold: Similarity threshold for fuzzy matching (default: 0.85)
 
     Returns:
         String containing the validation report
@@ -120,7 +157,9 @@ def generate_keyword_validation_report(
 
     # Check each paper
     for idx, row in df.iterrows():
-        found, matched = check_keywords_in_paper(row.to_dict(), keywords)
+        found, matched = check_keywords_in_paper(
+            row.to_dict(), keywords, use_fuzzy, fuzzy_threshold
+        )
 
         if found:
             papers_with_keywords += 1
@@ -139,6 +178,15 @@ def generate_keyword_validation_report(
         f"Papers WITHOUT keywords: {papers_without_keywords} ({papers_without_keywords / total_papers * 100:.1f}%)",
         "",
     ]
+
+    # Show matching mode
+    if use_fuzzy:
+        report_lines.append(f"Matching mode: FUZZY (threshold={fuzzy_threshold})")
+        report_lines.append("  Catches variations like abbreviations, plurals, and related terms")
+    else:
+        report_lines.append("Matching mode: EXACT (case-insensitive substring)")
+
+    report_lines.append("")
 
     # Show keyword group structure
     if len(keywords) == 2 and keywords[0] and keywords[1]:
@@ -169,14 +217,23 @@ def generate_keyword_validation_report(
         report_lines.append(
             "      This suggests high false positive rate from APIs."
         )
-        report_lines.append(
-            "      Consider: more specific keywords, different APIs, or stricter filters."
-        )
+        if use_fuzzy:
+            report_lines.append(
+                "      Even with fuzzy matching! Consider more specific keywords or different APIs."
+            )
+        else:
+            report_lines.append(
+                "      Try enabling fuzzy keyword matching (use_fuzzy_keyword_matching: true)."
+            )
     elif false_positive_rate > 10:
         report_lines.append(
             f"  ⚠️  MODERATE: {false_positive_rate:.1f}% of papers don't contain keywords."
         )
         report_lines.append("      Some API false positives detected.")
+        if not use_fuzzy:
+            report_lines.append(
+                "      Consider enabling fuzzy keyword matching for better recall."
+            )
     else:
         report_lines.append(
             f"  ✓ GOOD: {false_positive_rate:.1f}% false positive rate is acceptable."

@@ -9,8 +9,8 @@ Created on Fri Feb 10 10:57:49 2023
 """
 
 import logging
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -139,7 +139,7 @@ def _fill_missing_values(row, column_values_dict, column_names):
     return row
 
 
-def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.90):
+def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.95):
     """
     Remove duplicate papers by DOI, exact title, and fuzzy title matching.
 
