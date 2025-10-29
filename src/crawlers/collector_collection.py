@@ -12,7 +12,6 @@ import yaml
 from .collectors import *
 from .async_wrapper import AsyncCollectorWrapper
 
-from src.gui.backend.services.state_manager import StateManager
 api_collectors = {
     "DBLP": DBLP_collector,
     "Arxiv": Arxiv_collector,
@@ -158,9 +157,13 @@ class CollectCollection:
         self.use_state_db = os.environ.get('USE_STATE_DB', '').lower() == 'true'
         if self.use_state_db:
             logging.info("StateManager enabled (USE_STATE_DB=true)")
-            repo = self.get_current_repo()
-            db_path = os.path.join(repo, 'state.db')
-            self.state_manager = StateManager(db_path)
+            try:
+                from src.gui.backend.services.state_manager import StateManager
+                repo = self.get_current_repo()
+                db_path = os.path.join(repo, 'state.db')
+                self.state_manager = StateManager(db_path)
+            except ImportError:
+                logging.warning("StateManager not available - GUI removed. USE_STATE_DB=true ignored.")
 
     def validate_api_keys(self):
         """Validate that required API keys are present before starting collection"""

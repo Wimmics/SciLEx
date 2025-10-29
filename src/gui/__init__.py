@@ -1,1 +1,0 @@
-"""SciLEx GUI package."""
