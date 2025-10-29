@@ -8,6 +8,7 @@ Created on Fri Feb 10 10:57:49 2023
 @version: 1.0.1
 """
 
+import asyncio
 import os
 import sys
 
@@ -77,12 +78,40 @@ def main():
     logging.info("================BEGIN Systematic Review Search================")
 
     colle_col = CollectCollection(main_config, api_config)
-    colle_col.create_collects_jobs()
+
+    # Check if async should be disabled (default is now ASYNC)
+    # Set USE_ASYNC_COLLECTION=false to use legacy sync pipeline
+    use_async = os.environ.get('USE_ASYNC_COLLECTION', 'true').lower() != 'false'
+
+    if use_async:
+        logging.info("Using ASYNC collection pipeline (Phase 1 optimization)")
+        asyncio.run(colle_col.run_async_collection())
+    else:
+        logging.info("Using SYNC collection pipeline (legacy - set USE_ASYNC_COLLECTION=false)")
+        colle_col.create_collects_jobs()
 
     logging.info("================END Systematic Review Search================")
     logging.info(f"Systematic review search ended at {datetime.now()}")
 
 
+async def main_async():
+    """Async entry point for collection"""
+    logging.info(f"Systematic review search started at {datetime.now()}")
+    logging.info("================BEGIN Systematic Review Search (ASYNC)================")
+
+    colle_col = CollectCollection(main_config, api_config)
+    await colle_col.run_async_collection()
+
+    logging.info("================END Systematic Review Search (ASYNC)================")
+    logging.info(f"Systematic review search ended at {datetime.now()}")
+
+
 if __name__ == "__main__":
+    # Check for async flag (default is now ASYNC - set to 'false' to disable)
+    use_async = os.environ.get('USE_ASYNC_COLLECTION', 'true').lower() != 'false'
+
     # This guard is required for multiprocessing on macOS/Windows (spawn mode)
-    main()
+    if use_async:
+        asyncio.run(main_async())
+    else:
+        main()
