@@ -113,7 +113,7 @@ output_dir/collect_name/
 If you have your Zotero API key, you can push the `aggregation_file.csv` content to a Zotero library. Note that free Zotero accounts have storage limits, so manual filtering is recommended.
 
 ```bash
-python aggregate_collect.py
+python push_to_Zotero_collect.py
 ```
 
 This will create a new library based on the `collect_name` defined in your configuration 🏁.
