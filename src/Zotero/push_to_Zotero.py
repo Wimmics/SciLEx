@@ -11,6 +11,7 @@ import os
 from datetime import datetime
 
 import pandas as pd
+from tqdm import tqdm
 
 from src.constants import is_valid
 from src.crawlers.utils import load_all_configs

@@ -45,16 +45,16 @@ class Filter_param:
 class API_collector:
     # Default rate limits (fallback if config not available)
     DEFAULT_RATE_LIMITS = {
-        'SemanticScholar': 1.0,
-        'OpenAlex': 10.0,
-        'Arxiv': 3.0,
-        'IEEE': 10.0,
-        'Elsevier': 6.0,
-        'Springer': 1.5,
-        'HAL': 10.0,
-        'DBLP': 10.0,
-        'GoogleScholar': 2.0,
-        'Crossref': 3.0,
+        "SemanticScholar": 1.0,
+        "OpenAlex": 10.0,
+        "Arxiv": 3.0,
+        "IEEE": 10.0,
+        "Elsevier": 6.0,
+        "Springer": 1.5,
+        "HAL": 10.0,
+        "DBLP": 10.0,
+        "GoogleScholar": 2.0,
+        "Crossref": 3.0,
     }
 
     def __init__(self, data_query, data_path, api_key):
@@ -73,6 +73,33 @@ class API_collector:
         self.api_url = ""
         self.state = data_query["state"]
 
+        # Connection pooling: Create persistent session (Phase 1 optimization)
+        self.session = requests.Session()
+        # Configure keep-alive and connection pooling
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=20,
+            max_retries=0,  # We handle retries manually
+            pool_block=False,
+        )
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+
+        # Batch file I/O: Buffer results before writing (Phase 1 optimization)
+        self._result_buffer = []
+        self._buffer_size = 10  # Write every 10 pages
+
+    def close_session(self):
+        """Close the HTTP session and release connections (Phase 1 optimization)."""
+        # Flush any remaining buffered results
+        if hasattr(self, "_result_buffer") and self._result_buffer:
+            self._flush_buffer()
+
+        # Close HTTP session
+        if hasattr(self, "session") and self.session:
+            self.session.close()
+            logging.debug(f"{self.api_name}: Session closed")
+
     def load_rate_limit_from_config(self):
         """
         Load rate limit for this API from the configuration file.
@@ -82,14 +109,20 @@ class API_collector:
         """
         try:
             # Try to find api.config.yml in the src directory
-            config_path = os.path.join(os.path.dirname(__file__), '..', 'api.config.yml')
+            config_path = os.path.join(
+                os.path.dirname(__file__), "..", "api.config.yml"
+            )
 
             if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
+                with open(config_path, "r") as f:
                     config = yaml.safe_load(f)
 
-                if config and 'rate_limits' in config and self.api_name in config['rate_limits']:
-                    configured_limit = float(config['rate_limits'][self.api_name])
+                if (
+                    config
+                    and "rate_limits" in config
+                    and self.api_name in config["rate_limits"]
+                ):
+                    configured_limit = float(config["rate_limits"][self.api_name])
                     self.rate_limit = configured_limit
                     logging.info(
                         f"{self.api_name}: Using configured rate limit of {configured_limit} req/sec"
@@ -113,19 +146,23 @@ class API_collector:
                 f"{self.api_name}: Using hardcoded rate limit of {self.rate_limit} req/sec"
             )
 
-    def log_api_usage(self, response: Optional[requests.Response], page: int, results_count: int):
+    def log_api_usage(
+        self, response: Optional[requests.Response], page: int, results_count: int
+    ):
         """
         Log API usage statistics for monitoring and debugging.
-        
+
         Args:
             response: The API response object (or None if request failed)
             page: The current page number
             results_count: Number of results retrieved
         """
         if response is None:
-            logging.warning(f"{self.api_name} - Page {page}: Request failed, no response received")
+            logging.warning(
+                f"{self.api_name} - Page {page}: Request failed, no response received"
+            )
             return
-        
+
         # Log basic request info
         log_data = {
             "api": self.api_name,
@@ -134,7 +171,7 @@ class API_collector:
             "status_code": response.status_code,
             "response_time_ms": int(response.elapsed.total_seconds() * 1000),
         }
-        
+
         # Extract rate limit info from common header names
         rate_limit_headers = {
             "X-RateLimit-Limit": "rate_limit_total",
@@ -142,14 +179,14 @@ class API_collector:
             "X-RateLimit-Reset": "rate_limit_reset",
             "Retry-After": "retry_after",
         }
-        
+
         for header, key in rate_limit_headers.items():
             if header in response.headers:
                 log_data[key] = response.headers[header]
-        
+
         # Log as structured JSON for easy parsing
         logging.info(f"API_USAGE: {json.dumps(log_data)}")
-        
+
         # Warn if approaching rate limits
         if "rate_limit_remaining" in log_data:
             remaining = int(log_data["rate_limit_remaining"])
@@ -186,12 +223,34 @@ class API_collector:
         self.state = complete
 
     def savePageResults(self, global_data, page):
+        """
+        Save page results with buffering (Phase 1 optimization).
+        Results are buffered and written in batches to reduce I/O overhead.
+        """
+        # Add to buffer
+        self._result_buffer.append((page, global_data))
+
+        # Flush buffer if it reaches the batch size
+        if len(self._result_buffer) >= self._buffer_size:
+            self._flush_buffer()
+
+    def _flush_buffer(self):
+        """Write buffered results to disk (Phase 1 optimization)."""
+        if not self._result_buffer:
+            return
+
         self.createCollectDir()
-        logging.debug(f"Saving page {page} results to {self.get_collectDir()}")
-        with open(
-            self.get_collectDir() + "/page_" + str(page), "w", encoding="utf8"
-        ) as json_file:
-            json.dump(global_data, json_file)
+        logging.debug(
+            f"Flushing {len(self._result_buffer)} pages to {self.get_collectDir()}"
+        )
+
+        for page, global_data in self._result_buffer:
+            with open(
+                self.get_collectDir() + "/page_" + str(page), "w", encoding="utf8"
+            ) as json_file:
+                json.dump(global_data, json_file)
+
+        self._result_buffer.clear()
 
     def get_lastpage(self):
         return self.lastpage
@@ -232,11 +291,11 @@ class API_collector:
     def api_call_decorator(self, configurated_url, max_retries=3):
         """
         Enhanced API call decorator with retry logic and comprehensive error handling.
-        
+
         Args:
             configurated_url: The URL to call
             max_retries: Maximum number of retry attempts (default: 3)
-            
+
         Returns:
             Response object from the API
         """
@@ -246,22 +305,24 @@ class API_collector:
         @limits(calls=self.get_ratelimit(), period=1)
         def access_rate_limited_decorated(configurated_url):
             last_exception = None
-            
+
             for attempt in range(max_retries):
                 try:
-                    resp = requests.get(configurated_url, timeout=30)
+                    resp = self.session.get(configurated_url, timeout=30)
                     resp.raise_for_status()
-                    
+
                     # Log successful request with rate limit info
-                    logging.debug(f"{self.api_name} API: Request successful (attempt {attempt + 1}/{max_retries})")
+                    logging.debug(
+                        f"{self.api_name} API: Request successful (attempt {attempt + 1}/{max_retries})"
+                    )
                     return resp
-                    
+
                 except requests.exceptions.HTTPError as e:
                     status_code = e.response.status_code
                     last_exception = e
-                    
+
                     if status_code == 429:  # Too Many Requests
-                        wait_time = 2 ** attempt  # Exponential backoff
+                        wait_time = 2**attempt  # Exponential backoff
                         logging.warning(
                             f"{self.api_name} API rate limit exceeded. "
                             f"Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries})"
@@ -276,7 +337,7 @@ class API_collector:
                         )
                         raise  # Don't retry auth errors
                     elif status_code >= 500:  # Server errors
-                        wait_time = 2 ** attempt
+                        wait_time = 2**attempt
                         logging.warning(
                             f"{self.api_name} API server error: {status_code}. "
                             f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
@@ -285,12 +346,14 @@ class API_collector:
                             time.sleep(wait_time)
                             continue
                     else:
-                        logging.error(f"{self.api_name} API HTTP error {status_code}: {str(e)}")
+                        logging.error(
+                            f"{self.api_name} API HTTP error {status_code}: {str(e)}"
+                        )
                         raise
-                        
+
                 except requests.exceptions.Timeout as e:
                     last_exception = e
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logging.warning(
                         f"{self.api_name} API request timeout. "
                         f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
@@ -299,12 +362,14 @@ class API_collector:
                         time.sleep(wait_time)
                         continue
                     else:
-                        logging.error(f"{self.api_name} API: All retry attempts failed due to timeout")
+                        logging.error(
+                            f"{self.api_name} API: All retry attempts failed due to timeout"
+                        )
                         raise
-                        
+
                 except requests.exceptions.ConnectionError as e:
                     last_exception = e
-                    wait_time = 2 ** attempt
+                    wait_time = 2**attempt
                     logging.warning(
                         f"{self.api_name} API connection error. "
                         f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
@@ -313,9 +378,11 @@ class API_collector:
                         time.sleep(wait_time)
                         continue
                     else:
-                        logging.error(f"{self.api_name} API: All retry attempts failed due to connection error")
+                        logging.error(
+                            f"{self.api_name} API: All retry attempts failed due to connection error"
+                        )
                         raise
-                        
+
                 except requests.exceptions.RequestException as e:
                     last_exception = e
                     logging.error(
@@ -323,14 +390,16 @@ class API_collector:
                         f"Attempt {attempt + 1}/{max_retries}"
                     )
                     if attempt < max_retries - 1:
-                        time.sleep(2 ** attempt)
+                        time.sleep(2**attempt)
                         continue
                     else:
                         raise
-            
+
             # If we exhausted all retries, raise the last exception
             if last_exception:
-                logging.error(f"{self.api_name} API: All {max_retries} retry attempts exhausted")
+                logging.error(
+                    f"{self.api_name} API: All {max_retries} retry attempts exhausted"
+                )
                 raise last_exception
 
         return access_rate_limited_decorated(configurated_url)
@@ -408,7 +477,6 @@ class API_collector:
             # If this is a DBLP collector, follow the normal process
 
             while has_more_pages and fewer_than_10k_results:
-
                 offset = self.get_offset(page)  # Calculate the current offset
 
                 url = self.get_configurated_url().format(
@@ -423,9 +491,11 @@ class API_collector:
                     page_data = self.parsePageResults(
                         response, page
                     )  # Parse the response
-                    
+
                     # Log API usage statistics
-                    self.log_api_usage(response, page, len(page_data.get("results", [])))
+                    self.log_api_usage(
+                        response, page, len(page_data.get("results", []))
+                    )
 
                     self.nb_art_collected += int(len(page_data["results"]))
                     nb_res = len(page_data["results"])
@@ -471,6 +541,7 @@ class API_collector:
                     has_more_pages = False  # Stop collecting if there's an error
                     state_data["state"] = 0
                     state_data["last_page"] = page
+                    self._flush_buffer()  # Flush before early return (Phase 1)
                     return state_data
 
         # Final log messages based on the collection status
@@ -484,6 +555,9 @@ class API_collector:
             logging.info(
                 f"Total extraction will need approximately {time_needed:.2f} hours."
             )
+
+        # Flush any remaining buffered results (Phase 1 optimization)
+        self._flush_buffer()
 
         return state_data
 
@@ -547,7 +621,6 @@ class SemanticScholar_collector(API_collector):
         }
 
         try:
-
             page_with_results = response.json()
 
             page_data["total"] = int(page_with_results.get("total", 0))
@@ -765,7 +838,7 @@ class Elsevier_collector(API_collector):
     def __init__(self, filter_param, data_path, api_key, inst_token=None):
         """
         Initialize Elsevier Scopus API collector.
-        
+
         Args:
             filter_param: Filter parameters for the search
             data_path: Path for saving data
@@ -780,54 +853,64 @@ class Elsevier_collector(API_collector):
         self.api_name = "Elsevier"
         self.api_url = "https://api.elsevier.com/content/search/scopus"
         self.inst_token = inst_token
-        logging.info(f"Initialized Elsevier collector with institutional token: {inst_token is not None}")
+        logging.info(
+            f"Initialized Elsevier collector with institutional token: {inst_token is not None}"
+        )
 
     def api_call_decorator(self, configurated_url):
         """
         Custom API call with Elsevier-specific headers including institutional token.
-        
+
         Args:
             configurated_url: The URL to call
-            
+
         Returns:
             Response object from the API
         """
+
         @sleep_and_retry
         @limits(calls=self.get_ratelimit(), period=1)
         def access_rate_limited_decorated(configurated_url):
             headers = {"X-ELS-APIKey": self.get_apikey(), "Accept": "application/json"}
-            
+
             # Add institutional token if available (provides better access)
             if self.inst_token:
                 headers["X-ELS-Insttoken"] = self.inst_token
                 logging.debug("Using institutional token for Elsevier API request")
-            
+
             try:
                 resp = requests.get(configurated_url, headers=headers, timeout=30)
                 resp.raise_for_status()
-                
+
                 # Log API quota usage from response headers
                 if "X-RateLimit-Remaining" in resp.headers:
-                    logging.info(f"Elsevier API quota remaining: {resp.headers['X-RateLimit-Remaining']}")
-                
+                    logging.info(
+                        f"Elsevier API quota remaining: {resp.headers['X-RateLimit-Remaining']}"
+                    )
+
                 return resp
             except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 429:
-                    logging.error("Rate limit exceeded for Elsevier API. Consider reducing rate_limit.")
+                    logging.error(
+                        "Rate limit exceeded for Elsevier API. Consider reducing rate_limit."
+                    )
                 elif e.response.status_code == 401:
-                    logging.error("Authentication failed. Check your API key and institutional token.")
+                    logging.error(
+                        "Authentication failed. Check your API key and institutional token."
+                    )
                 raise
             except requests.exceptions.Timeout:
                 logging.error(f"Request timeout for URL: {configurated_url}")
                 raise
             except requests.exceptions.RequestException as e:
-                logging.error(f"Request failed for URL: {configurated_url}. Error: {str(e)}")
+                logging.error(
+                    f"Request failed for URL: {configurated_url}. Error: {str(e)}"
+                )
                 raise
 
         return access_rate_limited_decorated(configurated_url)
 
     def parsePageResults(self, response, page):
-
         """Parse the JSON response from Elsevier API and return structured data."""
         page_data = {
             "date_search": str(date.today()),
@@ -850,7 +933,6 @@ class Elsevier_collector(API_collector):
         return page_data
 
     def construct_search_query(self):
-
         """
         Constructs a search query for the API from the keyword sets.
         The format will be:
@@ -876,7 +958,6 @@ class Elsevier_collector(API_collector):
         return search_query
 
     def get_configurated_url(self):
-
         """Constructs the API URL with the search query and publication year filters."""
         # Construct the search query
         keywords_query = (
@@ -1641,12 +1722,18 @@ class GoogleScholarCollector(API_collector):
             if success:
                 scholarly.use_proxy(pg)
                 GoogleScholarCollector._proxy_initialized = True
-                logging.info("Google Scholar proxy initialized successfully with FreeProxies")
+                logging.info(
+                    "Google Scholar proxy initialized successfully with FreeProxies"
+                )
             else:
-                logging.warning("Failed to initialize FreeProxies, proceeding without proxy (may be blocked)")
+                logging.warning(
+                    "Failed to initialize FreeProxies, proceeding without proxy (may be blocked)"
+                )
         except Exception as e:
             logging.error(f"Error setting up Google Scholar proxy: {str(e)}")
-            logging.warning("Proceeding without proxy - requests may be blocked by Google Scholar")
+            logging.warning(
+                "Proceeding without proxy - requests may be blocked by Google Scholar"
+            )
 
     def parsePageResults(self, results_batch, page):
         """
@@ -1663,7 +1750,8 @@ class GoogleScholarCollector(API_collector):
             "date_search": str(date.today()),
             "id_collect": self.get_collectId(),
             "page": page,
-            "total": len(results_batch) * page,  # Estimate (scholarly doesn't provide exact totals)
+            "total": len(results_batch)
+            * page,  # Estimate (scholarly doesn't provide exact totals)
             "results": [],
         }
 
@@ -1684,7 +1772,9 @@ class GoogleScholarCollector(API_collector):
                 }
                 page_data["results"].append(parsed_result)
             except Exception as e:
-                logging.warning(f"Error parsing individual Google Scholar result: {str(e)}")
+                logging.warning(
+                    f"Error parsing individual Google Scholar result: {str(e)}"
+                )
                 continue
 
         logging.info(f"Parsed page {page}: {len(page_data['results'])} results")
@@ -1761,7 +1851,9 @@ class GoogleScholarCollector(API_collector):
                     state_data["coll_art"] = self.nb_art_collected
                     state_data["total_art"] = self.nb_art_collected  # Estimate
 
-                    logging.info(f"Processed page {page}: {len(page_data['results'])} results. Total collected: {self.nb_art_collected}")
+                    logging.info(
+                        f"Processed page {page}: {len(page_data['results'])} results. Total collected: {self.nb_art_collected}"
+                    )
 
                     # Move to next page
                     page += 1
@@ -1786,7 +1878,9 @@ class GoogleScholarCollector(API_collector):
 
             # Mark as complete
             state_data["state"] = 1
-            logging.info(f"Google Scholar collection complete. Total articles collected: {self.nb_art_collected}")
+            logging.info(
+                f"Google Scholar collection complete. Total articles collected: {self.nb_art_collected}"
+            )
 
         except Exception as e:
             logging.error(f"Error during Google Scholar collection: {str(e)}")

@@ -247,25 +247,26 @@ class ZoteroAPI:
         logging.info(f"Found {len(items)} items in collection")
         return items
 
-    def get_existing_item_urls(self, collection_key: str) -> List[str]:
+    def get_existing_item_urls(self, collection_key: str) -> set:
         """
         Get URLs of all existing items in a collection.
 
         This is useful for checking duplicates before adding new items.
+        Returns a set for O(1) lookup performance.
 
         Args:
             collection_key: The collection's key
 
         Returns:
-            List of URLs from existing items
+            Set of URLs from existing items
         """
         items = self.get_collection_items(collection_key)
-        urls = []
+        urls = set()
 
         for item in items:
             url = item.get("data", {}).get("url")
             if url:
-                urls.append(url)
+                urls.add(url)
 
         logging.info(f"Found {len(urls)} existing URLs in collection")
         return urls
@@ -308,26 +309,57 @@ class ZoteroAPI:
         logging.warning(f"Failed to post item: {item_data.get('title', 'Unknown')}")
         return False
 
-    def post_items_bulk(self, items: List[Dict]) -> Dict[str, int]:
+    def post_items_bulk(
+        self, items: List[Dict], batch_size: int = 50
+    ) -> Dict[str, int]:
         """
-        Post multiple items to Zotero in bulk.
+        Post multiple items to Zotero using true bulk API calls.
+
+        Zotero API supports up to 50 items per POST request. This method
+        batches items appropriately for optimal performance.
 
         Args:
             items: List of item data dictionaries
+            batch_size: Number of items per batch (max 50 per Zotero API)
 
         Returns:
             Dictionary with counts: {"success": n, "failed": m}
         """
         results = {"success": 0, "failed": 0}
 
-        for item in items:
-            if self.post_item(item):
-                results["success"] += 1
+        # Validate batch size
+        if batch_size > 50:
+            logging.warning(
+                f"Batch size {batch_size} exceeds Zotero API limit of 50. Using 50."
+            )
+            batch_size = 50
+
+        # Process items in batches
+        total_batches = (len(items) + batch_size - 1) // batch_size
+        for i in range(0, len(items), batch_size):
+            batch = items[i : i + batch_size]
+            batch_num = (i // batch_size) + 1
+
+            logging.debug(
+                f"Posting batch {batch_num}/{total_batches} ({len(batch)} items)"
+            )
+
+            response = self._post("/items", data=batch)
+
+            if response and response.status_code in [200, 201]:
+                # All items in batch succeeded
+                results["success"] += len(batch)
+                logging.debug(f"Batch {batch_num} posted successfully")
             else:
-                results["failed"] += 1
+                # Entire batch failed - could implement per-item retry here if needed
+                results["failed"] += len(batch)
+                logging.warning(
+                    f"Batch {batch_num} failed - {len(batch)} items not posted"
+                )
 
         logging.info(
-            f"Bulk post complete: {results['success']} succeeded, {results['failed']} failed"
+            f"Bulk post complete: {results['success']} succeeded, "
+            f"{results['failed']} failed across {total_batches} batches"
         )
         return results
 

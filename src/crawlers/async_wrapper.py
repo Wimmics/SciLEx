@@ -24,6 +24,8 @@ from src.crawlers.collectors import (
     OpenAlex_collector,
     HAL_collector,
     Arxiv_collector,
+    GoogleScholarCollector,
+    Istex_collector,
 )
 
 
@@ -40,28 +42,31 @@ class AsyncCollectorWrapper:
 
     # Concurrency limits (max concurrent collections per API)
     CONCURRENCY_LIMITS = {
-        'SemanticScholar': 1,      # Very conservative (1 req/sec)
-        'OpenAlex': 3,             # Can handle 3 concurrent (10 req/sec)
-        'Arxiv': 2,                # Conservative (3 req/sec)
-        'IEEE': 3,                 # Conservative (10 req/sec, 200/day quota)
-        'Elsevier': 2,             # Conservative (6 req/sec)
-        'Springer': 1,             # Very conservative (1.5 req/sec)
-        'HAL': 3,                  # Can handle multiple (10 req/sec)
-        'DBLP': 3,                 # Can handle multiple (10 req/sec)
-        'GoogleScholar': 1,        # Single thread (web scraping)
-        'Crossref': 3,             # Can handle multiple (3 req/sec)
+        "SemanticScholar": 1,  # Very conservative (1 req/sec)
+        "OpenAlex": 3,  # Can handle 3 concurrent (10 req/sec)
+        "Arxiv": 2,  # Conservative (3 req/sec)
+        "IEEE": 3,  # Conservative (10 req/sec, 200/day quota)
+        "Elsevier": 2,  # Conservative (6 req/sec)
+        "Springer": 1,  # Very conservative (1.5 req/sec)
+        "HAL": 3,  # Can handle multiple (10 req/sec)
+        "DBLP": 3,  # Can handle multiple (10 req/sec)
+        "GoogleScholar": 1,  # Single thread (web scraping)
+        "ISTEX": 2,  # Conservative (10 req/sec available)
+        "Crossref": 3,  # Can handle multiple (3 req/sec)
     }
 
     # Mapping of API names to collector classes
     COLLECTOR_CLASSES = {
-        'SemanticScholar': SemanticScholar_collector,
-        'IEEE': IEEE_collector,
-        'Elsevier': Elsevier_collector,
-        'Springer': Springer_collector,
-        'DBLP': DBLP_collector,
-        'OpenAlex': OpenAlex_collector,
-        'HAL': HAL_collector,
-        'Arxiv': Arxiv_collector,
+        "SemanticScholar": SemanticScholar_collector,
+        "IEEE": IEEE_collector,
+        "Elsevier": Elsevier_collector,
+        "Springer": Springer_collector,
+        "DBLP": DBLP_collector,
+        "OpenAlex": OpenAlex_collector,
+        "HAL": HAL_collector,
+        "Arxiv": Arxiv_collector,
+        "GoogleScholar": GoogleScholarCollector,
+        "ISTEX": Istex_collector,
     }
 
     def __init__(self):
@@ -79,7 +84,7 @@ class AsyncCollectorWrapper:
         api_name: str,
         data_query: Dict[str, Any],
         data_path: str,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Run a collection asynchronously using semaphore for rate limiting.
@@ -104,11 +109,7 @@ class AsyncCollectorWrapper:
         async with semaphore:
             # Run sync collector in thread pool (non-blocking)
             result = await asyncio.to_thread(
-                self._run_sync_collector,
-                api_name,
-                data_query,
-                data_path,
-                api_key
+                self._run_sync_collector, api_name, data_query, data_path, api_key
             )
             return result
 
@@ -117,7 +118,7 @@ class AsyncCollectorWrapper:
         api_name: str,
         data_query: Dict[str, Any],
         data_path: str,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Run the synchronous collector (runs in thread pool).
@@ -138,7 +139,7 @@ class AsyncCollectorWrapper:
                 return {
                     "state": -1,
                     "error": f"Unknown API: {api_name}",
-                    "last_page": 0
+                    "last_page": 0,
                 }
 
             # Instantiate collector
@@ -153,21 +154,17 @@ class AsyncCollectorWrapper:
                 f"{state_data.get('coll_art', 0)} papers collected"
             )
 
+            # Close HTTP session to free connections (Phase 1 optimization)
+            if hasattr(collector, "close_session"):
+                collector.close_session()
+
             return state_data
 
         except Exception as e:
             logging.error(f"Error in async collection for {api_name}: {str(e)}")
-            return {
-                "state": -1,
-                "error": str(e),
-                "last_page": 0,
-                "coll_art": 0
-            }
+            return {"state": -1, "error": str(e), "last_page": 0, "coll_art": 0}
 
-    async def run_collections_parallel(
-        self,
-        collections: list
-    ) -> list:
+    async def run_collections_parallel(self, collections: list) -> list:
         """
         Run multiple collections in parallel with rate limiting.
 
@@ -183,10 +180,10 @@ class AsyncCollectorWrapper:
         """
         tasks = [
             self.run_collection_async(
-                collection['api'],
-                collection['query'],
-                collection['path'],
-                collection.get('key')
+                collection["api"],
+                collection["query"],
+                collection["path"],
+                collection.get("key"),
             )
             for collection in collections
         ]
@@ -198,14 +195,10 @@ class AsyncCollectorWrapper:
         final_results = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logging.error(
-                    f"Collection {i} failed with exception: {str(result)}"
+                logging.error(f"Collection {i} failed with exception: {str(result)}")
+                final_results.append(
+                    {"state": -1, "error": str(result), "last_page": 0}
                 )
-                final_results.append({
-                    "state": -1,
-                    "error": str(result),
-                    "last_page": 0
-                })
             else:
                 final_results.append(result)
 
@@ -216,7 +209,7 @@ class AsyncCollectorWrapper:
         api_name: str,
         queries: list,
         base_path: str,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
     ) -> list:
         """
         Run multiple queries for the same API sequentially.
@@ -240,10 +233,7 @@ class AsyncCollectorWrapper:
             query_path = f"{base_path}/{api_name}/query_{i:03d}"
 
             result = await self.run_collection_async(
-                api_name,
-                query,
-                query_path,
-                api_key
+                api_name, query, query_path, api_key
             )
             results.append(result)
 
@@ -268,18 +258,18 @@ async def run_wrapper_example():
     # Example: Run multiple collections in parallel
     collections = [
         {
-            'api': 'SemanticScholar',
-            'query': {
-                'year': 2024,
-                'keyword': ['knowledge graph'],
-                'id_collect': 0,
-                'total_art': 0,
-                'last_page': 0,
-                'coll_art': 0,
-                'state': -1
+            "api": "SemanticScholar",
+            "query": {
+                "year": 2024,
+                "keyword": ["knowledge graph"],
+                "id_collect": 0,
+                "total_art": 0,
+                "last_page": 0,
+                "coll_art": 0,
+                "state": -1,
             },
-            'path': '/tmp/scilex/semantic_scholar',
-            'key': 'YOUR_API_KEY'
+            "path": "/tmp/scilex/semantic_scholar",
+            "key": "YOUR_API_KEY",
         }
     ]
 
@@ -287,5 +277,5 @@ async def run_wrapper_example():
     print(f"Results: {results}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(run_wrapper_example())
