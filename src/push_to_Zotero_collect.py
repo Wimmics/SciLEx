@@ -75,7 +75,6 @@ if __name__ == "__main__":
     research_coll = main_config["collect_name"]
 
     dir_collect = os.path.join(main_config["output_dir"], main_config["collect_name"])
-    research_coll = "DatasetSurveys"
     aggr_file = main_config["aggregate_file"]
 
     print(dir_collect)

@@ -90,6 +90,32 @@ quality_filters:
   # Only applies if validate_abstracts is true
   filter_by_abstract_quality: false
 
+  # === Phase 3 Features (Citation-Based Filtering) ===
+
+  # Apply time-aware citation filtering (requires aggregate_get_citations: true)
+  # Filters papers based on citation count relative to their age:
+  # - 0-3 months: 0 citations required (grace period for new papers)
+  # - 3-6 months: 1+ citations
+  # - 6-12 months: 3+ citations
+  # - 12-24 months: 5-8+ citations (gradual increase)
+  # - 24+ months: 10+ citations (established papers should have impact)
+  # Recommended: true (focuses on impactful papers while keeping recent work)
+  apply_citation_filter: true
+
+  # === Phase 4 Features (Relevance Ranking) ===
+
+  # Apply composite relevance scoring to rank papers by importance
+  # Combines: keyword frequency (3x), citations (2x), quality score (1x), journal bonus (0.5)
+  # Papers are sorted by relevance score (higher = more relevant)
+  # Recommended: true (helps prioritize most relevant papers)
+  apply_relevance_ranking: true
+
+  # Maximum number of papers to keep after all filtering (optional)
+  # Set to a number (e.g., 500, 1000) to keep only top N most relevant papers
+  # Set to null or remove to keep all papers that pass filters
+  # Recommended: 500-1000 for focused reviews, null for comprehensive studies
+  max_papers: 1000
+
   # Track which APIs found which papers and analyze overlap
   # Generates reports showing API value, overlap, and optimization recommendations
   # Recommended: true (helps optimize future API selection)

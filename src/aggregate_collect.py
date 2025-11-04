@@ -6,6 +6,8 @@ import os
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from dateutil import parser as date_parser
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -77,39 +79,112 @@ def _keyword_matches_in_abstract(keyword, abstract_text):
     return keyword in abstract_content
 
 
+def _check_keywords_in_text(keywords_list, text, use_fuzzy=False, fuzzy_threshold=0.85):
+    """Check if any keyword from a list matches the text.
+
+    Args:
+        keywords_list: List of keywords to check
+        text: Text to search in (combined title + abstract)
+        use_fuzzy: If True, use fuzzy keyword matching
+        fuzzy_threshold: Similarity threshold for fuzzy matching
+
+    Returns:
+        bool: True if at least one keyword matches
+    """
+    text_lower = text.lower()
+
+    # Try exact matching first (fast path)
+    for keyword in keywords_list:
+        if keyword.lower() in text_lower:
+            return True
+
+    # If exact match failed and fuzzy enabled, try fuzzy matching
+    if use_fuzzy:
+        from src.crawlers.fuzzy_keyword_matching import check_keywords_in_text_fuzzy
+
+        is_match, _ = check_keywords_in_text_fuzzy(
+            keywords_list, text, threshold=fuzzy_threshold, require_all=False
+        )
+        return is_match
+
+    return False
+
+
 def _record_passes_text_filter(
     record,
     keywords,
     use_fuzzy=False,
     fuzzy_threshold=0.85,
-    fuzzy_report=None
+    fuzzy_report=None,
+    keyword_groups=None
 ):
-    """Check if record contains any of the keywords in title or abstract.
-    
+    """Check if record contains required keywords in title or abstract.
+
+    For dual keyword group mode (2 groups): Requires match from BOTH Group1 AND Group2
+    For single keyword group mode (1 group): Requires match from ANY keyword in group
+
     Args:
         record: Paper record dictionary
-        keywords: List of keywords to check
+        keywords: List of keywords from the query (for backward compatibility)
         use_fuzzy: If True, use fuzzy keyword matching (default: False)
         fuzzy_threshold: Similarity threshold for fuzzy matching (default: 0.85)
         fuzzy_report: Optional FuzzyKeywordMatchReport to track statistics
-        
+        keyword_groups: Optional list of keyword groups from config (for dual-group mode)
+
     Returns:
-        bool: True if at least one keyword matches
+        bool: True if keyword requirements are met
     """
-    if not keywords:
+    if not keywords and not keyword_groups:
         return True
 
     abstract = record.get("abstract", MISSING_VALUE)
     title = record.get("title", "")
-    
-    # Combine title and abstract for fuzzy matching
+
+    # Combine title and abstract for matching
     combined_text = f"{title} {abstract if is_valid(abstract) else ''}"
+
+    # ========================================================================
+    # DUAL KEYWORD GROUP MODE: Require match from BOTH groups
+    # ========================================================================
+    if keyword_groups and len(keyword_groups) == 2:
+        group1, group2 = keyword_groups
+
+        # Must have at least one keyword from each group
+        if not group1 or not group2:
+            # Fallback to single-group mode if one group is empty
+            all_keywords = [kw for g in keyword_groups for kw in g if g]
+            if not all_keywords:
+                return True
+            keywords = all_keywords
+        else:
+            # Check Group 1
+            group1_match = _check_keywords_in_text(group1, combined_text, use_fuzzy, fuzzy_threshold)
+
+            # Check Group 2
+            group2_match = _check_keywords_in_text(group2, combined_text, use_fuzzy, fuzzy_threshold)
+
+            # Both groups must match
+            if group1_match and group2_match:
+                if fuzzy_report:
+                    fuzzy_report.add_exact_match()  # Simplified tracking
+                return True
+            else:
+                if fuzzy_report:
+                    fuzzy_report.add_no_match()
+                return False
+
+    # ========================================================================
+    # SINGLE KEYWORD GROUP MODE: Require match from ANY keyword
+    # ========================================================================
+    # Flatten keyword groups into single list (or use provided keywords)
+    if keyword_groups:
+        keywords = [kw for group in keyword_groups for kw in group if group]
 
     # Try exact matching first (fast path)
     title_lower = title.lower()
     for keyword in keywords:
         keyword_lower = keyword.lower()
-        
+
         # Check in title
         if keyword_lower in title_lower:
             if fuzzy_report:
@@ -125,16 +200,16 @@ def _record_passes_text_filter(
     # If exact match failed and fuzzy enabled, try fuzzy matching
     if use_fuzzy:
         from src.crawlers.fuzzy_keyword_matching import check_keywords_in_text_fuzzy
-        
+
         is_match, matches = check_keywords_in_text_fuzzy(
             keywords, combined_text, threshold=fuzzy_threshold, require_all=False
         )
-        
+
         if is_match and fuzzy_report:
             # Record the best fuzzy match
             best_match = max(matches, key=lambda x: x[1])  # Get highest similarity
             fuzzy_report.add_fuzzy_match(best_match[0], best_match[1], best_match[2])
-            
+
         if is_match:
             return True
 
@@ -146,6 +221,241 @@ def _record_passes_text_filter(
 
 # Global lock for thread-safe rate limiting
 _rate_limit_lock = threading.Lock()
+
+
+def _calculate_paper_age_months(date_str):
+    """Calculate paper age in months from publication date.
+
+    Args:
+        date_str: Publication date string (various formats)
+
+    Returns:
+        int: Age in months, or None if date invalid/missing
+    """
+    if not is_valid(date_str):
+        return None
+
+    try:
+        # Parse date string (handles multiple formats)
+        pub_date = date_parser.parse(str(date_str))
+        now = datetime.now()
+
+        # Calculate difference in months
+        months_diff = (now.year - pub_date.year) * 12 + (now.month - pub_date.month)
+        return max(0, months_diff)  # Ensure non-negative
+
+    except (ValueError, TypeError, date_parser.ParserError):
+        return None
+
+
+def _calculate_required_citations(months_since_pub):
+    """Calculate required citation threshold based on paper age.
+
+    Formula: Graduated thresholds with grace period for recent papers
+    - 0-3 months: 0 citations (new papers get full grace period)
+    - 3-6 months: 1 citation
+    - 6-12 months: 3 citations
+    - 12-24 months: 5-8 citations (gradual increase)
+    - 24+ months: 10+ citations (established papers should have impact)
+
+    Args:
+        months_since_pub: Paper age in months
+
+    Returns:
+        int: Required citation count
+    """
+    if months_since_pub is None:
+        return 0  # No date = no filtering (assume recent)
+
+    if months_since_pub <= 3:
+        return 0  # Grace period for very recent papers
+    elif months_since_pub <= 6:
+        return 1  # 3-6 months: at least 1 citation
+    elif months_since_pub <= 12:
+        return 3  # 6-12 months: at least 3 citations
+    elif months_since_pub <= 24:
+        # Gradual increase: 5 citations at 12 months, 8 at 24 months
+        return 5 + int((months_since_pub - 12) / 4)
+    else:
+        # 24+ months: 10+ citations (incremental for older papers)
+        return 10 + int((months_since_pub - 24) / 12)
+
+
+def _apply_time_aware_citation_filter(df, citation_col='nb_citation', date_col='date'):
+    """Apply time-aware citation filtering to DataFrame.
+
+    Papers are filtered based on citation count relative to their age:
+    - Recent papers (0-3 months): No filtering (0 citations OK)
+    - Older papers: Increasing citation requirements
+
+    Args:
+        df: DataFrame with papers
+        citation_col: Column name for citation count
+        date_col: Column name for publication date
+
+    Returns:
+        pd.DataFrame: Filtered DataFrame with citation_threshold column added
+    """
+    logging.info("Applying time-aware citation filtering...")
+
+    # Calculate age and required citations
+    df['paper_age_months'] = df[date_col].apply(_calculate_paper_age_months)
+    df['citation_threshold'] = df['paper_age_months'].apply(_calculate_required_citations)
+
+    # Convert citation count to numeric (handle empty/invalid values)
+    df[citation_col] = pd.to_numeric(df[citation_col], errors='coerce').fillna(0).astype(int)
+
+    # Apply filtering
+    initial_count = len(df)
+    df_filtered = df[df[citation_col] >= df['citation_threshold']].copy()
+    removed_count = initial_count - len(df_filtered)
+
+    # Log statistics by age group
+    logging.info(f"Time-aware citation filter applied:")
+    logging.info(f"  Initial papers: {initial_count:,}")
+    logging.info(f"  Removed: {removed_count:,} ({removed_count/initial_count*100:.1f}%)")
+    logging.info(f"  Remaining: {len(df_filtered):,}")
+
+    # Breakdown by age group
+    age_groups = [
+        (0, 3, "0-3 months (grace period)"),
+        (3, 6, "3-6 months (≥1 citation)"),
+        (6, 12, "6-12 months (≥3 citations)"),
+        (12, 24, "12-24 months (≥5-8 citations)"),
+        (24, 999, "24+ months (≥10 citations)")
+    ]
+
+    logging.info("Breakdown by age group:")
+    for min_age, max_age, label in age_groups:
+        group = df_filtered[
+            (df_filtered['paper_age_months'] >= min_age) &
+            (df_filtered['paper_age_months'] < max_age)
+        ]
+        if len(group) > 0:
+            avg_citations = group[citation_col].mean()
+            logging.info(f"  {label}: {len(group):,} papers (avg {avg_citations:.1f} citations)")
+
+    # Drop temporary age column (keep citation_threshold for transparency)
+    df_filtered = df_filtered.drop(columns=['paper_age_months'])
+
+    return df_filtered
+
+
+def _count_keyword_matches(row, keyword_groups):
+    """Count total keyword matches in title and abstract.
+
+    Args:
+        row: DataFrame row (paper record)
+        keyword_groups: List of keyword groups from config
+
+    Returns:
+        int: Total number of keyword matches found
+    """
+    if not keyword_groups:
+        return 0
+
+    # Flatten keyword groups
+    all_keywords = []
+    for group in keyword_groups:
+        if isinstance(group, list):
+            all_keywords.extend(group)
+
+    # Combine title and abstract
+    title = str(row.get('title', '')).lower()
+    abstract = str(row.get('abstract', '')).lower()
+    combined_text = f"{title} {abstract}"
+
+    # Count matches (a keyword can appear multiple times)
+    match_count = 0
+    for keyword in all_keywords:
+        keyword_lower = keyword.lower()
+        match_count += combined_text.count(keyword_lower)
+
+    return match_count
+
+
+def _calculate_relevance_score(row, keyword_groups, has_citations=False):
+    """Calculate composite relevance score for a paper.
+
+    Combines multiple signals:
+    - Keyword frequency (3x weight): More keyword matches = more relevant
+    - Citation score (2x weight): Normalized by age
+    - Quality score (1x weight): Metadata completeness
+    - Journal bonus (0.5 points): Prefer journals over conferences
+
+    Args:
+        row: DataFrame row (paper record)
+        keyword_groups: List of keyword groups from config
+        has_citations: Whether citation data is available
+
+    Returns:
+        float: Relevance score (higher = more relevant)
+    """
+    score = 0.0
+
+    # 1. Keyword frequency (3x weight)
+    keyword_matches = _count_keyword_matches(row, keyword_groups)
+    score += keyword_matches * 3
+
+    # 2. Citation score (2x weight) - only if citation data available
+    if has_citations:
+        citation_count = pd.to_numeric(row.get('nb_citation', 0), errors='coerce')
+        if pd.notna(citation_count):
+            # Normalize: log scale to prevent citation-heavy papers dominating
+            # log(1+x) to handle 0 citations gracefully
+            import math
+            citation_score = math.log(1 + citation_count)
+            score += citation_score * 2
+
+    # 3. Quality score (1x weight)
+    quality = row.get('quality_score', 0)
+    score += quality / 10  # Normalize to ~1-5 range
+
+    # 4. Journal bonus (0.5 points)
+    item_type = str(row.get('itemType', '')).lower()
+    if 'journal' in item_type:
+        score += 0.5
+
+    return round(score, 2)
+
+
+def _apply_relevance_ranking(df, keyword_groups, top_n=None, has_citations=False):
+    """Apply composite relevance ranking to DataFrame.
+
+    Calculates relevance score for each paper and optionally filters to top N.
+
+    Args:
+        df: DataFrame with papers
+        keyword_groups: List of keyword groups from config
+        top_n: Optional - keep only top N most relevant papers
+        has_citations: Whether citation data is available
+
+    Returns:
+        pd.DataFrame: Ranked DataFrame with relevance_score column
+    """
+    logging.info("Calculating relevance scores...")
+
+    # Calculate scores
+    df['relevance_score'] = df.apply(
+        lambda row: _calculate_relevance_score(row, keyword_groups, has_citations),
+        axis=1
+    )
+
+    # Sort by relevance (descending)
+    df_ranked = df.sort_values('relevance_score', ascending=False).copy()
+
+    logging.info(f"Relevance scoring complete")
+    logging.info(f"  Score range: {df_ranked['relevance_score'].min():.2f} - {df_ranked['relevance_score'].max():.2f}")
+    logging.info(f"  Mean score: {df_ranked['relevance_score'].mean():.2f}")
+    logging.info(f"  Median score: {df_ranked['relevance_score'].median():.2f}")
+
+    # Optionally filter to top N
+    if top_n and top_n < len(df_ranked):
+        initial_count = len(df_ranked)
+        df_ranked = df_ranked.head(top_n)
+        logging.info(f"Filtered to top {top_n} most relevant papers (removed {initial_count - top_n:,})")
+
+    return df_ranked
 
 
 def _load_checkpoint(checkpoint_path):
@@ -359,6 +669,9 @@ if __name__ == "__main__":
     use_fuzzy_keywords = quality_filters.get("use_fuzzy_keyword_matching", False)
     fuzzy_keyword_threshold = quality_filters.get("fuzzy_keyword_threshold", 0.85)
 
+    # Load keyword groups from config for proper dual-group filtering
+    keyword_groups = main_config.get("keywords", [])
+
     # Check for spacy model if fuzzy matching is actually needed
     # Only load spacy if:
     # 1. Fuzzy keyword matching is enabled, OR
@@ -448,7 +761,8 @@ if __name__ == "__main__":
                     fuzzy_threshold=fuzzy_keyword_threshold,
                     fuzzy_report_class=fuzzy_keyword_report.__class__ if fuzzy_keyword_report else None,
                     num_workers=args.parallel_workers,
-                    batch_size=args.batch_size
+                    batch_size=args.batch_size,
+                    keyword_groups=keyword_groups
                 )
 
                 # Output performance statistics if requested
@@ -528,7 +842,8 @@ if __name__ == "__main__":
                                                     res, KW,
                                                     use_fuzzy=use_fuzzy_keywords,
                                                     fuzzy_threshold=fuzzy_keyword_threshold,
-                                                    fuzzy_report=fuzzy_keyword_report
+                                                    fuzzy_report=fuzzy_keyword_report,
+                                                    keyword_groups=keyword_groups
                                                 ):
                                                     all_data.append(res)
                                                 # Update progress bar
@@ -559,6 +874,16 @@ if __name__ == "__main__":
                 df_clean = deduplicate(df, use_fuzzy_matching=use_fuzzy, fuzzy_threshold=fuzzy_threshold)
                 df_clean.reset_index(drop=True, inplace=True)
                 logging.info(f"After deduplication: {len(df_clean)} unique papers")
+
+            # Calculate and save quality scores for all papers
+            logging.info("Calculating quality scores...")
+            from src.crawlers.aggregate import getquality
+
+            df_clean['quality_score'] = df_clean.apply(
+                lambda row: getquality(row, df_clean.columns.tolist()),
+                axis=1
+            )
+            logging.info("Quality scores calculated and added to dataset")
 
             # Apply quality filters if configured
             if quality_filters:
@@ -635,6 +960,10 @@ if __name__ == "__main__":
                     if failure_rate > 10:
                         logging.warning(f"High failure rate: {failure_rate:.1f}% of API calls failed")
 
+                # Apply time-aware citation filtering if enabled in config
+                if quality_filters.get("apply_citation_filter", True):
+                    df_clean = _apply_time_aware_citation_filter(df_clean)
+
                 # Clean up checkpoint file on success
                 if os.path.exists(checkpoint_path):
                     try:
@@ -644,6 +973,16 @@ if __name__ == "__main__":
                         pass
             elif get_citation and len(df_clean) == 0:
                 logging.warning("Skipping citation fetching - no papers to process")
+
+            # Apply relevance ranking (final step before saving)
+            if quality_filters.get("apply_relevance_ranking", True):
+                top_n = quality_filters.get("max_papers", None)  # Optional: limit to top N
+                df_clean = _apply_relevance_ranking(
+                    df_clean,
+                    keyword_groups=keyword_groups,
+                    top_n=top_n,
+                    has_citations=get_citation and len(df_clean) > 0
+                )
 
             # Save to CSV
             output_path = os.path.join(dir_collect, output_filename)

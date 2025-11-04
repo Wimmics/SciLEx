@@ -163,17 +163,17 @@ def parallel_load_all_files(
 # PHASE 2: PARALLEL BATCH PROCESSING
 # ============================================================================
 
-def _process_batch_worker(args: Tuple[List[Tuple], str, bool, float, object]) -> List[Dict]:
+def _process_batch_worker(args: Tuple[List[Tuple], str, bool, float, object, List]) -> List[Dict]:
     """
     Worker function to process a batch of papers (spawn-safe, module-level).
 
     Args:
-        args: Tuple of (batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class)
+        args: Tuple of (batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class, keyword_groups)
 
     Returns:
         List of processed paper dictionaries
     """
-    batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class = args
+    batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class, keyword_groups = args
 
     # Import format converters (in worker to avoid pickling issues)
     from src.crawlers.aggregate import (
@@ -220,7 +220,8 @@ def _process_batch_worker(args: Tuple[List[Tuple], str, bool, float, object]) ->
                     keywords,
                     use_fuzzy=use_fuzzy,
                     fuzzy_threshold=fuzzy_threshold,
-                    fuzzy_report=fuzzy_report
+                    fuzzy_report=fuzzy_report,
+                    keyword_groups=keyword_groups
                 ):
                     results.append(converted)
 
@@ -237,7 +238,8 @@ def parallel_process_papers(
     fuzzy_threshold: float = 0.85,
     fuzzy_report_class: Optional[object] = None,
     batch_size: int = 5000,
-    num_workers: Optional[int] = None
+    num_workers: Optional[int] = None,
+    keyword_groups: Optional[List] = None
 ) -> Tuple[pd.DataFrame, Dict]:
     """
     Process papers in parallel batches (convert format + text filtering).
@@ -249,6 +251,7 @@ def parallel_process_papers(
         fuzzy_report_class: FuzzyKeywordMatchReport class (for instantiation)
         batch_size: Papers per batch
         num_workers: Number of parallel workers
+        keyword_groups: Optional list of keyword groups from config (for dual-group mode)
 
     Returns:
         Tuple of:
@@ -264,7 +267,7 @@ def parallel_process_papers(
     batches = []
     for i in range(0, len(papers_by_api), batch_size):
         batch = papers_by_api[i:i+batch_size]
-        batches.append((batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class))
+        batches.append((batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class, keyword_groups))
 
     logging.info(f"Processing {len(papers_by_api):,} papers in {len(batches)} batches")
 
@@ -422,7 +425,8 @@ def parallel_aggregate(
     fuzzy_threshold: float = 0.85,
     fuzzy_report_class: Optional[object] = None,
     num_workers: Optional[int] = None,
-    batch_size: int = 5000
+    batch_size: int = 5000,
+    keyword_groups: Optional[List] = None
 ) -> Tuple[pd.DataFrame, Dict]:
     """
     Main parallel aggregation function (orchestrates all phases).
@@ -436,6 +440,7 @@ def parallel_aggregate(
         fuzzy_report_class: FuzzyKeywordMatchReport class
         num_workers: Number of parallel workers
         batch_size: Papers per batch
+        keyword_groups: Optional list of keyword groups from config (for dual-group mode)
 
     Returns:
         Tuple of:
@@ -475,7 +480,8 @@ def parallel_aggregate(
             fuzzy_threshold=fuzzy_threshold,
             fuzzy_report_class=fuzzy_report_class,
             batch_size=batch_size,
-            num_workers=num_workers
+            num_workers=num_workers,
+            keyword_groups=keyword_groups
         )
         combined_stats['processing'] = process_stats
     else:
