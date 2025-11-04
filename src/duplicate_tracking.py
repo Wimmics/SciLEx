@@ -265,6 +265,7 @@ class DuplicateSourceAnalyzer:
     ) -> List[str]:
         """Generate actionable recommendations based on analysis."""
         recommendations = []
+        high_overlap_pairs = []  # Initialize to avoid UnboundLocalError
 
         # Find APIs with high unique content
         high_value_apis = [
