@@ -1,7 +1,25 @@
 #!/usr/bin/env python3
 """
-Created on Mon Jan 30 16:06:58 2023
+⚠️  DEPRECATED SCRIPT - DO NOT USE ⚠️
 
+This is the legacy Zotero push script with poor performance and code quality.
+
+PLEASE USE THE REFACTORED VERSION INSTEAD:
+    python -m src.Zotero.push_to_Zotero
+
+Benefits of the new script:
+- 15-20x faster (bulk upload with 50-item batching)
+- Progress bars with real-time feedback
+- Better error handling and logging
+- Cleaner, maintainable code
+- O(1) duplicate detection
+
+This legacy script will be removed in a future version.
+
+---
+
+Original metadata:
+Created on Mon Jan 30 16:06:58 2023
 @author: cringwal
 """
 
@@ -65,6 +83,27 @@ def get_zotero_user_id(api_key):
 
 
 if __name__ == "__main__":
+    # ⚠️  DEPRECATION WARNING
+    print("\n" + "=" * 70)
+    print("⚠️  DEPRECATION WARNING ⚠️")
+    print("=" * 70)
+    print("This script (push_to_Zotero_collect.py) is DEPRECATED and SLOW.")
+    print("\nPlease use the new optimized version instead:")
+    print("    python -m src.Zotero.push_to_Zotero")
+    print("\nThe new version is 15-20x faster with better error handling.")
+    print("This legacy script will be removed in a future release.")
+    print("=" * 70 + "\n")
+
+    # Give user a chance to cancel
+    try:
+        response = input("Continue anyway? (type 'yes' to proceed): ")
+        if response.lower() != "yes":
+            print("Aborted. Please use the new script instead.")
+            sys.exit(0)
+    except KeyboardInterrupt:
+        print("\nAborted.")
+        sys.exit(0)
+
     # Log the overall process with timestamps
     logging.info(f"Systematic review search started at {datetime.now()}")
     logging.info("================BEGIN ZOTERO PUSH================")

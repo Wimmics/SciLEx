@@ -57,17 +57,103 @@ api_config = configs["api_config"]
 
 # Format converters dispatcher - replaces eval() for security
 FORMAT_CONVERTERS = {
-    "SemanticScholar": SemanticScholartoZoteroFormat,
-    "Istex": IstextoZoteroFormat,
-    "Arxiv": ArxivtoZoteroFormat,
-    "DBLP": DBLPtoZoteroFormat,
-    "HAL": HALtoZoteroFormat,
-    "OpenAlex": OpenAlextoZoteroFormat,
-    "IEEE": IEEEtoZoteroFormat,
-    "Springer": SpringertoZoteroFormat,
-    "Elsevier": ElseviertoZoteroFormat,
-    "GoogleScholar": GoogleScholartoZoteroFormat,
+    'SemanticScholar': SemanticScholartoZoteroFormat,
+    'OpenAlex': OpenAlextoZoteroFormat,
+    'IEEE': IEEEtoZoteroFormat,
+    'Elsevier': ElseviertoZoteroFormat,
+    'Springer': SpringertoZoteroFormat,
+    'HAL': HALtoZoteroFormat,
+    'DBLP': DBLPtoZoteroFormat,
+    'Istex': IstextoZoteroFormat,
+    'Arxiv': ArxivtoZoteroFormat,
+    'GoogleScholar': GoogleScholartoZoteroFormat
 }
+
+# ============================================================================
+# Filtering Progress Tracker
+# ============================================================================
+
+class FilteringTracker:
+    """Track filtering stages and generate comprehensive reports."""
+    
+    def __init__(self):
+        self.stages = []
+        self.initial_count = 0
+        
+    def set_initial(self, count, description="Raw papers collected"):
+        """Set initial paper count."""
+        self.initial_count = count
+        self.stages.append({
+            "stage": "Initial",
+            "description": description,
+            "papers": count,
+            "removed": 0,
+            "removal_rate": 0.0
+        })
+    
+    def add_stage(self, stage_name, papers_remaining, description=""):
+        """Add a filtering stage with paper count."""
+        if not self.stages:
+            self.set_initial(papers_remaining, "Starting point")
+            return
+        
+        prev_count = self.stages[-1]["papers"]
+        removed = prev_count - papers_remaining
+        removal_rate = (removed / prev_count * 100) if prev_count > 0 else 0.0
+        
+        self.stages.append({
+            "stage": stage_name,
+            "description": description,
+            "papers": papers_remaining,
+            "removed": removed,
+            "removal_rate": removal_rate
+        })
+    
+    def generate_report(self):
+        """Generate comprehensive filtering summary report."""
+        if not self.stages or self.initial_count == 0:
+            return "No filtering data available"
+        
+        lines = []
+        lines.append("\n" + "="*80)
+        lines.append("FILTERING PIPELINE SUMMARY")
+        lines.append("="*80)
+        
+        for i, stage_info in enumerate(self.stages):
+            stage = stage_info["stage"]
+            desc = stage_info["description"]
+            papers = stage_info["papers"]
+            removed = stage_info["removed"]
+            removal_rate = stage_info["removal_rate"]
+            
+            # Calculate cumulative removal
+            cumulative_removed = self.initial_count - papers
+            cumulative_rate = (cumulative_removed / self.initial_count * 100) if self.initial_count > 0 else 0.0
+            
+            lines.append("")
+            if i == 0:
+                lines.append(f"[{stage}] {desc}")
+                lines.append(f"  Papers: {papers:,}")
+            else:
+                lines.append(f"[{stage}] {desc}")
+                lines.append(f"  Papers remaining: {papers:,}")
+                lines.append(f"  Removed this stage: {removed:,} ({removal_rate:.1f}%)")
+                lines.append(f"  Cumulative removal: {cumulative_removed:,} ({cumulative_rate:.1f}%)")
+        
+        final_count = self.stages[-1]["papers"]
+        total_removed = self.initial_count - final_count
+        total_removal_rate = (total_removed / self.initial_count * 100) if self.initial_count > 0 else 0.0
+        
+        lines.append("")
+        lines.append("-"*80)
+        lines.append(f"FINAL RESULTS:")
+        lines.append(f"  Started with: {self.initial_count:,} papers")
+        lines.append(f"  Final output: {final_count:,} papers")
+        lines.append(f"  Total removed: {total_removed:,} papers ({total_removal_rate:.1f}%)")
+        lines.append(f"  Retention rate: {100 - total_removal_rate:.1f}%")
+        lines.append("="*80)
+        
+        return "\n".join(lines)
 
 def _keyword_matches_in_abstract(keyword, abstract_text):
     """Check if keyword appears in abstract text (handles both dict and string formats)."""
@@ -310,9 +396,14 @@ def _apply_time_aware_citation_filter(df, citation_col='nb_citation', date_col='
     df_filtered = df[df[citation_col] >= df['citation_threshold']].copy()
     removed_count = initial_count - len(df_filtered)
 
+    # Calculate zero-citation statistics
+    zero_citation_count = (df[citation_col] == 0).sum()
+    zero_citation_rate = (zero_citation_count / initial_count * 100) if initial_count > 0 else 0.0
+
     # Log statistics by age group
     logging.info(f"Time-aware citation filter applied:")
     logging.info(f"  Initial papers: {initial_count:,}")
+    logging.info(f"  Papers with 0 citations: {zero_citation_count:,} ({zero_citation_rate:.1f}%)")
     logging.info(f"  Removed: {removed_count:,} ({removed_count/initial_count*100:.1f}%)")
     logging.info(f"  Remaining: {len(df_filtered):,}")
 
@@ -333,7 +424,19 @@ def _apply_time_aware_citation_filter(df, citation_col='nb_citation', date_col='
         ]
         if len(group) > 0:
             avg_citations = group[citation_col].mean()
-            logging.info(f"  {label}: {len(group):,} papers (avg {avg_citations:.1f} citations)")
+            zero_in_group = (group[citation_col] == 0).sum()
+            zero_pct = (zero_in_group / len(group) * 100) if len(group) > 0 else 0
+            logging.info(f"  {label}: {len(group):,} papers (avg {avg_citations:.1f} citations, {zero_in_group} with 0 = {zero_pct:.0f}%)")
+
+    # Add warning for high zero-citation rates
+    if zero_citation_rate > 80:
+        logging.warning("\n" + "="*70)
+        logging.warning(f"HIGH ZERO-CITATION RATE: {zero_citation_rate:.1f}% of papers have 0 citations")
+        logging.warning("This may indicate:")
+        logging.warning("  • Very recent dataset (expected for preprints < 3 months old)")
+        logging.warning("  • OpenCitations coverage gaps (limited for preprints/recent papers)")
+        logging.warning("  • Consider using Semantic Scholar citations for better coverage")
+        logging.warning("="*70 + "\n")
 
     # Drop temporary age column (keep citation_threshold for transparency)
     df_filtered = df_filtered.drop(columns=['paper_age_months'])
@@ -457,6 +560,59 @@ def _apply_relevance_ranking(df, keyword_groups, top_n=None, has_citations=False
 
     return df_ranked
 
+
+
+
+def _use_semantic_scholar_citations_fallback(df):
+    """Use Semantic Scholar citation data as fallback when OpenCitations data is missing or zero.
+
+    Args:
+        df: DataFrame with both OpenCitations and Semantic Scholar citation data
+
+    Returns:
+        pd.DataFrame: DataFrame with citation data filled from Semantic Scholar where needed
+    """
+    if "ss_citation_count" not in df.columns:
+        logging.info("Semantic Scholar citation data not available (only papers from SS API have this)")
+        return df
+
+    # Count how many papers have SS citation data
+    has_ss_data = df["ss_citation_count"].notna().sum()
+    logging.info(f"Found Semantic Scholar citation data for {has_ss_data:,} papers")
+
+    if has_ss_data == 0:
+        return df
+
+    # Use SS citation count as fallback when OpenCitations returns 0 or is missing
+    initial_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
+
+    # Create fallback: use SS data when OpenCitations is 0 or missing
+    df["nb_citation"] = df.apply(
+        lambda row: row["ss_citation_count"]
+        if (pd.isna(row["nb_citation"]) or row["nb_citation"] == 0)
+        and pd.notna(row["ss_citation_count"])
+        else row["nb_citation"],
+        axis=1
+    )
+
+    df["nb_cited"] = df.apply(
+        lambda row: row["ss_reference_count"]
+        if (pd.isna(row["nb_cited"]) or row["nb_cited"] == 0)
+        and pd.notna(row["ss_reference_count"])
+        else row["nb_cited"],
+        axis=1
+    )
+
+    # Count improvements
+    final_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
+    improved_count = initial_zero_count - final_zero_count
+
+    logging.info(f"Semantic Scholar fallback applied:")
+    logging.info(f"  Papers with 0 citations before: {initial_zero_count:,}")
+    logging.info(f"  Papers with 0 citations after: {final_zero_count:,}")
+    logging.info(f"  Improved: {improved_count:,} papers ({improved_count/has_ss_data*100:.1f}% of papers with SS data)")
+
+    return df
 
 def _load_checkpoint(checkpoint_path):
     """Load checkpoint data if exists."""
@@ -664,6 +820,10 @@ if __name__ == "__main__":
 
     all_data = []
 
+    
+    # Initialize filtering tracker
+    filtering_tracker = FilteringTracker()
+
     # Load fuzzy keyword matching configuration
     quality_filters = main_config.get("quality_filters", {})
     use_fuzzy_keywords = quality_filters.get("use_fuzzy_keyword_matching", False)
@@ -811,6 +971,9 @@ if __name__ == "__main__":
                                         continue
                     logging.info(f"Found {total_papers} papers to process")
 
+                    # Track initial count
+                    filtering_tracker.set_initial(total_papers, "Raw papers collected from all APIs")
+
                 # Second pass: process papers with progress bar
                 pbar = None
                 if txt_filters and total_papers > 0:
@@ -860,6 +1023,14 @@ if __name__ == "__main__":
                 df = pd.DataFrame(all_data)
                 logging.info(f"Aggregated {len(df)} papers from all APIs")
 
+                # Track keyword filtering stage
+                if txt_filters:
+                    filtering_tracker.add_stage(
+                        "Keyword Filter",
+                        len(df),
+                        "Papers matching keyword requirements (title/abstract)"
+                    )
+
                 # Display fuzzy keyword matching report if enabled
                 if fuzzy_keyword_report:
                     fuzzy_report_text = fuzzy_keyword_report.generate_report()
@@ -874,6 +1045,13 @@ if __name__ == "__main__":
                 df_clean = deduplicate(df, use_fuzzy_matching=use_fuzzy, fuzzy_threshold=fuzzy_threshold)
                 df_clean.reset_index(drop=True, inplace=True)
                 logging.info(f"After deduplication: {len(df_clean)} unique papers")
+
+                # Track deduplication stage
+                filtering_tracker.add_stage(
+                    "Deduplication",
+                    len(df_clean),
+                    "Removed duplicate papers (by DOI, URL, fuzzy title matching)"
+                )
 
             # Calculate and save quality scores for all papers
             logging.info("Calculating quality scores...")
@@ -893,6 +1071,13 @@ if __name__ == "__main__":
                     df_clean, quality_filters, generate_report
                 )
                 logging.info(f"After quality filtering: {len(df_clean)} papers remaining")
+
+                # Track quality filtering stage
+                filtering_tracker.add_stage(
+                    "Quality Filter",
+                    len(df_clean),
+                    "Papers meeting quality requirements (DOI, abstract, year, author count, etc.)"
+                )
 
             # Generate data completeness report
             if quality_filters.get("generate_quality_report", True):
@@ -927,6 +1112,13 @@ if __name__ == "__main__":
                     )
                     logging.info(f"After abstract quality filtering: {len(df_clean)} papers remaining")
 
+                    # Track abstract quality filtering stage
+                    filtering_tracker.add_stage(
+                        "Abstract Quality Filter",
+                        len(df_clean),
+                        f"Abstracts meeting quality threshold (min score: {min_quality_score})"
+                    )
+
             # Duplicate source tracking (Phase 2)
             if quality_filters.get("track_duplicate_sources", True):
                 logging.info("Analyzing duplicate sources and API overlap...")
@@ -960,9 +1152,21 @@ if __name__ == "__main__":
                     if failure_rate > 10:
                         logging.warning(f"High failure rate: {failure_rate:.1f}% of API calls failed")
 
+                # Use Semantic Scholar citations as fallback if enabled
+                if quality_filters.get("use_semantic_scholar_citations", True):
+                    logging.info("Using Semantic Scholar citations as fallback for missing/zero OpenCitations data...")
+                    df_clean = _use_semantic_scholar_citations_fallback(df_clean)
+
                 # Apply time-aware citation filtering if enabled in config
                 if quality_filters.get("apply_citation_filter", True):
                     df_clean = _apply_time_aware_citation_filter(df_clean)
+
+                    # Track citation filtering stage
+                    filtering_tracker.add_stage(
+                        "Citation Filter",
+                        len(df_clean),
+                        "Papers meeting time-aware citation thresholds"
+                    )
 
                 # Clean up checkpoint file on success
                 if os.path.exists(checkpoint_path):
@@ -983,6 +1187,17 @@ if __name__ == "__main__":
                     top_n=top_n,
                     has_citations=get_citation and len(df_clean) > 0
                 )
+
+                # Track relevance ranking stage
+                filtering_tracker.add_stage(
+                    "Relevance Ranking",
+                    len(df_clean),
+                    f"{'Top ' + str(top_n) + ' ' if top_n else ''}Papers ranked by composite relevance score"
+                )
+
+            # Display comprehensive filtering summary
+            filtering_summary = filtering_tracker.generate_report()
+            logging.info(filtering_summary)
 
             # Save to CSV
             output_path = os.path.join(dir_collect, output_filename)

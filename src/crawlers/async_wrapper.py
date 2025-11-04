@@ -28,6 +28,12 @@ from src.crawlers.collectors import (
     Istex_collector,
 )
 
+# Phase 1B: True async collectors with parallel pagination
+from src.crawlers.async_collectors_impl import (
+    AsyncSemanticScholarCollector,
+    AsyncOpenAlexCollector,
+)
+
 
 class AsyncCollectorWrapper:
     """
@@ -55,7 +61,13 @@ class AsyncCollectorWrapper:
         "Crossref": 3,  # Can handle multiple (3 req/sec)
     }
 
-    # Mapping of API names to collector classes
+    # Phase 1B: True async collectors (preferred when available)
+    ASYNC_COLLECTOR_CLASSES = {
+        "SemanticScholar": AsyncSemanticScholarCollector,
+        "OpenAlex": AsyncOpenAlexCollector,
+    }
+
+    # Mapping of API names to sync collector classes (fallback)
     COLLECTOR_CLASSES = {
         "SemanticScholar": SemanticScholar_collector,
         "IEEE": IEEE_collector,
@@ -89,6 +101,8 @@ class AsyncCollectorWrapper:
         """
         Run a collection asynchronously using semaphore for rate limiting.
 
+        Phase 1B: Prefers true async collectors when available for 5-10x speedup.
+
         Args:
             api_name: Name of API (e.g., 'SemanticScholar')
             data_query: Query configuration
@@ -98,20 +112,85 @@ class AsyncCollectorWrapper:
         Returns:
             State data dictionary with collection results
         """
-        if api_name not in self.COLLECTOR_CLASSES:
-            raise ValueError(f"Unknown API: {api_name}")
-
-        # Acquire semaphore (respect concurrency limit)
+        # Acquire semaphore FIRST (respect concurrency limit for ALL collectors)
         semaphore = self.semaphores.get(api_name)
         if not semaphore:
             semaphore = asyncio.Semaphore(1)
 
         async with semaphore:
+            # Phase 1B: Check if true async collector exists (preferred)
+            if api_name in self.ASYNC_COLLECTOR_CLASSES:
+                logging.debug(f"Using TRUE ASYNC collector for {api_name} (Phase 1B)")
+                return await self._run_async_collector(
+                    api_name, data_query, data_path, api_key
+                )
+
+            # Fallback: Use sync collector wrapped in thread pool
+            if api_name not in self.COLLECTOR_CLASSES:
+                raise ValueError(f"Unknown API: {api_name}")
+
             # Run sync collector in thread pool (non-blocking)
             result = await asyncio.to_thread(
                 self._run_sync_collector, api_name, data_query, data_path, api_key
             )
             return result
+
+    async def _run_async_collector(
+        self,
+        api_name: str,
+        data_query: Dict[str, Any],
+        data_path: str,
+        api_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Run a true async collector (Phase 1B).
+
+        These collectors use aiohttp and support parallel pagination for
+        5-10x speedup on multi-page collections.
+
+        Args:
+            api_name: Name of API
+            data_query: Query configuration
+            data_path: Output directory
+            api_key: API key
+
+        Returns:
+            State data from run_collect_async()
+        """
+        try:
+            # Get async collector class
+            collector_class = self.ASYNC_COLLECTOR_CLASSES.get(api_name)
+            if not collector_class:
+                return {
+                    "state": -1,
+                    "error": f"No async collector for API: {api_name}",
+                    "last_page": 0,
+                }
+
+            # Instantiate async collector
+            collector = collector_class(data_query, data_path, api_key)
+
+            # Run async collection (with parallel pagination)
+            logging.debug(
+                f"Starting async collection for {api_name} with parallel pagination"
+            )
+            state_data = await collector.run_collect_async()
+
+            logging.info(
+                f"Completed async collection for {api_name}: "
+                f"{state_data.get('coll_art', 0)} papers collected"
+            )
+
+            return state_data
+
+        except Exception as e:
+            logging.error(f"Error in async collection for {api_name}: {str(e)}")
+            return {
+                "state": -1,
+                "error": str(e),
+                "last_page": 0,
+                "coll_art": 0,
+            }
 
     def _run_sync_collector(
         self,

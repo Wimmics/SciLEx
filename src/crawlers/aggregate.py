@@ -390,6 +390,13 @@ def SemanticScholartoZoteroFormat(row):
     if safe_get(row, "open_access_pdf"):
         zotero_temp["rights"] = row["open_access_pdf"]
 
+    # Preserve Semantic Scholar citation data for fallback
+    if safe_get(row, "citationCount"):
+        zotero_temp["ss_citation_count"] = row["citationCount"]
+
+    if safe_get(row, "referenceCount"):
+        zotero_temp["ss_reference_count"] = row["referenceCount"]
+
     return zotero_temp
 
 

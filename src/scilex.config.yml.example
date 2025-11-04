@@ -102,6 +102,13 @@ quality_filters:
   # Recommended: true (focuses on impactful papers while keeping recent work)
   apply_citation_filter: true
 
+  # Use Semantic Scholar citation data as fallback for OpenCitations
+  # When OpenCitations returns 0 or no data, use citation counts from Semantic Scholar API
+  # Helps with recent papers and preprints where OpenCitations has poor coverage
+  # Only applies to papers collected from Semantic Scholar API
+  # Recommended: true (significantly improves citation data completeness)
+  use_semantic_scholar_citations: true
+
   # === Phase 4 Features (Relevance Ranking) ===
 
   # Apply composite relevance scoring to rank papers by importance

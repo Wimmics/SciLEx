@@ -1,5 +1,6 @@
 zotero:
     api_key: "YOUR_ZOTERO_API_KEY"
+    user_id: "YOUR_ZOTERO_USER_ID"  # Find at https://www.zotero.org/settings/keys
     user_mode: "user"  # or "group" for group libraries
 google_scholar:
     # Google Scholar uses the free 'scholarly' Python package with automatic proxy rotation

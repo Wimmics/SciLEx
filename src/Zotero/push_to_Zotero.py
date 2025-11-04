@@ -13,9 +13,19 @@ from datetime import datetime
 import pandas as pd
 from tqdm import tqdm
 
-from src.constants import is_valid
-from src.crawlers.utils import load_all_configs
-from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
+# Support both direct execution and module execution
+try:
+    from src.constants import is_valid
+    from src.crawlers.utils import load_all_configs
+    from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
+except ModuleNotFoundError:
+    # Add parent directory to path for direct execution
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+    from src.constants import is_valid
+    from src.crawlers.utils import load_all_configs
+    from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
 
 # Set up logging configuration
 logging.basicConfig(
@@ -40,36 +50,93 @@ def load_aggregated_data(config: dict) -> pd.DataFrame:
     file_path = dir_collect + aggr_file
 
     logging.info(f"Loading data from: {file_path}")
-    data = pd.read_csv(file_path, delimiter="\t")
-    logging.info(f"Loaded {len(data)} papers")
 
-    return data
+    # Try different delimiters - aggregated files can use either ; or \t
+    for delimiter in [";", "\t", ","]:
+        try:
+            data = pd.read_csv(file_path, delimiter=delimiter)
+            # Verify we got valid data by checking for expected columns
+            if "itemType" in data.columns and "title" in data.columns:
+                logging.info(f"Loaded {len(data)} papers (delimiter: '{delimiter}')")
+                return data
+        except Exception as e:
+            logging.debug(f"Failed to load with delimiter '{delimiter}': {e}")
+            continue
+
+    # If all delimiters fail, raise an error
+    raise ValueError(
+        f"Could not load CSV file with any delimiter (tried: ';', '\\t', ','). "
+        f"File: {file_path}"
+    )
+
+
+def prefetch_templates(data: pd.DataFrame) -> dict[str, dict]:
+    """
+    Pre-fetch all unique item type templates before processing.
+
+    This avoids blocking HTTP calls during the main processing loop
+    and ensures we only fetch each template once.
+
+    Args:
+        data: DataFrame containing paper metadata with 'itemType' column
+
+    Returns:
+        Dictionary mapping item types to their Zotero templates
+    """
+    import requests
+
+    unique_types = data["itemType"].dropna().unique()
+    templates = {}
+
+    logging.info(f"Pre-fetching {len(unique_types)} item type templates...")
+
+    for item_type in unique_types:
+        # Handle special case mapping
+        if item_type == "bookSection":
+            item_type = "journalArticle"
+
+        # Fetch template directly from public Zotero API (no auth needed)
+        try:
+            response = requests.get(
+                f"https://api.zotero.org/items/new?itemType={item_type}", timeout=30
+            )
+            response.raise_for_status()
+            templates[item_type] = response.json()
+            logging.debug(f"Fetched template for: {item_type}")
+        except requests.exceptions.RequestException as e:
+            logging.warning(f"Failed to fetch template for {item_type}: {e}")
+
+    logging.info(f"Successfully pre-fetched {len(templates)} templates")
+    return templates
 
 
 def push_new_items_to_zotero(
     data: pd.DataFrame,
     zotero_api: ZoteroAPI,
     collection_key: str,
-    existing_urls: list[str],
+    existing_urls: set,
+    templates_cache: dict[str, dict],
 ) -> dict[str, int]:
     """
-    Push new items to Zotero collection.
+    Push new items to Zotero collection using bulk upload.
 
     Args:
         data: DataFrame containing paper metadata
         zotero_api: ZoteroAPI client instance
         collection_key: Key of the target collection
-        existing_urls: List of URLs already in the collection
+        existing_urls: Set of URLs already in the collection (for O(1) lookups)
+        templates_cache: Pre-fetched item type templates
 
     Returns:
         Dictionary with counts: {"success": n, "failed": m, "skipped": k}
     """
     results = {"success": 0, "failed": 0, "skipped": 0}
-    templates_cache = {}
+    items_to_upload = []
 
     logging.info("Processing papers for upload...")
 
-    for _index, row in data.iterrows():
+    # Use itertuples for faster iteration (5-10x faster than iterrows)
+    for row in tqdm(data.itertuples(index=False), total=len(data), desc="Preparing items"):
         # Prepare Zotero item from row
         item = prepare_zotero_item(row, collection_key, templates_cache)
 
@@ -80,20 +147,27 @@ def push_new_items_to_zotero(
         # Check for duplicate URL
         item_url = item.get("url")
         if not is_valid(item_url):
-            logging.warning(f"Skipping paper without valid URL: {row.get('title', 'Unknown')}")
+            title = getattr(row, "title", "Unknown") if hasattr(row, "title") else "Unknown"
+            logging.warning(f"Skipping paper without valid URL: {title}")
             results["skipped"] += 1
             continue
 
-        if item_url in existing_urls:
+        if item_url in existing_urls:  # O(1) set lookup
             logging.debug(f"Skipping duplicate URL: {item_url}")
             results["skipped"] += 1
             continue
 
-        # Post the item
-        if zotero_api.post_item(item):
-            results["success"] += 1
-        else:
-            results["failed"] += 1
+        # Add to batch for bulk upload
+        items_to_upload.append(item)
+
+    # Upload all items in bulk (automatically batched into groups of 50)
+    if items_to_upload:
+        logging.info(f"Uploading {len(items_to_upload)} new papers in bulk...")
+        bulk_results = zotero_api.post_items_bulk(items_to_upload)
+        results["success"] = bulk_results["success"]
+        results["failed"] = bulk_results["failed"]
+    else:
+        logging.info("No new papers to upload")
 
     return results
 
@@ -112,10 +186,30 @@ def main():
     main_config = configs["main_config"]
     api_config = configs["api_config"]
 
-    # Extract Zotero configuration
-    user_id = api_config["Zotero"]["user_id"]
-    user_role = api_config["Zotero"]["user_mode"]
-    api_key = api_config["Zotero"]["api_key"]
+    # Extract Zotero configuration (handle both lowercase and capitalized keys)
+    zotero_config = api_config.get("Zotero") or api_config.get("zotero")
+    if not zotero_config:
+        logging.error("Zotero configuration not found in api.config.yml")
+        logging.error("Please ensure your api.config.yml has a 'zotero:' section with:")
+        logging.error("  - api_key: Your Zotero API key")
+        logging.error("  - user_id: Your Zotero user ID")
+        logging.error("  - user_mode: 'user' or 'group'")
+        return
+
+    api_key = zotero_config.get("api_key")
+    user_id = zotero_config.get("user_id")
+    user_role = zotero_config.get("user_mode", "user")
+
+    if not api_key:
+        logging.error("Zotero API key not found in api.config.yml")
+        return
+
+    if not user_id:
+        logging.error("Zotero user_id not found in api.config.yml")
+        logging.error("Please add 'user_id' to the zotero section in api.config.yml")
+        logging.error("You can find your user ID at: https://www.zotero.org/settings/keys")
+        return
+
     collection_name = main_config.get("collect_name", "new_models")
 
     # Initialize Zotero API client
@@ -141,10 +235,15 @@ def main():
     # Load aggregated data
     data = load_aggregated_data(main_config)
 
+    # Pre-fetch all item type templates
+    templates_cache = prefetch_templates(data)
+
     # Push new items
     logging.info("=" * 60)
     logging.info("Starting upload of new papers...")
-    results = push_new_items_to_zotero(data, zotero_api, collection_key, existing_urls)
+    results = push_new_items_to_zotero(
+        data, zotero_api, collection_key, existing_urls, templates_cache
+    )
 
     # Log summary
     logging.info("=" * 60)

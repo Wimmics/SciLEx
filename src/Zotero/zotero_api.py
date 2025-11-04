@@ -373,14 +373,21 @@ def prepare_zotero_item(
     Prepare a Zotero item from a DataFrame row.
 
     Args:
-        row: DataFrame row containing paper metadata
+        row: DataFrame row containing paper metadata (Series or named tuple from itertuples)
         collection_key: Key of the target collection
         templates_cache: Dictionary to cache item templates by type
 
     Returns:
         Prepared item dictionary, or None if item_type is invalid
     """
-    item_type = row.get("itemType", MISSING_VALUE)
+    # Helper to get value from either Series or named tuple
+    def get_value(row, field: str, default=MISSING_VALUE):
+        if hasattr(row, "get"):  # pd.Series
+            return row.get(field, default)
+        else:  # Named tuple from itertuples
+            return getattr(row, field, default)
+
+    item_type = get_value(row, "itemType")
 
     # Handle bookSection -> journalArticle conversion
     if item_type == "bookSection":
@@ -419,19 +426,22 @@ def prepare_zotero_item(
     ]
 
     for field in common_fields:
-        if field in item and field in row and is_valid(row[field]):
-            item[field] = str(row[field])
+        field_value = get_value(row, field)
+        if field in item and is_valid(field_value):
+            item[field] = str(field_value)
 
     # Handle abstract
     if "abstractNote" in item:
-        item["abstractNote"] = str(row.get("abstract", ""))
+        abstract = get_value(row, "abstract", "")
+        item["abstractNote"] = str(abstract)
 
     # Handle archive location
     if "archiveLocation" in item:
-        item["archiveLocation"] = str(row.get("archiveID", ""))
+        archive_id = get_value(row, "archiveID", "")
+        item["archiveLocation"] = str(archive_id)
 
     # Handle authors
-    authors_str = row.get("authors")
+    authors_str = get_value(row, "authors")
     if is_valid(authors_str):
         authors = str(authors_str).split(";")
         if item.get("creators") and len(item["creators"]) > 0:
