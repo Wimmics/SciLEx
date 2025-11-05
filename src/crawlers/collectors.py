@@ -12,6 +12,11 @@ from lxml import etree
 from ratelimit import limits, sleep_and_retry
 from scholarly import scholarly, ProxyGenerator
 
+from src.crawlers.circuit_breaker import (
+    CircuitBreakerRegistry,
+    CircuitBreakerOpenError
+)
+
 # # Set up logging configuration
 # logging.basicConfig(
 #     level=logging.INFO,
@@ -290,7 +295,7 @@ class API_collector:
 
     def api_call_decorator(self, configurated_url, max_retries=3):
         """
-        Enhanced API call decorator with retry logic and comprehensive error handling.
+        Enhanced API call decorator with circuit breaker, retry logic and comprehensive error handling.
 
         Args:
             configurated_url: The URL to call
@@ -298,8 +303,27 @@ class API_collector:
 
         Returns:
             Response object from the API
+
+        Raises:
+            CircuitBreakerOpenError: If circuit breaker is open (API endpoint failing repeatedly)
         """
         logging.debug(f"API Request to: {configurated_url}")
+
+        # Get circuit breaker for this API
+        registry = CircuitBreakerRegistry()
+        breaker = registry.get_breaker(
+            api_name=self.api_name,
+            failure_threshold=5,  # Open after 5 consecutive failures
+            timeout_seconds=60    # Wait 60s before retry
+        )
+
+        # Check circuit breaker state
+        if not breaker.is_available():
+            # Circuit is OPEN, fail fast without trying
+            logging.error(
+                f"{self.api_name} API: Circuit breaker OPEN - skipping request to save time"
+            )
+            raise CircuitBreakerOpenError(self.api_name, breaker.timeout_seconds)
 
         @sleep_and_retry
         @limits(calls=self.get_ratelimit(), period=1)
@@ -315,6 +339,10 @@ class API_collector:
                     logging.debug(
                         f"{self.api_name} API: Request successful (attempt {attempt + 1}/{max_retries})"
                     )
+
+                    # Record success in circuit breaker
+                    breaker.record_success()
+
                     return resp
 
                 except requests.exceptions.HTTPError as e:
@@ -335,8 +363,41 @@ class API_collector:
                             f"{self.api_name} API authentication failed: {status_code}. "
                             "Check your API key and credentials."
                         )
+                        # Record failure for circuit breaker
+                        breaker.record_failure()
                         raise  # Don't retry auth errors
-                    elif status_code >= 500:  # Server errors
+                    elif status_code == 500:  # Internal server error
+                        wait_time = 2**attempt
+                        logging.warning(
+                            f"{self.api_name} API internal server error (500). "
+                            f"This may indicate API overload or rate limiting. "
+                            f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
+                        )
+                        if attempt < max_retries - 1:
+                            time.sleep(wait_time)
+                            breaker.record_failure()  # Track failure for circuit breaker
+                            continue
+                        else:
+                            logging.error(
+                                f"{self.api_name} API: 500 errors persisting after {max_retries} retries. "
+                                f"Consider checking API status or reducing concurrency."
+                            )
+                            breaker.record_failure()
+                            raise
+                    elif status_code in [502, 503, 504]:  # Gateway/service errors
+                        wait_time = 2**attempt
+                        logging.warning(
+                            f"{self.api_name} API gateway/service error ({status_code}). "
+                            f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
+                        )
+                        if attempt < max_retries - 1:
+                            time.sleep(wait_time)
+                            breaker.record_failure()  # Track failure for circuit breaker
+                            continue
+                        else:
+                            breaker.record_failure()
+                            raise
+                    elif status_code >= 500:  # Other 5xx errors
                         wait_time = 2**attempt
                         logging.warning(
                             f"{self.api_name} API server error: {status_code}. "
@@ -344,11 +405,17 @@ class API_collector:
                         )
                         if attempt < max_retries - 1:
                             time.sleep(wait_time)
+                            breaker.record_failure()  # Track failure for circuit breaker
                             continue
+                        else:
+                            breaker.record_failure()
+                            raise
                     else:
                         logging.error(
                             f"{self.api_name} API HTTP error {status_code}: {str(e)}"
                         )
+                        # Record failure for circuit breaker
+                        breaker.record_failure()
                         raise
 
                 except requests.exceptions.Timeout as e:
@@ -365,6 +432,8 @@ class API_collector:
                         logging.error(
                             f"{self.api_name} API: All retry attempts failed due to timeout"
                         )
+                        # Record failure for circuit breaker
+                        breaker.record_failure()
                         raise
 
                 except requests.exceptions.ConnectionError as e:
@@ -381,6 +450,8 @@ class API_collector:
                         logging.error(
                             f"{self.api_name} API: All retry attempts failed due to connection error"
                         )
+                        # Record failure for circuit breaker
+                        breaker.record_failure()
                         raise
 
                 except requests.exceptions.RequestException as e:
@@ -393,6 +464,8 @@ class API_collector:
                         time.sleep(2**attempt)
                         continue
                     else:
+                        # Record failure for circuit breaker
+                        breaker.record_failure()
                         raise
 
             # If we exhausted all retries, raise the last exception
@@ -400,6 +473,8 @@ class API_collector:
                 logging.error(
                     f"{self.api_name} API: All {max_retries} retry attempts exhausted"
                 )
+                # Record failure for circuit breaker
+                breaker.record_failure()
                 raise last_exception
 
         return access_rate_limited_decorated(configurated_url)
@@ -667,11 +742,11 @@ class SemanticScholar_collector(API_collector):
         Returns:
             str: The formatted API URL for the bulk API with the constructed query parameters.
         """
-        # Process keywords: Join multiple keywords with ' AND '
-
-        query_keywords = "|".join(
-            self.get_keywords()
-        )  # Assuming this returns a list of keyword sets
+        # Process keywords: Join multiple keywords with '+' (AND operator)
+        # Wrap each keyword in quotes to preserve multi-word phrases
+        query_keywords = "+".join(
+            f'"{kw}"' for kw in self.get_keywords()
+        )  # Use + for AND logic between keyword groups
 
         # query_keywords = '|'.join(f'"{keyword})"' for keyword in keywords) for keywords in keywords_list
         # )
@@ -1033,13 +1108,17 @@ class DBLP_collector(API_collector):
         Returns:
             str: The formatted API URL with the constructed query parameters.
         """
-        # Process keywords: Join items in each list with '|', then join the lists with ' '
+        # Process keywords: Use hyphens for multi-word phrases, '+' for AND between keywords
+        # DBLP uses hyphen (-) to enforce adjacency for phrase matching
         keywords = self.get_keywords()
         keywords_query = ""
         for keyword in keywords:
-            keywords_query = keywords_query + "+" + "+".join(keyword.split(" "))
+            # Replace spaces with hyphens to keep multi-word phrases together
+            # e.g., "knowledge graph" becomes "knowledge-graph"
+            phrase = keyword.replace(" ", "-")
+            keywords_query = keywords_query + "+" + phrase
 
-        #### OR CONFIG
+        #### OR CONFIG (deprecated)
         # keywords_query ='|'.join(self.get_keywords())
 
         years_query = str(self.get_year())
@@ -1112,14 +1191,16 @@ class OpenAlex_collector(API_collector):
         Returns:
             str: The formatted API URL for the request.
         """
+        # Create AND logic between keywords: each keyword must appear in title OR abstract
+        # For dual keyword groups, we need: (kw1 in title|abstract) AND (kw2 in title|abstract)
         keyword_filters = []
 
-        # Iterate through each set of keywords and format them for title and abstract search
         for keyword_set in self.get_keywords():
-            keyword_filters += [f"abstract.search:{keyword_set}"]
-            keyword_filters += [f"title.search:{keyword_set}"]
+            # Use display_name.search (title) to enforce each keyword must be present
+            # OpenAlex searches abstracts by default when searching display names
+            keyword_filters.append(f"display_name.search:{keyword_set}")
 
-        # Join all keyword filters with commas (as per OpenAlex API format)
+        # Join with commas for AND logic between keywords
         formatted_keyword_filters = ",".join(keyword_filters)
 
         # Extract the min and max year from self.get_year() and create the range

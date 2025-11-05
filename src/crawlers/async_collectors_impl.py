@@ -188,6 +188,16 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
             total_results = first_page_data["total"]
             total_pages = (total_results + self.max_by_page - 1) // self.max_by_page
 
+            # Early exit if no results
+            if total_pages == 0:
+                logging.info(f"SemanticScholar: {total_results} total results. No pages to fetch.")
+                state_data["state"] = 1
+                state_data["last_page"] = page
+                state_data["total_art"] = 0
+                state_data["coll_art"] = 0
+                await self.close_session()
+                return state_data
+
             logging.info(
                 f"SemanticScholar: {total_results} total results, {total_pages} pages. "
                 f"Fetching pages {page + 1}-{total_pages} sequentially (strict rate limit)..."
@@ -245,7 +255,7 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
             state_data["total_art"] = total_results
             state_data["coll_art"] = self.nb_art_collected
 
-            logging.info(
+            logging.debug(
                 f"SemanticScholar collection complete: {self.nb_art_collected} papers collected"
             )
 
@@ -407,6 +417,16 @@ class AsyncOpenAlexCollector(AsyncAPICollector):
             total_results = first_page_data["total"]
             total_pages = (total_results + self.max_by_page - 1) // self.max_by_page
 
+            # Early exit if no results
+            if total_pages == 0:
+                logging.info(f"OpenAlex: {total_results} total results. No pages to fetch.")
+                state_data["state"] = 1
+                state_data["last_page"] = page
+                state_data["total_art"] = 0
+                state_data["coll_art"] = 0
+                await self.close_session()
+                return state_data
+
             logging.info(
                 f"OpenAlex: {total_results} total results, {total_pages} pages. "
                 f"Fetching pages {page + 1}-{total_pages} in parallel batches..."
@@ -460,7 +480,7 @@ class AsyncOpenAlexCollector(AsyncAPICollector):
             state_data["total_art"] = total_results
             state_data["coll_art"] = self.nb_art_collected
 
-            logging.info(
+            logging.debug(
                 f"OpenAlex collection complete: {self.nb_art_collected} papers collected"
             )
 

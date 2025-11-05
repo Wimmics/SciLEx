@@ -559,10 +559,11 @@ class CollectCollection:
         wrapper = AsyncCollectorWrapper()
 
         try:
-            # Run all collections in parallel (respecting per-API rate limits)
+            # Run collections sequentially per API, parallel across APIs
+            # This naturally respects rate limits without global coordination
             start_time = time.time()
 
-            results = await wrapper.run_collections_parallel(collections)
+            results = await wrapper.run_collections_sequential_per_api(collections)
 
             elapsed_time = time.time() - start_time
             logger.info(f"Async collection completed in {elapsed_time:.1f}s")

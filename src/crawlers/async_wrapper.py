@@ -15,6 +15,8 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional
 
+from tqdm.asyncio import tqdm as async_tqdm
+
 from src.crawlers.collectors import (
     SemanticScholar_collector,
     IEEE_collector,
@@ -176,7 +178,7 @@ class AsyncCollectorWrapper:
             )
             state_data = await collector.run_collect_async()
 
-            logging.info(
+            logging.debug(
                 f"Completed async collection for {api_name}: "
                 f"{state_data.get('coll_art', 0)} papers collected"
             )
@@ -280,6 +282,127 @@ class AsyncCollectorWrapper:
                 )
             else:
                 final_results.append(result)
+
+        return final_results
+
+    async def run_collections_sequential_per_api(self, collections: list) -> list:
+        """
+        Run collections with sequential execution per API, parallel across APIs.
+
+        This approach:
+        - Runs all queries for the same API sequentially (natural rate limiting)
+        - Runs different APIs in parallel (maximize throughput)
+        - Simpler than global rate limiter (no cross-query coordination needed)
+
+        Performance: Identical to global limiter for bottleneck APIs (e.g., SemanticScholar at 1 req/sec)
+
+        Args:
+            collections: List of dicts with keys:
+                - api: API name
+                - query: data_query dict
+                - path: output path
+                - key: API key (optional)
+
+        Returns:
+            List of state results (flattened, maintains original order within each API)
+        """
+        # Group collections by API
+        collections_by_api = {}
+        for collection in collections:
+            api_name = collection["api"]
+            if api_name not in collections_by_api:
+                collections_by_api[api_name] = []
+            collections_by_api[api_name].append(collection)
+
+        # Display collection summary with estimated times
+        logging.info(
+            f"\n{'='*70}\n"
+            f"Collection Plan: {len(collections_by_api)} APIs, {len(collections)} total queries\n"
+            f"{'='*70}"
+        )
+
+        # Estimate time per API based on rate limits
+        api_rate_limits = {
+            "SemanticScholar": 1.0,    # 1 req/sec (slowest)
+            "Springer": 1.5,
+            "GoogleScholar": 2.0,
+            "Arxiv": 3.0,
+            "Elsevier": 6.0,
+            "OpenAlex": 10.0,
+            "IEEE": 10.0,
+            "HAL": 10.0,
+            "DBLP": 10.0,
+        }
+
+        for api_name, api_collections in collections_by_api.items():
+            num_queries = len(api_collections)
+            rate = api_rate_limits.get(api_name, 5.0)
+            # Rough estimate: 5 pages per query average
+            est_requests = num_queries * 5
+            est_minutes = (est_requests / rate) / 60
+
+            logging.info(
+                f"  {api_name:20s}: {num_queries:3d} queries "
+                f"(~{est_minutes:.0f} min at {rate} req/sec)"
+            )
+
+        logging.info(f"{'='*70}\n")
+
+        # Create tasks for each API (run APIs in parallel)
+        api_tasks = []
+        for api_name, api_collections in collections_by_api.items():
+
+            async def run_api_sequential(api_name, api_collections):
+                """Run all collections for one API sequentially with progress bar."""
+                results = []
+
+                # Create progress bar for this API
+                pbar = async_tqdm(
+                    api_collections,
+                    desc=f"{api_name:20s}",
+                    unit="query",
+                    leave=True,
+                    ncols=100,
+                )
+
+                for collection in pbar:
+                    result = await self.run_collection_async(
+                        api_name,
+                        collection["query"],
+                        collection["path"],
+                        collection.get("key"),
+                    )
+
+                    # Update progress bar with paper count
+                    papers_collected = result.get('coll_art', 0)
+                    if papers_collected > 0:
+                        pbar.set_postfix_str(f"{papers_collected:,} papers")
+
+                    results.append(result)
+
+                return results
+
+            api_tasks.append(run_api_sequential(api_name, api_collections))
+
+        # Run all APIs in parallel
+        api_results = await asyncio.gather(*api_tasks, return_exceptions=True)
+
+        # Flatten results (maintain order within each API)
+        final_results = []
+        for i, result_list in enumerate(api_results):
+            if isinstance(result_list, Exception):
+                api_name = list(collections_by_api.keys())[i]
+                logging.error(f"{api_name} failed with exception: {str(result_list)}")
+                # Add error results for all collections in this API
+                num_collections = len(list(collections_by_api.values())[i])
+                final_results.extend(
+                    [
+                        {"state": -1, "error": str(result_list), "last_page": 0}
+                        for _ in range(num_collections)
+                    ]
+                )
+            else:
+                final_results.extend(result_list)
 
         return final_results
 

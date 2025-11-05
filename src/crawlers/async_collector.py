@@ -249,7 +249,36 @@ class AsyncAPICollector:
                             )
                             response.raise_for_status()
 
-                        elif response.status >= 500:  # Server error
+                        elif response.status == 500:  # Internal server error
+                            wait_time = 2**attempt
+                            logging.warning(
+                                f"{self.api_name} API internal server error (500). "
+                                f"This may indicate API overload or rate limiting. "
+                                f"Waiting {wait_time}s (attempt {attempt + 1}/{max_retries})"
+                            )
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(wait_time)
+                                continue
+                            else:
+                                logging.error(
+                                    f"{self.api_name} API: 500 errors persisting after {max_retries} retries. "
+                                    f"Consider checking API status or reducing concurrency."
+                                )
+                                response.raise_for_status()
+
+                        elif response.status in [502, 503, 504]:  # Gateway/service errors
+                            wait_time = 2**attempt
+                            logging.warning(
+                                f"{self.api_name} API gateway/service error ({response.status}). "
+                                f"Waiting {wait_time}s (attempt {attempt + 1}/{max_retries})"
+                            )
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(wait_time)
+                                continue
+                            else:
+                                response.raise_for_status()
+
+                        elif response.status >= 500:  # Other 5xx errors
                             wait_time = 2**attempt
                             logging.warning(
                                 f"{self.api_name} API server error ({response.status}). "

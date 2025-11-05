@@ -636,9 +636,9 @@ def _save_checkpoint(checkpoint_path, data):
 
 
 def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint_path,
-                               extras, nb_citeds, nb_citations):
+                               extras, nb_citeds, nb_citations, cache_path=None):
     """
-    Fetch citations for a single paper (thread-safe).
+    Fetch citations for a single paper (thread-safe with caching).
 
     Args:
         index: Paper index in DataFrame
@@ -649,6 +649,7 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
         extras: List to store citation data
         nb_citeds: List to store cited count
         nb_citations: List to store citing count
+        cache_path: Optional path to citation cache database
 
     Returns:
         dict: Result with index and status
@@ -658,7 +659,26 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
         return {"index": index, "status": "no_doi"}
 
     try:
-        # Call API (with retry logic built in)
+        # Check cache first (5x speedup on cache hits)
+        from src.citations.cache import get_cached_citation, cache_citation
+
+        cached_data = get_cached_citation(str(doi), cache_path)
+        if cached_data is not None:
+            # Cache hit - use cached data
+            stats["cache_hit"] += 1
+            extras[index] = cached_data["citations"]
+            nb_citeds[index] = cached_data["nb_cited"]
+            nb_citations[index] = cached_data["nb_citations"]
+
+            # Track API stats from cache
+            api_stats = cached_data["api_stats"]
+            if api_stats["cit_status"] == "success" and api_stats["ref_status"] == "success":
+                stats["success"] += 1
+
+            return {"index": index, "status": "cache_hit"}
+
+        # Cache miss - call API
+        stats["cache_miss"] += 1
         citations, api_stats = cit_tools.getRefandCitFormatted(str(doi))
 
         # Track statistics
@@ -669,11 +689,25 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
         else:
             stats["error"] += 1
 
+        # Calculate citation counts
+        nb_ = cit_tools.countCitations(citations)
+        nb_cited = nb_["nb_cited"]
+        nb_citation = nb_["nb_citations"]
+
         # Store results
         extras[index] = str(citations)
-        nb_ = cit_tools.countCitations(citations)
-        nb_citeds[index] = nb_["nb_cited"]
-        nb_citations[index] = nb_["nb_citations"]
+        nb_citeds[index] = nb_cited
+        nb_citations[index] = nb_citation
+
+        # Cache the results for future runs (30-day TTL)
+        cache_citation(
+            doi=str(doi),
+            citations_json=str(citations),
+            nb_cited=nb_cited,
+            nb_citations=nb_citation,
+            api_stats=api_stats,
+            cache_path=cache_path
+        )
 
         # Checkpoint save (thread-safe)
         if checkpoint_interval and (index + 1) % checkpoint_interval == 0:
@@ -697,9 +731,9 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
 
 
 def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
-                               checkpoint_path=None, resume_from=None):
+                               checkpoint_path=None, resume_from=None, use_cache=True):
     """
-    Fetch citations in parallel using ThreadPoolExecutor.
+    Fetch citations in parallel using ThreadPoolExecutor with caching.
 
     Args:
         df_clean: DataFrame with papers
@@ -707,11 +741,29 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
         checkpoint_interval: Save checkpoint every N papers
         checkpoint_path: Path to checkpoint file
         resume_from: Index to resume from (if resuming)
+        use_cache: Whether to use citation caching (default: True)
 
     Returns:
         tuple: (extras list, nb_citeds list, nb_citations list, stats dict)
     """
     total_papers = len(df_clean)
+
+    # Initialize citation cache
+    cache_path = None
+    if use_cache:
+        from src.citations.cache import initialize_cache, get_cache_stats, cleanup_expired_cache
+        cache_path = initialize_cache()
+        logging.info(f"Citation cache initialized at {cache_path}")
+
+        # Show cache stats
+        cache_stats = get_cache_stats(cache_path)
+        logging.info(f"Cache stats: {cache_stats['active_entries']} active entries, "
+                     f"{cache_stats['expired_entries']} expired")
+
+        # Clean up expired entries
+        if cache_stats['expired_entries'] > 0:
+            removed = cleanup_expired_cache(cache_path)
+            logging.info(f"Cleaned up {removed} expired cache entries")
 
     # Initialize result lists
     extras = [""] * total_papers
@@ -723,7 +775,9 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
         "success": 0,
         "timeout": 0,
         "error": 0,
-        "no_doi": 0
+        "no_doi": 0,
+        "cache_hit": 0,
+        "cache_miss": 0
     }
 
     # Load from checkpoint if resuming
@@ -742,6 +796,8 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
 
     papers_with_doi = df_clean["DOI"].apply(is_valid).sum()
     logging.info(f"Fetching citation data for {papers_with_doi}/{total_papers} papers with valid DOIs")
+    if use_cache:
+        logging.info(f"Using citation cache (30-day TTL) - expect ~60-80% cache hits on repeated runs")
     logging.info(f"Using {num_workers} parallel workers (rate limit: ~{num_workers*2.5:.1f} papers/second)")
 
     # Create progress bar
@@ -755,7 +811,7 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
                 future = executor.submit(
                     _fetch_citation_for_paper,
                     position, doi, stats, checkpoint_interval, checkpoint_path,
-                    extras, nb_citeds, nb_citations
+                    extras, nb_citeds, nb_citations, cache_path
                 )
                 future_to_index[future] = position
 
@@ -764,17 +820,28 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
                 result = future.result()
                 pbar.update(1)
 
-                # Update progress bar with statistics
-                pbar.set_postfix({
+                # Update progress bar with statistics (include cache stats)
+                postfix = {
                     "✓": stats["success"],
                     "✗": stats["error"],
                     "⏱": stats["timeout"],
                     "⊘": stats["no_doi"]
-                })
+                }
+                if use_cache:
+                    postfix["💾"] = stats["cache_hit"]  # Cache hits
+                pbar.set_postfix(postfix)
+
+    # Calculate cache hit rate
+    cache_hit_rate = 0
+    if use_cache and (stats["cache_hit"] + stats["cache_miss"]) > 0:
+        cache_hit_rate = stats["cache_hit"] / (stats["cache_hit"] + stats["cache_miss"]) * 100
 
     logging.info(f"Citation fetching complete: {stats['success']} successful, "
                  f"{stats['error']} errors, {stats['timeout']} timeouts, "
                  f"{stats['no_doi']} without DOI")
+    if use_cache:
+        logging.info(f"Cache performance: {stats['cache_hit']} hits, {stats['cache_miss']} misses "
+                     f"({cache_hit_rate:.1f}% hit rate)")
 
     return extras, nb_citeds, nb_citations, stats
 
@@ -786,14 +853,16 @@ if __name__ == "__main__":
                         help="Resume from checkpoint if available")
     parser.add_argument("--skip-citations", action="store_true",
                         help="Skip citation fetching entirely")
+    parser.add_argument("--no-cache", action="store_true",
+                        help="Disable citation caching (slower - not recommended)")
     parser.add_argument("--workers", type=int, default=3,
                         help="Number of parallel workers for citation fetching (default: 3)")
     parser.add_argument("--checkpoint-interval", type=int, default=100,
                         help="Save checkpoint every N papers (default: 100)")
     parser.add_argument("--auto-install-spacy", action="store_true",
                         help="Automatically install spacy model without prompting")
-    parser.add_argument("--parallel", action="store_true",
-                        help="Use parallel processing for faster aggregation (100x speedup)")
+    parser.add_argument("--serial", action="store_true",
+                        help="Use legacy serial processing (DEPRECATED - 100x slower than default parallel mode)")
     parser.add_argument("--parallel-workers", type=int, default=None,
                         help="Number of parallel workers (default: auto-detect CPU count - 1)")
     parser.add_argument("--batch-size", type=int, default=5000,
@@ -905,49 +974,15 @@ if __name__ == "__main__":
             state_details = json.load(read_file)
 
             # ================================================================
-            # PARALLEL MODE: Use optimized parallel aggregation
+            # SERIAL MODE: Use original sequential aggregation (DEPRECATED - backward compatible)
             # ================================================================
-            if args.parallel:
-                logging.info("Using PARALLEL aggregation mode (100x faster)")
-
-                from src.crawlers.aggregate_parallel import parallel_aggregate
-
-                # Run parallel aggregation
-                df, parallel_stats = parallel_aggregate(
-                    state_details=state_details,
-                    dir_collect=dir_collect,
-                    txt_filters=txt_filters,
-                    use_fuzzy=use_fuzzy_keywords,
-                    fuzzy_threshold=fuzzy_keyword_threshold,
-                    fuzzy_report_class=fuzzy_keyword_report.__class__ if fuzzy_keyword_report else None,
-                    num_workers=args.parallel_workers,
-                    batch_size=args.batch_size,
-                    keyword_groups=keyword_groups
-                )
-
-                # Output performance statistics if requested
-                if args.profile:
-                    logging.info("\n" + "="*70)
-                    logging.info("PERFORMANCE STATISTICS")
-                    logging.info("="*70)
-                    for stage, stats in parallel_stats.items():
-                        logging.info(f"\n{stage.upper()}:")
-                        for key, value in stats.items():
-                            if isinstance(value, float):
-                                logging.info(f"  {key}: {value:.2f}")
-                            else:
-                                logging.info(f"  {key}: {value:,}" if isinstance(value, int) else f"  {key}: {value}")
-                    logging.info("="*70 + "\n")
-
-                # Skip to deduplication/quality filtering (already done in parallel mode)
-                # Note: parallel_aggregate already includes simple deduplication
-                df_clean = df
-
-            # ================================================================
-            # SERIAL MODE: Use original sequential aggregation (backward compatible)
-            # ================================================================
-            else:
-                logging.info("Using SERIAL aggregation mode (use --parallel for 100x speedup)")
+            if args.serial:
+                logging.warning("="*80)
+                logging.warning("DEPRECATION WARNING: Serial aggregation mode is 100x slower than parallel mode")
+                logging.warning("Serial mode will be removed in a future release.")
+                logging.warning("Remove --serial flag to use default parallel mode.")
+                logging.warning("="*80)
+                logging.info("Using SERIAL aggregation mode (legacy)")
 
                 all_data = []
 
@@ -1053,6 +1088,45 @@ if __name__ == "__main__":
                     "Removed duplicate papers (by DOI, URL, fuzzy title matching)"
                 )
 
+            # ================================================================
+            # PARALLEL MODE: Use optimized parallel aggregation (DEFAULT)
+            # ================================================================
+            else:
+                logging.info("Using PARALLEL aggregation mode (default - 100x faster than serial)")
+
+                from src.crawlers.aggregate_parallel import parallel_aggregate
+
+                # Run parallel aggregation
+                df, parallel_stats = parallel_aggregate(
+                    state_details=state_details,
+                    dir_collect=dir_collect,
+                    txt_filters=txt_filters,
+                    use_fuzzy=use_fuzzy_keywords,
+                    fuzzy_threshold=fuzzy_keyword_threshold,
+                    fuzzy_report_class=fuzzy_keyword_report.__class__ if fuzzy_keyword_report else None,
+                    num_workers=args.parallel_workers,
+                    batch_size=args.batch_size,
+                    keyword_groups=keyword_groups
+                )
+
+                # Output performance statistics if requested
+                if args.profile:
+                    logging.info("\n" + "="*70)
+                    logging.info("PERFORMANCE STATISTICS")
+                    logging.info("="*70)
+                    for stage, stats in parallel_stats.items():
+                        logging.info(f"\n{stage.upper()}:")
+                        for key, value in stats.items():
+                            if isinstance(value, float):
+                                logging.info(f"  {key}: {value:.2f}")
+                            else:
+                                logging.info(f"  {key}: {value:,}" if isinstance(value, int) else f"  {key}: {value}")
+                    logging.info("="*70 + "\n")
+
+                # Skip to deduplication/quality filtering (already done in parallel mode)
+                # Note: parallel_aggregate already includes simple deduplication
+                df_clean = df
+
             # Calculate and save quality scores for all papers
             logging.info("Calculating quality scores...")
             from src.crawlers.aggregate import getquality
@@ -1131,13 +1205,14 @@ if __name__ == "__main__":
                 # Set up checkpoint path
                 checkpoint_path = os.path.join(dir_collect, "citation_checkpoint.json")
 
-                # Fetch citations in parallel with checkpointing
+                # Fetch citations in parallel with checkpointing and caching
                 extras, nb_citeds, nb_citations, stats = _fetch_citations_parallel(
                     df_clean,
                     num_workers=args.workers,
                     checkpoint_interval=args.checkpoint_interval,
                     checkpoint_path=checkpoint_path,
-                    resume_from=args.resume
+                    resume_from=args.resume,
+                    use_cache=not args.no_cache  # Cache enabled by default
                 )
 
                 # Assign results to DataFrame (efficient bulk assignment)
