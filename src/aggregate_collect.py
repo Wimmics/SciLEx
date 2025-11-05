@@ -19,7 +19,7 @@ from src.abstract_validation import (
     filter_by_abstract_quality,
     validate_dataframe_abstracts,
 )
-from src.constants import MISSING_VALUE, is_valid
+from src.constants import MISSING_VALUE, is_valid, CitationFilterConfig
 from src.crawlers.aggregate import (
     ArxivtoZoteroFormat,
     DBLPtoZoteroFormat,
@@ -338,11 +338,7 @@ def _calculate_required_citations(months_since_pub):
     """Calculate required citation threshold based on paper age.
 
     Formula: Graduated thresholds with grace period for recent papers
-    - 0-3 months: 0 citations (new papers get full grace period)
-    - 3-6 months: 1 citation
-    - 6-12 months: 3 citations
-    - 12-24 months: 5-8 citations (gradual increase)
-    - 24+ months: 10+ citations (established papers should have impact)
+    Uses centralized constants from CitationFilterConfig.
 
     Args:
         months_since_pub: Paper age in months
@@ -351,20 +347,24 @@ def _calculate_required_citations(months_since_pub):
         int: Required citation count
     """
     if months_since_pub is None:
-        return 0  # No date = no filtering (assume recent)
+        return CitationFilterConfig.GRACE_PERIOD_CITATIONS  # No date = no filtering
 
-    if months_since_pub <= 3:
-        return 0  # Grace period for very recent papers
-    elif months_since_pub <= 6:
-        return 1  # 3-6 months: at least 1 citation
-    elif months_since_pub <= 12:
-        return 3  # 6-12 months: at least 3 citations
-    elif months_since_pub <= 24:
-        # Gradual increase: 5 citations at 12 months, 8 at 24 months
-        return 5 + int((months_since_pub - 12) / 4)
+    if months_since_pub <= CitationFilterConfig.GRACE_PERIOD_MONTHS:
+        return CitationFilterConfig.GRACE_PERIOD_CITATIONS
+    elif months_since_pub <= CitationFilterConfig.EARLY_THRESHOLD_MONTHS:
+        return CitationFilterConfig.EARLY_CITATIONS
+    elif months_since_pub <= CitationFilterConfig.MEDIUM_THRESHOLD_MONTHS:
+        return CitationFilterConfig.MEDIUM_CITATIONS
+    elif months_since_pub <= CitationFilterConfig.MATURE_THRESHOLD_MONTHS:
+        # Gradual increase from MATURE_BASE_CITATIONS to 8
+        return CitationFilterConfig.MATURE_BASE_CITATIONS + int(
+            (months_since_pub - CitationFilterConfig.MEDIUM_THRESHOLD_MONTHS) / 4
+        )
     else:
-        # 24+ months: 10+ citations (incremental for older papers)
-        return 10 + int((months_since_pub - 24) / 12)
+        # 24+ months: ESTABLISHED_BASE_CITATIONS+ (incremental for older papers)
+        return CitationFilterConfig.ESTABLISHED_BASE_CITATIONS + int(
+            (months_since_pub - CitationFilterConfig.MATURE_THRESHOLD_MONTHS) / 12
+        )
 
 
 def _apply_time_aware_citation_filter(df, citation_col='nb_citation', date_col='date'):
@@ -429,7 +429,7 @@ def _apply_time_aware_citation_filter(df, citation_col='nb_citation', date_col='
             logging.info(f"  {label}: {len(group):,} papers (avg {avg_citations:.1f} citations, {zero_in_group} with 0 = {zero_pct:.0f}%)")
 
     # Add warning for high zero-citation rates
-    if zero_citation_rate > 80:
+    if zero_citation_rate > CitationFilterConfig.HIGH_ZERO_CITATION_RATE:
         logging.warning("\n" + "="*70)
         logging.warning(f"HIGH ZERO-CITATION RATE: {zero_citation_rate:.1f}% of papers have 0 citations")
         logging.warning("This may indicate:")
@@ -861,8 +861,6 @@ if __name__ == "__main__":
                         help="Save checkpoint every N papers (default: 100)")
     parser.add_argument("--auto-install-spacy", action="store_true",
                         help="Automatically install spacy model without prompting")
-    parser.add_argument("--serial", action="store_true",
-                        help="Use legacy serial processing (DEPRECATED - 100x slower than default parallel mode)")
     parser.add_argument("--parallel-workers", type=int, default=None,
                         help="Number of parallel workers (default: auto-detect CPU count - 1)")
     parser.add_argument("--batch-size", type=int, default=5000,
@@ -973,159 +971,40 @@ if __name__ == "__main__":
         with open(state_path, encoding="utf-8") as read_file:
             state_details = json.load(read_file)
 
-            # ================================================================
-            # SERIAL MODE: Use original sequential aggregation (DEPRECATED - backward compatible)
-            # ================================================================
-            if args.serial:
-                logging.warning("="*80)
-                logging.warning("DEPRECATION WARNING: Serial aggregation mode is 100x slower than parallel mode")
-                logging.warning("Serial mode will be removed in a future release.")
-                logging.warning("Remove --serial flag to use default parallel mode.")
-                logging.warning("="*80)
-                logging.info("Using SERIAL aggregation mode (legacy)")
+            # Use optimized parallel aggregation (100x faster than legacy serial mode)
+            logging.info("Using parallel aggregation mode")
 
-                all_data = []
+            from src.crawlers.aggregate_parallel import parallel_aggregate
 
-                # First pass: count total papers for progress tracking
-                total_papers = 0
-                if txt_filters:
-                    logging.info("Counting total papers for progress tracking...")
-                    for api_ in state_details["details"]:
-                        api_data = state_details["details"][api_]
-                        for index in api_data["by_query"]:
-                            current_collect_dir = os.path.join(dir_collect, api_, index)
-                            if not os.path.exists(current_collect_dir):
-                                continue
-                            for path in os.listdir(current_collect_dir):
-                                if os.path.isfile(os.path.join(current_collect_dir, path)):
-                                    try:
-                                        with open(os.path.join(current_collect_dir, path)) as json_file:
-                                            current_page_data = json.load(json_file)
-                                            total_papers += len(current_page_data.get("results", []))
-                                    except (json.JSONDecodeError, KeyError):
-                                        continue
-                    logging.info(f"Found {total_papers} papers to process")
+            # Run parallel aggregation
+            df, parallel_stats = parallel_aggregate(
+                state_details=state_details,
+                dir_collect=dir_collect,
+                txt_filters=txt_filters,
+                use_fuzzy=use_fuzzy_keywords,
+                fuzzy_threshold=fuzzy_keyword_threshold,
+                fuzzy_report_class=fuzzy_keyword_report.__class__ if fuzzy_keyword_report else None,
+                num_workers=args.parallel_workers,
+                batch_size=args.batch_size,
+                keyword_groups=keyword_groups
+            )
 
-                    # Track initial count
-                    filtering_tracker.set_initial(total_papers, "Raw papers collected from all APIs")
+            # Output performance statistics if requested
+            if args.profile:
+                logging.info("\n" + "="*70)
+                logging.info("PERFORMANCE STATISTICS")
+                logging.info("="*70)
+                for stage, stats in parallel_stats.items():
+                    logging.info(f"\n{stage.upper()}:")
+                    for key, value in stats.items():
+                        if isinstance(value, float):
+                            logging.info(f"  {key}: {value:.2f}")
+                        else:
+                            logging.info(f"  {key}: {value:,}" if isinstance(value, int) else f"  {key}: {value}")
+                logging.info("="*70 + "\n")
 
-                # Second pass: process papers with progress bar
-                pbar = None
-                if txt_filters and total_papers > 0:
-                    pbar = tqdm(total=total_papers, desc="Processing papers", unit="paper")
-
-                # if(state_details["global"]==1):
-                for api_ in state_details["details"]:
-                    api_data = state_details["details"][api_]
-                    for index in api_data["by_query"]:
-                        KW = api_data["by_query"][index]["keyword"]
-                        current_collect_dir = os.path.join(dir_collect, api_, index)
-                        if not os.path.exists(current_collect_dir):
-                            continue
-                        for path in os.listdir(current_collect_dir):
-                            # Check if current path is a file
-                            if os.path.isfile(os.path.join(current_collect_dir, path)):
-                                with open(
-                                    os.path.join(current_collect_dir, path)
-                                ) as json_file:
-                                    current_page_data = json.load(json_file)
-                                    logging.debug(f"Loaded data from {json_file.name}")
-                                    for row in current_page_data["results"]:
-                                        if api_ in FORMAT_CONVERTERS:
-                                            # Use dispatcher dictionary instead of eval for security
-                                            res = FORMAT_CONVERTERS[api_](row)
-                                            if txt_filters:
-                                                # Use helper function for cleaner text filtering logic
-                                                if _record_passes_text_filter(
-                                                    res, KW,
-                                                    use_fuzzy=use_fuzzy_keywords,
-                                                    fuzzy_threshold=fuzzy_keyword_threshold,
-                                                    fuzzy_report=fuzzy_keyword_report,
-                                                    keyword_groups=keyword_groups
-                                                ):
-                                                    all_data.append(res)
-                                                # Update progress bar
-                                                if pbar:
-                                                    pbar.update(1)
-                                            else:
-                                                all_data.append(res)
-
-                # Close progress bar
-                if pbar:
-                    pbar.close()
-
-                # Create DataFrame and save aggregated results
-                df = pd.DataFrame(all_data)
-                logging.info(f"Aggregated {len(df)} papers from all APIs")
-
-                # Track keyword filtering stage
-                if txt_filters:
-                    filtering_tracker.add_stage(
-                        "Keyword Filter",
-                        len(df),
-                        "Papers matching keyword requirements (title/abstract)"
-                    )
-
-                # Display fuzzy keyword matching report if enabled
-                if fuzzy_keyword_report:
-                    fuzzy_report_text = fuzzy_keyword_report.generate_report()
-                    logging.info(fuzzy_report_text)
-
-                # Get quality filters configuration
-                quality_filters = main_config.get("quality_filters", {})
-
-                # Deduplicate records (with fuzzy matching if configured)
-                use_fuzzy = quality_filters.get("use_fuzzy_matching", True) if quality_filters else True
-                fuzzy_threshold = quality_filters.get("fuzzy_threshold", 0.95) if quality_filters else 0.95
-                df_clean = deduplicate(df, use_fuzzy_matching=use_fuzzy, fuzzy_threshold=fuzzy_threshold)
-                df_clean.reset_index(drop=True, inplace=True)
-                logging.info(f"After deduplication: {len(df_clean)} unique papers")
-
-                # Track deduplication stage
-                filtering_tracker.add_stage(
-                    "Deduplication",
-                    len(df_clean),
-                    "Removed duplicate papers (by DOI, URL, fuzzy title matching)"
-                )
-
-            # ================================================================
-            # PARALLEL MODE: Use optimized parallel aggregation (DEFAULT)
-            # ================================================================
-            else:
-                logging.info("Using PARALLEL aggregation mode (default - 100x faster than serial)")
-
-                from src.crawlers.aggregate_parallel import parallel_aggregate
-
-                # Run parallel aggregation
-                df, parallel_stats = parallel_aggregate(
-                    state_details=state_details,
-                    dir_collect=dir_collect,
-                    txt_filters=txt_filters,
-                    use_fuzzy=use_fuzzy_keywords,
-                    fuzzy_threshold=fuzzy_keyword_threshold,
-                    fuzzy_report_class=fuzzy_keyword_report.__class__ if fuzzy_keyword_report else None,
-                    num_workers=args.parallel_workers,
-                    batch_size=args.batch_size,
-                    keyword_groups=keyword_groups
-                )
-
-                # Output performance statistics if requested
-                if args.profile:
-                    logging.info("\n" + "="*70)
-                    logging.info("PERFORMANCE STATISTICS")
-                    logging.info("="*70)
-                    for stage, stats in parallel_stats.items():
-                        logging.info(f"\n{stage.upper()}:")
-                        for key, value in stats.items():
-                            if isinstance(value, float):
-                                logging.info(f"  {key}: {value:.2f}")
-                            else:
-                                logging.info(f"  {key}: {value:,}" if isinstance(value, int) else f"  {key}: {value}")
-                    logging.info("="*70 + "\n")
-
-                # Skip to deduplication/quality filtering (already done in parallel mode)
-                # Note: parallel_aggregate already includes simple deduplication
-                df_clean = df
+            # Note: parallel_aggregate already includes simple deduplication
+            df_clean = df
 
             # Calculate and save quality scores for all papers
             logging.info("Calculating quality scores...")

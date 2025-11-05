@@ -12,6 +12,7 @@ from lxml import etree
 from ratelimit import limits, sleep_and_retry
 from scholarly import scholarly, ProxyGenerator
 
+from src.constants import CircuitBreakerConfig
 from src.crawlers.circuit_breaker import (
     CircuitBreakerRegistry,
     CircuitBreakerOpenError
@@ -293,13 +294,14 @@ class API_collector:
     def get_ratelimit(self):
         return self.rate_limit
 
-    def api_call_decorator(self, configurated_url, max_retries=3):
+    def api_call_decorator(self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES, headers=None):
         """
         Enhanced API call decorator with circuit breaker, retry logic and comprehensive error handling.
 
         Args:
             configurated_url: The URL to call
             max_retries: Maximum number of retry attempts (default: 3)
+            headers: Optional dict of HTTP headers to include in the request
 
         Returns:
             Response object from the API
@@ -313,8 +315,8 @@ class API_collector:
         registry = CircuitBreakerRegistry()
         breaker = registry.get_breaker(
             api_name=self.api_name,
-            failure_threshold=5,  # Open after 5 consecutive failures
-            timeout_seconds=60    # Wait 60s before retry
+            failure_threshold=CircuitBreakerConfig.FAILURE_THRESHOLD,
+            timeout_seconds=CircuitBreakerConfig.TIMEOUT_SECONDS
         )
 
         # Check circuit breaker state
@@ -332,7 +334,7 @@ class API_collector:
 
             for attempt in range(max_retries):
                 try:
-                    resp = self.session.get(configurated_url, timeout=30)
+                    resp = self.session.get(configurated_url, headers=headers, timeout=30)
                     resp.raise_for_status()
 
                     # Log successful request with rate limit info
@@ -664,16 +666,20 @@ class SemanticScholar_collector(API_collector):
         # Load rate limit from config (defaults to 1 req/sec with API key)
         self.load_rate_limit_from_config()
 
-    def api_call_decorator(self, configurated_url):
-        @sleep_and_retry
-        @limits(calls=self.get_ratelimit(), period=1)
-        def access_rate_limited_decorated(configurated_url):
-            resp = requests.get(
-                configurated_url, headers={"x-api-key": self.get_apikey()}
-            )
-            return resp
+    def api_call_decorator(self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES):
+        """
+        API call with SemanticScholar-specific headers.
+        Uses parent's comprehensive decorator with circuit breaker, retry logic, and error handling.
 
-        return access_rate_limited_decorated(configurated_url)
+        Args:
+            configurated_url: The URL to call
+            max_retries: Maximum number of retry attempts (default from CircuitBreakerConfig)
+
+        Returns:
+            Response object from the API
+        """
+        headers = {"x-api-key": self.get_apikey()} if self.get_apikey() else None
+        return super().api_call_decorator(configurated_url, max_retries=max_retries, headers=headers)
 
     def parsePageResults(self, response, page):
         """
@@ -932,58 +938,26 @@ class Elsevier_collector(API_collector):
             f"Initialized Elsevier collector with institutional token: {inst_token is not None}"
         )
 
-    def api_call_decorator(self, configurated_url):
+    def api_call_decorator(self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES):
         """
-        Custom API call with Elsevier-specific headers including institutional token.
+        API call with Elsevier-specific headers including institutional token.
+        Uses parent's comprehensive decorator with circuit breaker, retry logic, and error handling.
 
         Args:
             configurated_url: The URL to call
+            max_retries: Maximum number of retry attempts (default from CircuitBreakerConfig)
 
         Returns:
             Response object from the API
         """
+        headers = {"X-ELS-APIKey": self.get_apikey(), "Accept": "application/json"}
 
-        @sleep_and_retry
-        @limits(calls=self.get_ratelimit(), period=1)
-        def access_rate_limited_decorated(configurated_url):
-            headers = {"X-ELS-APIKey": self.get_apikey(), "Accept": "application/json"}
+        # Add institutional token if available (provides better access)
+        if self.inst_token:
+            headers["X-ELS-Insttoken"] = self.inst_token
+            logging.debug("Using institutional token for Elsevier API request")
 
-            # Add institutional token if available (provides better access)
-            if self.inst_token:
-                headers["X-ELS-Insttoken"] = self.inst_token
-                logging.debug("Using institutional token for Elsevier API request")
-
-            try:
-                resp = requests.get(configurated_url, headers=headers, timeout=30)
-                resp.raise_for_status()
-
-                # Log API quota usage from response headers
-                if "X-RateLimit-Remaining" in resp.headers:
-                    logging.info(
-                        f"Elsevier API quota remaining: {resp.headers['X-RateLimit-Remaining']}"
-                    )
-
-                return resp
-            except requests.exceptions.HTTPError as e:
-                if e.response.status_code == 429:
-                    logging.error(
-                        "Rate limit exceeded for Elsevier API. Consider reducing rate_limit."
-                    )
-                elif e.response.status_code == 401:
-                    logging.error(
-                        "Authentication failed. Check your API key and institutional token."
-                    )
-                raise
-            except requests.exceptions.Timeout:
-                logging.error(f"Request timeout for URL: {configurated_url}")
-                raise
-            except requests.exceptions.RequestException as e:
-                logging.error(
-                    f"Request failed for URL: {configurated_url}. Error: {str(e)}"
-                )
-                raise
-
-        return access_rate_limited_decorated(configurated_url)
+        return super().api_call_decorator(configurated_url, max_retries=max_retries, headers=headers)
 
     def parsePageResults(self, response, page):
         """Parse the JSON response from Elsevier API and return structured data."""
@@ -1231,34 +1205,6 @@ class OpenAlex_collector(API_collector):
         return page
 
 
-# class HAL_collector(API_collector):
-#     """store file metadata"""
-#     def __init__(self, filter_param, save, data_path):
-#         super().__init__(filter_param, save, data_path)
-#         self.rate_limit = 10
-#         self.max_by_page = 500
-#         self.api_name = "HAL"
-#         self.api_url = "http://api.archives-ouvertes.fr/search/"
-
-#     def parsePageResults(self,response,page):
-#         page_data = {"date_search":str(date.today()), "id_collect": self.get_collectId(), "page": page,"total":0,"results":[]}
-#         page_with_results =response.json()
-
-#         # loop through partial list of results
-#         results =  page_with_results['response']
-
-#         for result in results["docs"]:
-#             page_data["results"].append(result)
-
-#         total=results["numFound"]
-#         page_data["total"]=int(total)
-
-#         return page_data
-
-#     def get_configurated_url(self):
-#         return self.get_url()+"?q="+self.get_keywords()+"&fl=title_s,abstract_s,label_s,arxivId_s,audience_s,authFullNameIdHal_fs,bookTitle_s,classification_s,conferenceTitle_s,docType_s,doiId_id,files_s,halId_s,jel_t,journalDoiRoot_s,journalTitle_t,keyword_s,type_s,submittedDateY_i&fq=submittedDateY_i:"+str(self.get_year())+"&rows="+str(self.get_max_by_page())+"&start={}"
-
-
 class HAL_collector(API_collector):
     """Collector for fetching publication metadata from the HAL API."""
 
@@ -1491,37 +1437,6 @@ class Arxiv_collector(API_collector):
             f"Configured URL: {self.api_url}?search_query={search_query}&sortBy=relevance&sortOrder=descending&start={{}}&max_results={self.max_by_page}"
         )
         return f"{self.api_url}?search_query={search_query}&sortBy=relevance&sortOrder=descending&start={{}}&max_results={self.max_by_page}"
-
-
-# class Istex_collector(API_collector):
-#     """store file metadata"""
-#     def __init__(self, filter_param, save, data_path):
-#          super().__init__(filter_param, save, data_path)
-#          self.rate_limit = 3
-#          self.max_by_page = 500
-#          self.api_name = "Istex"
-#          self.api_url = "https://api.istex.fr/document/"
-
-#     def parsePageResults(self,response,page):
-#          page_data = {"date_search":str(date.today()), "id_collect": self.get_collectId(), "page": page,"total":0,"results":[]}
-#          page_with_results =response.json()
-#          #print(page_with_results)
-#          # loop through partial list of results
-#          results =  page_with_results
-
-#          for result in results["hits"]:
-#              page_data["results"].append(result)
-
-#          total=results["total"]
-#          page_data["total"]=int(total)
-
-#          return page_data
-
-#     def get_configurated_url(self):
-#         #kwd=" AND ".join(self.get_keywords().split(" "))
-#         kwd=self.get_keywords()
-#         kwd2="(publicationDate:"+str(self.get_year())+" AND title:("+kwd+") OR abstract:("+kwd+"))"
-#         return self.get_url()+"?q="+kwd2+"&output=*&size"+str(self.get_max_by_page())+"&from={}"
 
 
 class Istex_collector(API_collector):

@@ -18,7 +18,6 @@ import logging
 import yaml
 from datetime import datetime
 
-from src.crawlers.aggregate import *
 from src.crawlers.collector_collection import CollectCollection
 from src.crawlers.utils import load_all_configs
 from src.logging_config import setup_logging, log_section

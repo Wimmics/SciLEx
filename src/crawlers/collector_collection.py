@@ -9,7 +9,18 @@ from itertools import product
 
 import yaml
 
-from .collectors import *
+from .collectors import (
+    DBLP_collector,
+    Arxiv_collector,
+    Elsevier_collector,
+    IEEE_collector,
+    Springer_collector,
+    SemanticScholar_collector,
+    OpenAlex_collector,
+    HAL_collector,
+    Istex_collector,
+    GoogleScholarCollector,
+)
 from .async_wrapper import AsyncCollectorWrapper
 
 # Import centralized logging utilities
