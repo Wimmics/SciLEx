@@ -19,7 +19,7 @@ I developed ScilEx scripts in the context of a systematic review conducted durin
 ![Framework](img/Framework.png)
 ---
 
-## :electric_plug: Deploy and use Scilex for the first time
+## :electric_plug: Deploy and use SciLEx for the first time
 
  👉 Please read our quick tutorial [here](https://github.com/datalogism/SciLEx/blob/main/Tuto_firstContact.md) 🏃‍♂️🏃
 
