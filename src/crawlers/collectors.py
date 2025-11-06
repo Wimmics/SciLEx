@@ -655,7 +655,7 @@ class SemanticScholar_collector(API_collector):
         Initializes the Semantic Scholar collector with the given parameters.
 
         Args:
-            filter_param (Filter_param): Parameters for filtering results (years, keywords, etc.).
+            filter_param (dict): Parameters for filtering results (years, keywords, mode, etc.).
             save (int): Flag indicating whether to save the collected data.
             data_path (str): Path to save the collected data.
         """
@@ -663,6 +663,12 @@ class SemanticScholar_collector(API_collector):
         self.api_name = "SemanticScholar"
         self.api_url = "https://api.semanticscholar.org/graph/v1/paper/search"
         self.max_by_page = 100  # Maximum number of results per page
+
+        # Read semantic_scholar_mode from config (default: regular)
+        # Options: "regular" (standard endpoint) or "bulk" (bulk endpoint, requires higher-tier access)
+        mode = filter_param.get("semantic_scholar_mode", "regular")
+        self.use_bulk_api = (mode == "bulk")
+
         # Load rate limit from config (defaults to 1 req/sec with API key)
         self.load_rate_limit_from_config()
 
@@ -743,10 +749,11 @@ class SemanticScholar_collector(API_collector):
 
     def get_configurated_url(self):
         """
-        Constructs the configured API URL with query parameters for the bulk API.
+        Constructs the configured API URL with query parameters.
 
         Returns:
-            str: The formatted API URL for the bulk API with the constructed query parameters.
+            str: The formatted API URL with the constructed query parameters.
+                 Uses either regular or bulk endpoint based on semantic_scholar_mode config.
         """
         # Process keywords: Join multiple keywords with '+' (AND operator)
         # Wrap each keyword in quotes to preserve multi-word phrases
@@ -754,19 +761,18 @@ class SemanticScholar_collector(API_collector):
             f'"{kw}"' for kw in self.get_keywords()
         )  # Use + for AND logic between keyword groups
 
-        # query_keywords = '|'.join(f'"{keyword})"' for keyword in keywords) for keywords in keywords_list
-        # )
         encoded_keywords = urllib.parse.quote(query_keywords)
 
-        # Handle year range: Use min and max to set the range
-        #  years = self.get_year()
-        # start_year = min(years) if years else None
-        # end_year = max(years) if years else None
-        # year_range = f"{start_year}-{end_year}" if start_year and end_year else ""
-
-        # Define fixed fields and construct the URL
+        # Define fixed fields
         fields = "title,abstract,url,venue,publicationVenue,citationCount,externalIds,referenceCount,s2FieldsOfStudy,publicationTypes,publicationDate,isOpenAccess,openAccessPdf,authors,journal,fieldsOfStudy"
-        base_url = f"{self.api_url}/bulk"
+
+        # Choose endpoint based on config: regular (default) or bulk
+        if self.use_bulk_api:
+            base_url = f"{self.api_url}/bulk"
+            logging.debug("Using Semantic Scholar BULK endpoint (requires higher-tier access)")
+        else:
+            base_url = self.api_url
+            logging.debug("Using Semantic Scholar REGULAR endpoint (standard access)")
 
         # Construct the full URL
         url = (

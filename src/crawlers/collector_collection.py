@@ -327,16 +327,25 @@ class CollectCollection:
         )
 
         # Create a list of dictionaries with the combinations
+        # Include semantic_scholar_mode for SemanticScholar API
+        semantic_scholar_mode = self.main_config.get("semantic_scholar_mode", "regular")
+
         if two_list_k:
-            queries = [
-                {"keyword": keyword_group, "year": year, "api": api}
-                for keyword_group, year, api in combinations
-            ]
+            queries = []
+            for keyword_group, year, api in combinations:
+                query = {"keyword": keyword_group, "year": year, "api": api}
+                # Add semantic_scholar_mode for SemanticScholar API
+                if api == "SemanticScholar":
+                    query["semantic_scholar_mode"] = semantic_scholar_mode
+                queries.append(query)
         else:
-            queries = [
-                {"keyword": [keyword_group], "year": year, "api": api}
-                for keyword_group, year, api in combinations
-            ]
+            queries = []
+            for keyword_group, year, api in combinations:
+                query = {"keyword": [keyword_group], "year": year, "api": api}
+                # Add semantic_scholar_mode for SemanticScholar API
+                if api == "SemanticScholar":
+                    query["semantic_scholar_mode"] = semantic_scholar_mode
+                queries.append(query)
         logger.debug(f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs")
         queries_by_api = {}
         for query in queries:

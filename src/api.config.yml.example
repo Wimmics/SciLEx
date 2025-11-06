@@ -10,7 +10,17 @@ google_scholar:
 springer:
     api_key: "YOUR_SPRINGER_API_KEY"
 sem_scholar:
-    api_key: "YOUR_SEMANTIC_SCHOLAR_API_KEY"  # Optional - can work without
+    api_key: "YOUR_SEMANTIC_SCHOLAR_API_KEY"  # Optional but recommended
+    # Note: Get your free API key at https://www.semanticscholar.org/product/api
+    #
+    # API Key Benefits:
+    #   - Without key: 100 requests per 5 minutes (shared pool)
+    #   - With key: 1 request per second (dedicated quota)
+    #
+    # Endpoint Mode (configured in scilex.config.yml):
+    #   - Regular mode (default): Works with standard keys, recommended
+    #   - Bulk mode: Requires higher-tier access for large-scale retrieval
+    #   - If you get 429 errors, use regular mode or apply for bulk access
 elsevier:
     api_key: "YOUR_ELSEVIER_API_KEY"
     inst_token: "YOUR_INSTITUTIONAL_TOKEN"  # Optional but recommended for better access

@@ -150,6 +150,35 @@ apis:
   - IEEE
 
 # ============================================================================
+# API-SPECIFIC SETTINGS
+# ============================================================================
+
+# Semantic Scholar API endpoint mode
+# Controls which Semantic Scholar endpoint to use for searches
+# Options:
+#   - "regular" (RECOMMENDED, default):
+#     * Uses standard search endpoint: /paper/search
+#     * Works with standard API keys
+#     * More reliable, better for most use cases
+#     * Lower rate limits but sufficient for typical research
+#     * Example: 1000 papers/query, ~100K papers total
+#   - "bulk":
+#     * Uses bulk search endpoint: /paper/search/bulk
+#     * Designed for large-scale data retrieval (millions of papers)
+#     * Requires higher-tier API access or special approval
+#     * May return 429 "Too Many Requests" errors with standard keys
+#     * Apply at: https://www.semanticscholar.org/product/api#api-key-form
+#
+# When to use each mode:
+#   - Use "regular" for: Most research projects, systematic reviews (<100K papers)
+#   - Use "bulk" for: Large-scale bibliometric studies, institutional databases
+#
+# Troubleshooting:
+#   - Getting 429 errors? Switch to "regular" mode
+#   - Need bulk access? Apply for higher-tier API key first
+semantic_scholar_mode: regular
+
+# ============================================================================
 # COLLECTION CONTROL
 # ============================================================================
 
