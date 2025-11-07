@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import multiprocessing
@@ -9,23 +8,23 @@ from itertools import product
 
 import yaml
 
-from .collectors import (
-    DBLP_collector,
-    Arxiv_collector,
-    Elsevier_collector,
-    IEEE_collector,
-    Springer_collector,
-    SemanticScholar_collector,
-    OpenAlex_collector,
-    HAL_collector,
-    Istex_collector,
-    GoogleScholarCollector,
-)
 from .async_wrapper import AsyncCollectorWrapper
+from .collectors import (
+    Arxiv_collector,
+    DBLP_collector,
+    Elsevier_collector,
+    GoogleScholarCollector,
+    HAL_collector,
+    IEEE_collector,
+    Istex_collector,
+    OpenAlex_collector,
+    SemanticScholar_collector,
+    Springer_collector,
+)
 
 # Import centralized logging utilities
 try:
-    from src.logging_config import ProgressTracker, log_api_start, log_api_complete
+    from src.logging_config import ProgressTracker, log_api_complete, log_api_start
 except ImportError:
     # Fallback if logging_config not available
     ProgressTracker = None
@@ -56,7 +55,7 @@ def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name)
     This must be at module level (not in a class) for spawn mode to work.
     """
     repo = os.path.join(output_dir, collect_name)
-    
+
     for idx in range(len(collect_list)):
         is_last = idx == len(collect_list) - 1
         coll = collect_list[idx]
@@ -64,34 +63,40 @@ def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name)
         collector_class = api_collectors[coll["api"]]
         api_key = None
         inst_token = None
-        
+
         if coll["api"] in api_config:
             api_key = api_config[coll["api"]].get("api_key")
             if coll["api"] == "Elsevier" and "inst_token" in api_config[coll["api"]]:
                 inst_token = api_config[coll["api"]]["inst_token"]
-                logging.debug(f"Using institutional token for Elsevier API")
-        
+                logging.debug("Using institutional token for Elsevier API")
+
         try:
             # Initialize collector
             if coll["api"] == "Elsevier" and inst_token:
                 current_coll = collector_class(data_query, repo, api_key, inst_token)
             else:
                 current_coll = collector_class(data_query, repo, api_key)
-            
+
             # Run collection
             res = current_coll.runCollect()
-            
-            # Update state
-            _update_state_worker(repo, current_coll.api_name, str(current_coll.collectId), res)
 
-            logging.debug(f"Completed collection for {coll['api']} query {data_query.get('id_collect', 'unknown')}")
-            
+            # Update state
+            _update_state_worker(
+                repo, current_coll.api_name, str(current_coll.collectId), res
+            )
+
+            logging.debug(
+                f"Completed collection for {coll['api']} query {data_query.get('id_collect', 'unknown')}"
+            )
+
         except Exception as e:
             logging.error(f"Error during collection for {coll['api']}: {str(e)}")
             # Mark as failed in state
             error_state = {"state": -1, "error": str(e), "last_page": 0}
             try:
-                _update_state_worker(repo, coll["api"], str(data_query.get("id_collect", 0)), error_state)
+                _update_state_worker(
+                    repo, coll["api"], str(data_query.get("id_collect", 0)), error_state
+                )
             except Exception as state_error:
                 logging.error(f"Failed to update state after error: {str(state_error)}")
 
@@ -102,39 +107,39 @@ def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name)
 def _update_state_worker(repo, api, idx, state_data):
     """Helper function to update state file in a thread-safe way"""
     state_path = os.path.join(repo, "state_details.json")
-    
+
     with lock:
         if os.path.isfile(state_path):
             with open(state_path, encoding="utf-8") as read_file:
                 state_orig = json.load(read_file)
-            
+
             # Update query state
             for k in state_data:
                 state_orig["details"][api]["by_query"][str(idx)][k] = state_data[k]
-            
+
             # Check if API is finished
             finished_local = True
             for k in state_orig["details"][api]["by_query"]:
                 q = state_orig["details"][api]["by_query"][k]
                 if q["state"] != 1:
                     finished_local = False
-            
+
             if finished_local:
                 state_orig["details"][api]["state"] = 1
             else:
                 state_orig["details"][api]["state"] = 0
-            
+
             # Check if all APIs are finished
             finished_global = True
             for api_ in state_orig["details"]:
                 if state_orig["details"][api_]["state"] != 1:
                     finished_global = False
-            
+
             if finished_global:
                 state_orig["global"] = 1
             else:
                 state_orig["global"] = 0
-            
+
             # Save state
             with open(state_path, "w", encoding="utf-8") as f:
                 json.dump(state_orig, f, ensure_ascii=False, indent=4)
@@ -170,20 +175,23 @@ class CollectCollection:
         self.state_details = {}
         self.state_details = {"global": -1, "details": {}}
         self.init_collection_collect()
-        
+
         # Initialize StateManager for SQLite-based state persistence (Phase 1B)
         # This reduces lock contention from JSON file I/O by batching updates
         self.state_manager = None
-        self.use_state_db = os.environ.get('USE_STATE_DB', '').lower() == 'true'
+        self.use_state_db = os.environ.get("USE_STATE_DB", "").lower() == "true"
         if self.use_state_db:
             logging.info("StateManager enabled (USE_STATE_DB=true)")
             try:
                 from src.gui.backend.services.state_manager import StateManager
+
                 repo = self.get_current_repo()
-                db_path = os.path.join(repo, 'state.db')
+                db_path = os.path.join(repo, "state.db")
                 self.state_manager = StateManager(db_path)
             except ImportError:
-                logging.warning("StateManager not available - GUI removed. USE_STATE_DB=true ignored.")
+                logging.warning(
+                    "StateManager not available - GUI removed. USE_STATE_DB=true ignored."
+                )
 
     def validate_api_keys(self):
         """Validate that required API keys are present before starting collection"""
@@ -209,7 +217,9 @@ class CollectCollection:
                         missing_keys.append(f"{api}.{key}")
 
         if missing_keys:
-            logger.warning(f"Missing API keys: {', '.join(missing_keys)} - these collections will likely fail")
+            logger.warning(
+                f"Missing API keys: {', '.join(missing_keys)} - these collections will likely fail"
+            )
             return False
 
         logger.debug("API key validation passed")
@@ -220,13 +230,15 @@ class CollectCollection:
         self.total_jobs = total_jobs
         self.completed_jobs = 0
         self.progress_lock = multiprocessing.Lock()
-    
+
     def update_progress(self):
         """Update progress counter (thread-safe)"""
         with self.progress_lock:
             self.completed_jobs += 1
             progress_pct = (self.completed_jobs / self.total_jobs) * 100
-            logging.info(f"Progress: {self.completed_jobs}/{self.total_jobs} ({progress_pct:.1f}%) collections completed")
+            logging.info(
+                f"Progress: {self.completed_jobs}/{self.total_jobs} ({progress_pct:.1f}%) collections completed"
+            )
 
     def job_collect(self, collector):
         try:
@@ -239,10 +251,12 @@ class CollectCollection:
             error_state = {
                 "state": -1,  # -1 indicates error
                 "error": str(e),
-                "last_page": 0
+                "last_page": 0,
             }
             try:
-                self.update_state_details(collector.api_name, str(collector.collectId), error_state)
+                self.update_state_details(
+                    collector.api_name, str(collector.collectId), error_state
+                )
             except Exception as state_error:
                 logging.error(f"Failed to update state after error: {str(state_error)}")
             self.update_progress()
@@ -255,16 +269,19 @@ class CollectCollection:
             collector = api_collectors[coll["api"]]
             api_key = None
             inst_token = None  # For Elsevier institutional token
-            
+
             if coll["api"] in self.api_config:
                 api_key = self.api_config[coll["api"]]["api_key"]
                 # Check for institutional token (Elsevier only)
-                if coll["api"] == "Elsevier" and "inst_token" in self.api_config[coll["api"]]:
+                if (
+                    coll["api"] == "Elsevier"
+                    and "inst_token" in self.api_config[coll["api"]]
+                ):
                     inst_token = self.api_config[coll["api"]]["inst_token"]
-                    logging.info(f"Using institutional token for Elsevier API")
+                    logging.info("Using institutional token for Elsevier API")
 
             repo = self.get_current_repo()
-            
+
             # Initialize collector with institutional token if applicable
             if coll["api"] == "Elsevier" and inst_token:
                 current_coll = collector(data_query, repo, api_key, inst_token)
@@ -329,11 +346,18 @@ class CollectCollection:
         # Create a list of dictionaries with the combinations
         # Include semantic_scholar_mode for SemanticScholar API
         semantic_scholar_mode = self.main_config.get("semantic_scholar_mode", "regular")
+        # Get max_articles_per_query from config (default to -1 = unlimited)
+        max_articles_per_query = self.main_config.get("max_articles_per_query", -1)
 
         if two_list_k:
             queries = []
             for keyword_group, year, api in combinations:
-                query = {"keyword": keyword_group, "year": year, "api": api}
+                query = {
+                    "keyword": keyword_group,
+                    "year": year,
+                    "api": api,
+                    "max_articles_per_query": max_articles_per_query,
+                }
                 # Add semantic_scholar_mode for SemanticScholar API
                 if api == "SemanticScholar":
                     query["semantic_scholar_mode"] = semantic_scholar_mode
@@ -341,12 +365,19 @@ class CollectCollection:
         else:
             queries = []
             for keyword_group, year, api in combinations:
-                query = {"keyword": [keyword_group], "year": year, "api": api}
+                query = {
+                    "keyword": [keyword_group],
+                    "year": year,
+                    "api": api,
+                    "max_articles_per_query": max_articles_per_query,
+                }
                 # Add semantic_scholar_mode for SemanticScholar API
                 if api == "SemanticScholar":
                     query["semantic_scholar_mode"] = semantic_scholar_mode
                 queries.append(query)
-        logger.debug(f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs")
+        logger.debug(
+            f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs"
+        )
         queries_by_api = {}
         for query in queries:
             if query["api"] not in queries_by_api:
@@ -369,7 +400,7 @@ class CollectCollection:
     def update_state_details(self, api, idx, state_data):
         repo = self.get_current_repo()
         state_path = os.path.join(repo, "state_details.json")
-        
+
         # Use lock for entire read-modify-write operation to prevent race conditions
         with lock:
             if os.path.isfile(state_path):
@@ -444,7 +475,7 @@ class CollectCollection:
     def init_collection_collect(self):
         repo = self.get_current_repo()
         state_file = os.path.join(repo, "state_details.json")
-        
+
         # Reinitialize if:
         # 1. Directory doesn't exist (first run), OR
         # 2. State file doesn't exist (partial collection), OR
@@ -490,8 +521,12 @@ class CollectCollection:
 
         # Check if there are any jobs to process
         if len(jobs_list) == 0:
-            logger.warning("No collections to conduct. Collection may already be complete.")
-            logger.warning("To restart collection, delete the output directory or reset state.")
+            logger.warning(
+                "No collections to conduct. Collection may already be complete."
+            )
+            logger.warning(
+                "To restart collection, delete the output directory or reset state."
+            )
             return
 
         # Calculate number of processes - simplified logic
@@ -499,17 +534,24 @@ class CollectCollection:
         if num_cores < 1:
             num_cores = 1
 
-        logger.info(f"Starting sync collection: {n_coll} queries using {num_cores} parallel processes")
+        logger.info(
+            f"Starting sync collection: {n_coll} queries using {num_cores} parallel processes"
+        )
 
         # Initialize progress tracking
         self.init_progress_tracking(len(jobs_list))
 
         # Prepare data for worker functions (must be serializable)
         worker_args = [
-            (job_list, self.api_config, self.main_config["output_dir"], self.main_config["collect_name"])
+            (
+                job_list,
+                self.api_config,
+                self.main_config["output_dir"],
+                self.main_config["collect_name"],
+            )
             for job_list in jobs_list
         ]
-        
+
         pool = multiprocessing.Pool(processes=num_cores)
         try:
             # Use starmap to pass multiple arguments to worker function
@@ -561,16 +603,20 @@ class CollectCollection:
                     for k in self.state_details["details"][api]["by_query"]:
                         query = self.state_details["details"][api]["by_query"][k]
                         if query["state"] != 1:
-                            collections.append({
-                                'api': api,
-                                'query': query,
-                                'path': self.get_current_repo(),
-                                'key': self.api_config.get(api, {}).get('api_key')
-                            })
+                            collections.append(
+                                {
+                                    "api": api,
+                                    "query": query,
+                                    "path": self.get_current_repo(),
+                                    "key": self.api_config.get(api, {}).get("api_key"),
+                                }
+                            )
                             n_coll += 1
 
-        num_apis = len(set(c['api'] for c in collections))
-        logger.info(f"Starting async collection: {n_coll} queries across {num_apis} APIs")
+        num_apis = len(set(c["api"] for c in collections))
+        logger.info(
+            f"Starting async collection: {n_coll} queries across {num_apis} APIs"
+        )
 
         # Initialize progress tracking
         self.init_progress_tracking(n_coll)
@@ -597,8 +643,8 @@ class CollectCollection:
                 updates_by_api = {}
                 for i, result in enumerate(results):
                     if i < len(collections):
-                        api = collections[i]['api']
-                        query_id = str(collections[i]['query'].get('id_collect', i))
+                        api = collections[i]["api"]
+                        query_id = str(collections[i]["query"].get("id_collect", i))
 
                         if api not in updates_by_api:
                             updates_by_api[api] = {}
@@ -609,9 +655,13 @@ class CollectCollection:
                 for api, updates in updates_by_api.items():
                     try:
                         await self.state_manager.batch_update_queries(api, updates)
-                        logger.debug(f"StateManager: Batched {len(updates)} updates for {api}")
+                        logger.debug(
+                            f"StateManager: Batched {len(updates)} updates for {api}"
+                        )
                     except Exception as e:
-                        logger.warning(f"StateManager batch update failed for {api}: {str(e)}")
+                        logger.warning(
+                            f"StateManager batch update failed for {api}: {str(e)}"
+                        )
                         # Fall back to JSON updates
                         for query_id, result in updates.items():
                             self.update_state_details(api, query_id, result)
@@ -619,13 +669,15 @@ class CollectCollection:
                 # Fall back to JSON-based state updates (default behavior)
                 for i, result in enumerate(results):
                     if i < len(collections):
-                        api = collections[i]['api']
-                        query_id = collections[i]['query'].get('id_collect', i)
+                        api = collections[i]["api"]
+                        query_id = collections[i]["query"].get("id_collect", i)
 
                         try:
                             self.update_state_details(api, str(query_id), result)
                         except Exception as e:
-                            logging.error(f"Error updating state for {api} query {query_id}: {str(e)}")
+                            logging.error(
+                                f"Error updating state for {api} query {query_id}: {str(e)}"
+                            )
 
         except Exception as e:
             logging.error(f"Error during async collection: {str(e)}")
@@ -645,7 +697,9 @@ class CollectCollection:
             if self.state_manager:
                 logger.debug("Initializing StateManager for SQLite persistence...")
                 await self.state_manager.initialize()
-                logger.debug("StateManager initialized - using SQLite for state persistence")
+                logger.debug(
+                    "StateManager initialized - using SQLite for state persistence"
+                )
 
             await self.create_collects_jobs_async()
 

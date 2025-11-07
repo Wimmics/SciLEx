@@ -16,9 +16,8 @@ Features:
 import asyncio
 import logging
 import os
-import time
 from datetime import date
-from typing import Optional, Dict, Any
+from typing import Any
 
 import aiohttp
 import yaml
@@ -70,7 +69,7 @@ class AsyncAPICollector:
     }
 
     def __init__(
-        self, data_query: Dict[str, Any], data_path: str, api_key: Optional[str] = None
+        self, data_query: dict[str, Any], data_path: str, api_key: str | None = None
     ):
         """
         Initialize async collector.
@@ -82,7 +81,13 @@ class AsyncAPICollector:
         """
         self.api_key = api_key
         self.api_name = "None"  # Override in subclass
-        self.filter_param = Filter_param(data_query["year"], data_query["keyword"])
+        self.filter_param = Filter_param(
+            data_query["year"],
+            data_query["keyword"],
+            data_query.get(
+                "max_articles_per_query", -1
+            ),  # Default to -1 (unlimited) if not in config
+        )
         self.rate_limit = 10.0  # Will be overridden by load_rate_limit_from_config()
         self.concurrency_limit = 1  # Will be overridden
         self.datadir = data_path
@@ -96,8 +101,8 @@ class AsyncAPICollector:
         self.state = data_query["state"]
 
         # Async-specific attributes
-        self.session: Optional[aiohttp.ClientSession] = None
-        self.semaphore: Optional[asyncio.Semaphore] = None
+        self.session: aiohttp.ClientSession | None = None
+        self.semaphore: asyncio.Semaphore | None = None
         self.request_count = 0
         self.error_count = 0
 
@@ -113,7 +118,7 @@ class AsyncAPICollector:
             )
 
             if os.path.exists(config_path):
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     config = yaml.safe_load(f)
 
                 # Load rate limit
@@ -184,9 +189,9 @@ class AsyncAPICollector:
         self,
         url: str,
         method: str = "GET",
-        params: Optional[Dict] = None,
+        params: dict | None = None,
         max_retries: int = 3,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Make an async HTTP request with rate limiting and retry logic.
 
@@ -266,7 +271,11 @@ class AsyncAPICollector:
                                 )
                                 response.raise_for_status()
 
-                        elif response.status in [502, 503, 504]:  # Gateway/service errors
+                        elif response.status in [
+                            502,
+                            503,
+                            504,
+                        ]:  # Gateway/service errors
                             wait_time = 2**attempt
                             logging.warning(
                                 f"{self.api_name} API gateway/service error ({response.status}). "
@@ -305,7 +314,7 @@ class AsyncAPICollector:
                             await asyncio.sleep(delay_between_requests)
 
                             return data
-                        except asyncio.TimeoutError as e:
+                        except TimeoutError:
                             logging.error(
                                 f"{self.api_name} API: Response timeout while reading JSON"
                             )
@@ -329,7 +338,7 @@ class AsyncAPICollector:
                         self.error_count += 1
                         raise
 
-                except (asyncio.TimeoutError, aiohttp.ClientSSLError) as e:
+                except (TimeoutError, aiohttp.ClientSSLError) as e:
                     last_exception = e
                     wait_time = 2**attempt
                     logging.warning(
@@ -377,7 +386,7 @@ class AsyncAPICollector:
                     f"{self.api_name} API: Failed after {max_retries} attempts"
                 )
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         """
         Get HTTP headers for API request.
 
@@ -394,7 +403,7 @@ class AsyncAPICollector:
         return headers
 
     async def fetch_multiple_pages(
-        self, urls: list, max_concurrent: Optional[int] = None
+        self, urls: list, max_concurrent: int | None = None
     ) -> list:
         """
         Fetch multiple URLs concurrently while respecting rate limits.
@@ -429,7 +438,7 @@ class AsyncAPICollector:
         # Return results in order
         return results
 
-    async def run_collect_async(self) -> Dict[str, Any]:
+    async def run_collect_async(self) -> dict[str, Any]:
         """
         Async version of runCollect.
 
@@ -509,7 +518,7 @@ class AsyncAPICollector:
         if not os.path.isdir(collect_dir):
             os.makedirs(collect_dir)
 
-    def savePageResults(self, page_data: Dict, page_num: int) -> None:
+    def savePageResults(self, page_data: dict, page_num: int) -> None:
         """
         Save page results to file with proper directory structure.
 

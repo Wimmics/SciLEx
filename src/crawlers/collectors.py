@@ -1,22 +1,19 @@
 import json
 import logging
+import math
 import os
 import time
 import urllib
-import yaml
 from datetime import date
-from typing import Optional
 
 import requests
+import yaml
 from lxml import etree
 from ratelimit import limits, sleep_and_retry
-from scholarly import scholarly, ProxyGenerator
+from scholarly import ProxyGenerator, scholarly
 
 from src.constants import CircuitBreakerConfig
-from src.crawlers.circuit_breaker import (
-    CircuitBreakerRegistry,
-    CircuitBreakerOpenError
-)
+from src.crawlers.circuit_breaker import CircuitBreakerOpenError, CircuitBreakerRegistry
 
 # # Set up logging configuration
 # logging.basicConfig(
@@ -27,11 +24,13 @@ from src.crawlers.circuit_breaker import (
 
 
 class Filter_param:
-    def __init__(self, year, keywords):
+    def __init__(self, year, keywords, max_articles_per_query=-1):
         # Initialize the parameters
         self.year = year
         # Keywords is now a list of lists to support multiple sets
         self.keywords = keywords
+        # Maximum articles per query (-1 = unlimited)
+        self.max_articles_per_query = max_articles_per_query
         # self.focus = focus
 
     def get_dict_param(self):
@@ -43,6 +42,9 @@ class Filter_param:
 
     def get_keywords(self):
         return self.keywords
+
+    def get_max_articles_per_query(self):
+        return self.max_articles_per_query
 
     def get_focus(self):
         return self.focus
@@ -67,7 +69,13 @@ class API_collector:
         # In second
         self.api_key = api_key
         self.api_name = "None"
-        self.filter_param = Filter_param(data_query["year"], data_query["keyword"])
+        self.filter_param = Filter_param(
+            data_query["year"],
+            data_query["keyword"],
+            data_query.get(
+                "max_articles_per_query", -1
+            ),  # Default to -1 (unlimited) if not in config
+        )
         self.rate_limit = 10  # Will be overridden by load_rate_limit_from_config()
         self.datadir = data_path
         self.collectId = data_query["id_collect"]
@@ -120,7 +128,7 @@ class API_collector:
             )
 
             if os.path.exists(config_path):
-                with open(config_path, "r") as f:
+                with open(config_path) as f:
                     config = yaml.safe_load(f)
 
                 if (
@@ -153,7 +161,7 @@ class API_collector:
             )
 
     def log_api_usage(
-        self, response: Optional[requests.Response], page: int, results_count: int
+        self, response: requests.Response | None, page: int, results_count: int
     ):
         """
         Log API usage statistics for monitoring and debugging.
@@ -294,7 +302,12 @@ class API_collector:
     def get_ratelimit(self):
         return self.rate_limit
 
-    def api_call_decorator(self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES, headers=None):
+    def api_call_decorator(
+        self,
+        configurated_url,
+        max_retries=CircuitBreakerConfig.MAX_RETRIES,
+        headers=None,
+    ):
         """
         Enhanced API call decorator with circuit breaker, retry logic and comprehensive error handling.
 
@@ -316,7 +329,7 @@ class API_collector:
         breaker = registry.get_breaker(
             api_name=self.api_name,
             failure_threshold=CircuitBreakerConfig.FAILURE_THRESHOLD,
-            timeout_seconds=CircuitBreakerConfig.TIMEOUT_SECONDS
+            timeout_seconds=CircuitBreakerConfig.TIMEOUT_SECONDS,
         )
 
         # Check circuit breaker state
@@ -334,7 +347,9 @@ class API_collector:
 
             for attempt in range(max_retries):
                 try:
-                    resp = self.session.get(configurated_url, headers=headers, timeout=30)
+                    resp = self.session.get(
+                        configurated_url, headers=headers, timeout=30
+                    )
                     resp.raise_for_status()
 
                     # Log successful request with rate limit info
@@ -526,15 +541,45 @@ class API_collector:
                 )  # Collect results from Springer endpoints
 
                 for page_data in combined_results:
-                    # Save each page's results
+                    # PRE-CHECK: Stop if we've already collected enough articles
+                    max_articles = self.filter_param.get_max_articles_per_query()
+                    if max_articles > 0 and self.nb_art_collected >= max_articles:
+                        logging.info(
+                            f"Reached max_articles_per_query limit ({max_articles}). "
+                            f"Already collected {self.nb_art_collected} articles. Skipping remaining pages."
+                        )
+                        break
 
+                    # Save each page's results
                     self.savePageResults(page_data, page)
+                    self.nb_art_collected += len(page_data["results"])
 
                     # Update the last page collected
                     self.set_lastpage(int(page) + 1)
 
                     # Check if more pages are available based on results
-                    has_more_pages = len(page_data["results"]) == self.get_max_by_page()
+                    if (
+                        len(page_data["results"]) > 0
+                        and "total" in page_data
+                        and page_data["total"] > 0
+                    ):
+                        # Calculate expected pages based on total results
+                        expected_pages = math.ceil(
+                            page_data["total"] / self.get_max_by_page()
+                        )
+                        has_more_pages = page < expected_pages
+
+                        # Check if we've collected enough articles
+                        max_articles = self.filter_param.get_max_articles_per_query()
+                        if max_articles > 0 and self.nb_art_collected >= max_articles:
+                            logging.info(
+                                f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
+                                f"No more pages needed."
+                            )
+                            has_more_pages = False
+                    else:
+                        has_more_pages = False
+
                     page = self.get_lastpage()  # Update the current page number
 
                     # Check if total results are within the limit
@@ -554,6 +599,15 @@ class API_collector:
             # If this is a DBLP collector, follow the normal process
 
             while has_more_pages and fewer_than_10k_results:
+                # PRE-CHECK: Stop if we've already collected enough articles
+                max_articles = self.filter_param.get_max_articles_per_query()
+                if max_articles > 0 and self.nb_art_collected >= max_articles:
+                    logging.info(
+                        f"Reached max_articles_per_query limit ({max_articles}). "
+                        f"Already collected {self.nb_art_collected} articles. Stopping before page {page}."
+                    )
+                    break
+
                 offset = self.get_offset(page)  # Calculate the current offset
 
                 url = self.get_configurated_url().format(
@@ -578,8 +632,23 @@ class API_collector:
                     nb_res = len(page_data["results"])
 
                     # Determine if more pages are available based on results returned
-                    if nb_res != 0:
-                        has_more_pages = nb_res == self.get_max_by_page()
+                    if nb_res != 0 and "total" in page_data and page_data["total"] > 0:
+                        # Calculate expected pages based on total results
+                        expected_pages = math.ceil(
+                            page_data["total"] / self.get_max_by_page()
+                        )
+
+                        # Check if we should fetch more pages based on total
+                        has_more_pages = page < expected_pages
+
+                        # Check if we've collected enough articles
+                        max_articles = self.filter_param.get_max_articles_per_query()
+                        if max_articles > 0 and self.nb_art_collected >= max_articles:
+                            logging.info(
+                                f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
+                                f"No more pages needed."
+                            )
+                            has_more_pages = False
                     else:
                         has_more_pages = False
 
@@ -667,12 +736,14 @@ class SemanticScholar_collector(API_collector):
         # Read semantic_scholar_mode from config (default: regular)
         # Options: "regular" (standard endpoint) or "bulk" (bulk endpoint, requires higher-tier access)
         mode = filter_param.get("semantic_scholar_mode", "regular")
-        self.use_bulk_api = (mode == "bulk")
+        self.use_bulk_api = mode == "bulk"
 
         # Load rate limit from config (defaults to 1 req/sec with API key)
         self.load_rate_limit_from_config()
 
-    def api_call_decorator(self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES):
+    def api_call_decorator(
+        self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES
+    ):
         """
         API call with SemanticScholar-specific headers.
         Uses parent's comprehensive decorator with circuit breaker, retry logic, and error handling.
@@ -685,7 +756,9 @@ class SemanticScholar_collector(API_collector):
             Response object from the API
         """
         headers = {"x-api-key": self.get_apikey()} if self.get_apikey() else None
-        return super().api_call_decorator(configurated_url, max_retries=max_retries, headers=headers)
+        return super().api_call_decorator(
+            configurated_url, max_retries=max_retries, headers=headers
+        )
 
     def parsePageResults(self, response, page):
         """
@@ -769,17 +842,20 @@ class SemanticScholar_collector(API_collector):
         # Choose endpoint based on config: regular (default) or bulk
         if self.use_bulk_api:
             base_url = f"{self.api_url}/bulk"
-            logging.debug("Using Semantic Scholar BULK endpoint (requires higher-tier access)")
+            logging.debug(
+                "Using Semantic Scholar BULK endpoint (requires higher-tier access)"
+            )
         else:
             base_url = self.api_url
             logging.debug("Using Semantic Scholar REGULAR endpoint (standard access)")
 
-        # Construct the full URL
+        # Construct the full URL with pagination parameters
         url = (
             f"{base_url}?query={encoded_keywords}"
             f"&year={self.get_year()}"
             f"&fieldsOfStudy=Computer%20Science"
             f"&fields={fields}"
+            f"&limit={self.max_by_page}&offset={{}}"  # Add pagination: limit=100, offset placeholder
         )
 
         logging.debug(f"Constructed API URL: {url}")
@@ -944,7 +1020,9 @@ class Elsevier_collector(API_collector):
             f"Initialized Elsevier collector with institutional token: {inst_token is not None}"
         )
 
-    def api_call_decorator(self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES):
+    def api_call_decorator(
+        self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES
+    ):
         """
         API call with Elsevier-specific headers including institutional token.
         Uses parent's comprehensive decorator with circuit breaker, retry logic, and error handling.
@@ -963,7 +1041,9 @@ class Elsevier_collector(API_collector):
             headers["X-ELS-Insttoken"] = self.inst_token
             logging.debug("Using institutional token for Elsevier API request")
 
-        return super().api_call_decorator(configurated_url, max_retries=max_retries, headers=headers)
+        return super().api_call_decorator(
+            configurated_url, max_retries=max_retries, headers=headers
+        )
 
     def parsePageResults(self, response, page):
         """Parse the JSON response from Elsevier API and return structured data."""
@@ -1656,6 +1736,15 @@ class Springer_collector(API_collector):
             has_more_pages = True
 
             while has_more_pages:
+                # PRE-CHECK: Stop if we've already collected enough articles
+                max_articles = self.filter_param.get_max_articles_per_query()
+                if max_articles > 0 and self.nb_art_collected >= max_articles:
+                    logging.info(
+                        f"Reached max_articles_per_query limit ({max_articles}). "
+                        f"Already collected {self.nb_art_collected} articles. Stopping before page {page}."
+                    )
+                    break
+
                 # Append pagination parameter to the base URL
                 paginated_url = (
                     f"{base_url}&p={page}"  # Use 'p' for Springer API pagination
@@ -1672,8 +1761,32 @@ class Springer_collector(API_collector):
                         page_data
                     )  # Store results from this endpoint
 
+                    # Update article count
+                    self.nb_art_collected += len(page_data["results"])
+
                     # Determine if more pages are available
-                    has_more_pages = len(page_data["results"]) == self.max_by_page
+                    if (
+                        len(page_data["results"]) > 0
+                        and "total" in page_data
+                        and page_data["total"] > 0
+                    ):
+                        # Calculate expected pages based on total results
+                        expected_pages = math.ceil(
+                            page_data["total"] / self.max_by_page
+                        )
+                        has_more_pages = page < expected_pages
+
+                        # Check if we've collected enough articles
+                        max_articles = self.filter_param.get_max_articles_per_query()
+                        if max_articles > 0 and self.nb_art_collected >= max_articles:
+                            logging.info(
+                                f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
+                                f"No more pages needed."
+                            )
+                            has_more_pages = False
+                    else:
+                        has_more_pages = False
+
                     page += 1  # Increment page number for the next request
 
                 except Exception as e:
@@ -1829,7 +1942,22 @@ class GoogleScholarCollector(API_collector):
 
             page = int(self.get_lastpage()) + 1
             results_batch = []
-            max_results = 100  # Limit to avoid excessive scraping
+
+            # Calculate max_results based on max_articles_per_query config
+            max_articles = self.filter_param.get_max_articles_per_query()
+            if max_articles > 0:
+                # Limit to configured number of articles
+                max_results = max_articles
+                max_pages = math.ceil(max_articles / self.max_by_page)
+                logging.info(
+                    f"Google Scholar: Limited to {max_articles} articles (~{max_pages} pages)"
+                )
+            else:
+                # Unlimited mode - set a reasonable upper limit to avoid excessive scraping
+                max_results = 1000
+                logging.info(
+                    f"Google Scholar: Unlimited mode (max {max_results} results to avoid excessive scraping)"
+                )
 
             # Iterate through results
             for idx, result in enumerate(search_query):
@@ -1857,6 +1985,14 @@ class GoogleScholarCollector(API_collector):
                         f"Processed page {page}: {len(page_data['results'])} results. Total collected: {self.nb_art_collected}"
                     )
 
+                    # Check if we've collected enough articles (post-check after saving page)
+                    if max_articles > 0 and self.nb_art_collected >= max_articles:
+                        logging.info(
+                            f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
+                            f"No more pages needed."
+                        )
+                        break
+
                     # Move to next page
                     page += 1
                     results_batch = []
@@ -1864,9 +2000,11 @@ class GoogleScholarCollector(API_collector):
                     # Rate limiting
                     time.sleep(1.0 / self.rate_limit)
 
-                # Stop if we hit the max
+                # Stop if we hit the max results
                 if idx >= max_results - 1:
-                    logging.info(f"Reached maximum result limit ({max_results})")
+                    logging.info(
+                        f"Reached maximum result limit ({max_results} results)"
+                    )
                     break
 
             # Save any remaining results

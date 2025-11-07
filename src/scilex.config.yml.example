@@ -212,6 +212,14 @@ collect_name: my_research_project
 # Some APIs like Arxiv give better rate limits with a valid email
 email: your.email@example.com
 
+# Maximum number of articles to collect per query per API
+# Set to a positive number (e.g., 500, 1000, 2000) to limit articles per query
+# Set to -1 for unlimited (collect all available papers)
+# Recommended: 1000 (balanced), 500 (faster), 2000 (comprehensive)
+# Impact: With 126 queries (6×7×3) and 5 APIs, max_articles=1000 yields ~630,000 papers total
+# Note: This ensures consistent collection sizes across APIs regardless of their page sizes
+max_articles_per_query: 1000
+
 # ============================================================================
 # SEARCH KEYWORDS
 # ============================================================================
