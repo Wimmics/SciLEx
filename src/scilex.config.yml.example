@@ -5,6 +5,23 @@
 # Each collection run uses these parameters to search academic databases
 
 # ============================================================================
+# IMPORTANT: SCRIPT COMPATIBILITY
+# ============================================================================
+# Main workflow scripts are FULLY COMPATIBLE with this config format:
+#   ✓ src/run_collecte.py - Paper collection orchestration
+#   ✓ src/aggregate_collect.py - Deduplication and filtering
+#   ✓ src/Zotero/push_to_Zotero.py - Zotero integration
+#
+# LEGACY HELPER SCRIPTS may use an older config format and might fail:
+#   ⚠ Scripts in: citations/, PWC/, tagging/, doi/, text_analysis/
+#   ⚠ These use deprecated 'cfg["collect"]["dir"]' format
+#   ⚠ They will be updated in a future release
+#
+# If you need to use legacy helper scripts, please check their documentation
+# or open an issue on GitHub for migration guidance.
+# ============================================================================
+
+# ============================================================================
 # AGGREGATION SETTINGS
 # ============================================================================
 
@@ -194,19 +211,6 @@ collect_name: my_research_project
 # Email address (optional, used by some APIs for rate limit increases)
 # Some APIs like Arxiv give better rate limits with a valid email
 email: your.email@example.com
-
-# ============================================================================
-# SEARCH FIELDS
-# ============================================================================
-
-# Fields to search in
-# Most APIs support:
-#   - title: Paper titles only
-#   - abstract: Abstract text only
-#   - title+abstract: Both (recommended for better recall)
-fields:
-  - title
-  - abstract
 
 # ============================================================================
 # SEARCH KEYWORDS

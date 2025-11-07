@@ -8,24 +8,17 @@ Zotero collection, handling duplicates and creating the collection if needed.
 
 import logging
 import os
+import sys
 from datetime import datetime
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 from tqdm import tqdm
 
-# Support both direct execution and module execution
-try:
-    from src.constants import is_valid
-    from src.crawlers.utils import load_all_configs
-    from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
-except ModuleNotFoundError:
-    # Add parent directory to path for direct execution
-    import sys
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-    from src.constants import is_valid
-    from src.crawlers.utils import load_all_configs
-    from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
+from src.constants import is_valid
+from src.crawlers.utils import load_all_configs
+from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
 
 # Set up logging configuration
 logging.basicConfig(

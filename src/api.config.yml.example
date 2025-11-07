@@ -2,13 +2,11 @@ zotero:
     api_key: "YOUR_ZOTERO_API_KEY"
     user_id: "YOUR_ZOTERO_USER_ID"  # Find at https://www.zotero.org/settings/keys
     user_mode: "user"  # or "group" for group libraries
-google_scholar:
-    # Google Scholar uses the free 'scholarly' Python package with automatic proxy rotation
-    # No API key needed! The collection may be slower than paid APIs due to web scraping
-    # and proxy rotation, but it's completely free
-    enabled: true  # Set to false to disable Google Scholar collection
+    # NOTE: Config accepts both 'zotero:' and 'Zotero:' keys for backward compatibility
+
 springer:
-    api_key: "YOUR_SPRINGER_API_KEY"
+    api_key: "YOUR_SPRINGER_API_KEY"  # REQUIRED for Springer collection
+
 sem_scholar:
     api_key: "YOUR_SEMANTIC_SCHOLAR_API_KEY"  # Optional but recommended
     # Note: Get your free API key at https://www.semanticscholar.org/product/api
@@ -17,15 +15,18 @@ sem_scholar:
     #   - Without key: 100 requests per 5 minutes (shared pool)
     #   - With key: 1 request per second (dedicated quota)
     #
-    # Endpoint Mode (configured in scilex.config.yml):
+    # Endpoint Mode Setting:
+    #   - Configure 'semantic_scholar_mode' in scilex.config.yml (not here)
     #   - Regular mode (default): Works with standard keys, recommended
     #   - Bulk mode: Requires higher-tier access for large-scale retrieval
     #   - If you get 429 errors, use regular mode or apply for bulk access
+
 elsevier:
-    api_key: "YOUR_ELSEVIER_API_KEY"
+    api_key: "YOUR_ELSEVIER_API_KEY"  # REQUIRED for Elsevier/Scopus collection
     inst_token: "YOUR_INSTITUTIONAL_TOKEN"  # Optional but recommended for better access
+
 ieee:
-    api_key: "YOUR_IEEE_API_KEY"
+    api_key: "YOUR_IEEE_API_KEY"  # REQUIRED for IEEE Xplore collection
 orcid:
     dir: 'YOUR_WORK_DIRECTORY'
     client_id: "YOUR_ORCID_CLIENT_ID"
@@ -102,3 +103,48 @@ rate_limits:
     # - Using 3 req/sec as conservative default
     # - Source: https://github.com/CrossRef/rest-api-doc
     Crossref: 3.0
+
+# ============================================================================
+# FREE APIS - NO API KEYS REQUIRED
+# ============================================================================
+# The following APIs are free to use and do not require API keys or
+# configuration in this file. They are automatically available when you
+# include them in the 'apis' list in scilex.config.yml.
+#
+# Available Free APIs:
+#
+#   • OpenAlex
+#     - 10 requests/second, 100,000 requests/day (polite pool)
+#     - Comprehensive metadata from 250M+ scholarly works
+#     - Source: https://docs.openalex.org
+#
+#   • HAL (Hyper Articles en Ligne)
+#     - French national open archive
+#     - No rate limits documented, conservative 10 req/sec used
+#     - Source: https://api.archives-ouvertes.fr/docs
+#
+#   • DBLP (Computer Science Bibliography)
+#     - Complete computer science bibliography
+#     - No rate limits documented, conservative 10 req/sec used
+#     - Source: https://dblp.org/faq/How+to+use+the+dblp+XML+files
+#
+#   • Arxiv
+#     - Preprint repository (physics, math, CS, etc.)
+#     - Recommended max: 3 requests/second
+#     - Source: https://info.arxiv.org/help/api
+#
+#   • ISTEX
+#     - French academic full-text archive
+#     - No API key needed
+#     - Source: https://api.istex.fr/documentation
+#
+#   • Google Scholar
+#     - Uses the free 'scholarly' Python package
+#     - Automatic proxy rotation and web scraping
+#     - Slower than paid APIs but completely free
+#     - Note: No API key needed, no registration required
+#
+# To enable/disable these APIs:
+#   Edit the 'apis' list in src/scilex.config.yml
+#   Example: apis: ['SemanticScholar', 'OpenAlex', 'Arxiv', 'GoogleScholar']
+# ============================================================================
