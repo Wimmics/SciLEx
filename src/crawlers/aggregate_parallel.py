@@ -1,24 +1,22 @@
 """
-Parallel aggregation module for high-speed paper processing.
+Parallel aggregation module for paper processing.
 
-This module provides optimized parallel processing for SciLEx aggregation:
-- Parallel file loading (8-12x speedup)
-- Parallel batch processing (20-40x speedup)
-- Simple hash-based deduplication
-
-Expected performance: 5-10 minutes for 200k papers (vs 24-28 hours serial)
+This module provides parallel processing for SciLEx aggregation:
+- Parallel file loading
+- Parallel batch processing
+- Hash-based deduplication
 
 Architecture:
-    Stage 1: Parallel file loading (multiprocessing.Pool)
+    Stage 1: Parallel file loading (threading)
         ├─ Load JSON files in parallel (I/O bound)
         └─ Collect raw paper data
 
-    Stage 2: Parallel batch processing (multiprocessing.Pool)
+    Stage 2: Parallel batch processing (multiprocessing)
         ├─ Convert API formats to unified schema
         ├─ Apply text filtering (keyword matching)
         └─ Process in batches for cache locality
 
-    Stage 3: Simple deduplication (serial, optimized)
+    Stage 3: Deduplication (serial)
         ├─ DOI-based dedup (hash set, O(n))
         ├─ Normalized title dedup (hash dict, O(n))
         └─ Exact substring matching only
@@ -29,6 +27,7 @@ import json
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Pool, cpu_count
 
 import pandas as pd
@@ -41,20 +40,20 @@ from src.constants import is_valid
 # ============================================================================
 
 
-def _load_json_file_worker(
-    args: tuple[str, str, list[str], str],
+def _load_json_file(
+    file_path: str, api_name: str, keywords: list[str]
 ) -> tuple[list[dict], str, list[str], int]:
     """
-    Worker function to load a single JSON file (spawn-safe, module-level).
+    Load a single JSON file and return its papers.
 
     Args:
-        args: Tuple of (file_path, api_name, keywords, query_index)
+        file_path: Path to JSON file
+        api_name: API name (e.g., 'SemanticScholar')
+        keywords: List of keywords for this query
 
     Returns:
         Tuple of (papers_list, api_name, keywords, num_papers)
     """
-    file_path, api_name, keywords, query_index = args
-
     try:
         with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
@@ -75,12 +74,12 @@ def parallel_load_all_files(
     state_details: dict, dir_collect: str, num_workers: int | None = None
 ) -> tuple[list[tuple[dict, str, list[str]]], dict]:
     """
-    Load all JSON files in parallel using multiprocessing.
+    Load all JSON files in parallel using threading.
 
     Args:
         state_details: Collection state dictionary from state_details.json
         dir_collect: Base collection directory path
-        num_workers: Number of parallel workers (default: cpu_count - 1)
+        num_workers: Number of parallel workers (default: cpu_count * 2 for I/O)
 
     Returns:
         Tuple of:
@@ -88,9 +87,10 @@ def parallel_load_all_files(
         - Statistics dictionary
     """
     if num_workers is None:
-        num_workers = max(1, cpu_count() - 1)
+        # For I/O-bound tasks, use more threads than CPU cores
+        num_workers = min(32, (cpu_count() or 1) * 2)
 
-    logging.info(f"Parallel file loading with {num_workers} workers")
+    logging.info(f"Parallel file loading with {num_workers} workers (threading)")
 
     # Collect all file paths and metadata
     file_tasks = []
@@ -108,13 +108,12 @@ def parallel_load_all_files(
             if not os.path.exists(query_dir):
                 continue
 
-            # Collect all files in this directory (may or may not have .json extension)
+            # Collect all files in this directory
             for filename in os.listdir(query_dir):
                 file_path = os.path.join(query_dir, filename)
 
-                # Check if it's a file and try to parse as JSON
                 if os.path.isfile(file_path):
-                    file_tasks.append((file_path, api_name, keywords, query_index))
+                    file_tasks.append((file_path, api_name, keywords))
 
     logging.info(f"Found {len(file_tasks)} JSON files to load")
 
@@ -123,16 +122,19 @@ def parallel_load_all_files(
     papers_by_api = []
     total_papers = 0
 
-    with Pool(num_workers) as pool:
-        # Use imap_unordered for progress tracking
-        results = list(
-            tqdm(
-                pool.imap_unordered(_load_json_file_worker, file_tasks),
-                total=len(file_tasks),
-                desc="Loading JSON files",
-                unit="file",
-            )
-        )
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        # Submit all tasks
+        futures = [
+            executor.submit(_load_json_file, file_path, api_name, keywords)
+            for file_path, api_name, keywords in file_tasks
+        ]
+
+        # Collect results with progress bar
+        results = []
+        for future in tqdm(
+            futures, total=len(file_tasks), desc="Loading JSON files", unit="file"
+        ):
+            results.append(future.result())
 
     # Collect results
     for papers_list, api_name, keywords, num_papers in results:
