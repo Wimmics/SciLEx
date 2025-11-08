@@ -382,9 +382,16 @@ class CollectCollection:
         for query in queries:
             if query["api"] not in queries_by_api:
                 queries_by_api[query["api"]] = []
-            queries_by_api[query["api"]].append(
-                {"keyword": query["keyword"], "year": query["year"]}
-            )
+            # Preserve all query fields (max_articles_per_query, semantic_scholar_mode, etc.)
+            query_dict = {
+                "keyword": query["keyword"],
+                "year": query["year"],
+                "max_articles_per_query": query["max_articles_per_query"],
+            }
+            # Add optional semantic_scholar_mode if present
+            if "semantic_scholar_mode" in query:
+                query_dict["semantic_scholar_mode"] = query["semantic_scholar_mode"]
+            queries_by_api[query["api"]].append(query_dict)
 
         return queries_by_api
 

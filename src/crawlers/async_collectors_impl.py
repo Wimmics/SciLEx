@@ -12,7 +12,7 @@ Currently implemented:
 import logging
 import urllib.parse
 from datetime import date
-from typing import Dict, Any, Optional
+from typing import Any
 
 from .async_collector import AsyncAPICollector
 
@@ -29,7 +29,7 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
     """
 
     def __init__(
-        self, data_query: Dict[str, Any], data_path: str, api_key: Optional[str] = None
+        self, data_query: dict[str, Any], data_path: str, api_key: str | None = None
     ):
         """
         Initialize Semantic Scholar async collector.
@@ -51,7 +51,7 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
             f"Initialized Async SemanticScholar collector (rate: {self.rate_limit} req/sec)"
         )
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self) -> dict[str, str]:
         """Get HTTP headers for Semantic Scholar API."""
         headers = {
             "User-Agent": "SciLEx/1.0 (https://github.com/yourusername/SciLEx)",
@@ -70,8 +70,11 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
         Returns:
             Complete API URL with query parameters
         """
-        # Process keywords: Join with '|' for OR logic
-        query_keywords = "|".join(self.get_keywords())
+        # Process keywords: Join with '+' for AND logic (wrap each keyword in quotes)
+        # This matches the fix in sync SemanticScholar_collector for dual keyword group enforcement
+        query_keywords = "+".join(
+            f'"{kw}"' for kw in self.get_keywords()
+        )  # Use + for AND logic between keyword groups
         encoded_keywords = urllib.parse.quote(query_keywords)
 
         # Define fields to retrieve
@@ -80,9 +83,9 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
         # Calculate offset
         offset = (page - 1) * self.max_by_page
 
-        # Construct URL
+        # Construct URL (using regular endpoint, not /bulk)
         url = (
-            f"{self.api_url}/bulk?query={encoded_keywords}"
+            f"{self.api_url}?query={encoded_keywords}"
             f"&year={self.get_year()}"
             f"&fieldsOfStudy=Computer%20Science"
             f"&fields={fields}"
@@ -94,8 +97,8 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
         return url
 
     def _parse_response(
-        self, response_data: Dict[str, Any], page: int
-    ) -> Dict[str, Any]:
+        self, response_data: dict[str, Any], page: int
+    ) -> dict[str, Any]:
         """
         Parse Semantic Scholar API response.
 
@@ -150,7 +153,7 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
 
         return page_data
 
-    async def run_collect_async(self) -> Dict[str, Any]:
+    async def run_collect_async(self) -> dict[str, Any]:
         """
         Async collection with parallel pagination (Phase 1B optimization).
 
@@ -190,7 +193,9 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
 
             # Early exit if no results
             if total_pages == 0:
-                logging.info(f"SemanticScholar: {total_results} total results. No pages to fetch.")
+                logging.info(
+                    f"SemanticScholar: {total_results} total results. No pages to fetch."
+                )
                 state_data["state"] = 1
                 state_data["last_page"] = page
                 state_data["total_art"] = 0
@@ -202,6 +207,20 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
                 f"SemanticScholar: {total_results} total results, {total_pages} pages. "
                 f"Fetching pages {page + 1}-{total_pages} sequentially (strict rate limit)..."
             )
+
+            # Check max_articles_per_query limit
+            max_articles = self.filter_param.get_max_articles_per_query()
+            if max_articles > 0:
+                # Calculate max pages needed based on limit
+                max_pages_needed = (
+                    max_articles + self.max_by_page - 1
+                ) // self.max_by_page
+                if total_pages > max_pages_needed:
+                    total_pages = max_pages_needed
+                    logging.info(
+                        f"SemanticScholar: Limiting collection to {max_pages_needed} pages "
+                        f"(max_articles_per_query={max_articles})"
+                    )
 
             # Fetch remaining pages sequentially (SemanticScholar has strict 1 req/sec limit)
             # The wrapper semaphore ensures only 1 SemanticScholar collection runs at a time
@@ -227,8 +246,8 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
                 batch_results = await self.fetch_multiple_pages(urls)
 
                 # Process results
-                for (url, response_data, error), page_num in zip(
-                    batch_results, batch_pages
+                for (_url, response_data, error), page_num in zip(
+                    batch_results, batch_pages, strict=False
                 ):
                     if error:
                         logging.error(
@@ -248,6 +267,15 @@ class AsyncSemanticScholarCollector(AsyncAPICollector):
                 # Update progress
                 self.set_lastpage(batch_end - 1)
                 current_page = batch_end
+
+                # POST-CHECK: Stop if we've collected enough articles
+                max_articles = self.filter_param.get_max_articles_per_query()
+                if max_articles > 0 and self.nb_art_collected >= max_articles:
+                    logging.info(
+                        f"SemanticScholar: Reached max_articles_per_query limit ({max_articles}). "
+                        f"Collected {self.nb_art_collected} articles. Stopping collection."
+                    )
+                    break
 
             # Mark as complete
             state_data["state"] = 1
@@ -284,7 +312,7 @@ class AsyncOpenAlexCollector(AsyncAPICollector):
     """
 
     def __init__(
-        self, data_query: Dict[str, Any], data_path: str, api_key: Optional[str] = None
+        self, data_query: dict[str, Any], data_path: str, api_key: str | None = None
     ):
         """
         Initialize OpenAlex async collector.
@@ -341,8 +369,8 @@ class AsyncOpenAlexCollector(AsyncAPICollector):
         return url
 
     def _parse_response(
-        self, response_data: Dict[str, Any], page: int
-    ) -> Dict[str, Any]:
+        self, response_data: dict[str, Any], page: int
+    ) -> dict[str, Any]:
         """
         Parse OpenAlex API response.
 
@@ -377,7 +405,7 @@ class AsyncOpenAlexCollector(AsyncAPICollector):
 
         return page_data
 
-    async def run_collect_async(self) -> Dict[str, Any]:
+    async def run_collect_async(self) -> dict[str, Any]:
         """
         Async collection with parallel pagination (Phase 1B optimization).
 
@@ -419,7 +447,9 @@ class AsyncOpenAlexCollector(AsyncAPICollector):
 
             # Early exit if no results
             if total_pages == 0:
-                logging.info(f"OpenAlex: {total_results} total results. No pages to fetch.")
+                logging.info(
+                    f"OpenAlex: {total_results} total results. No pages to fetch."
+                )
                 state_data["state"] = 1
                 state_data["last_page"] = page
                 state_data["total_art"] = 0
@@ -431,6 +461,20 @@ class AsyncOpenAlexCollector(AsyncAPICollector):
                 f"OpenAlex: {total_results} total results, {total_pages} pages. "
                 f"Fetching pages {page + 1}-{total_pages} in parallel batches..."
             )
+
+            # Check max_articles_per_query limit
+            max_articles = self.filter_param.get_max_articles_per_query()
+            if max_articles > 0:
+                # Calculate max pages needed based on limit
+                max_pages_needed = (
+                    max_articles + self.max_by_page - 1
+                ) // self.max_by_page
+                if total_pages > max_pages_needed:
+                    total_pages = max_pages_needed
+                    logging.info(
+                        f"OpenAlex: Limiting collection to {max_pages_needed} pages "
+                        f"(max_articles_per_query={max_articles})"
+                    )
 
             # Fetch remaining pages in parallel batches
             # OpenAlex can handle more concurrency (10 req/sec vs 1 req/sec for SemanticScholar)
@@ -454,8 +498,8 @@ class AsyncOpenAlexCollector(AsyncAPICollector):
                 batch_results = await self.fetch_multiple_pages(urls)
 
                 # Process results
-                for (url, response_data, error), page_num in zip(
-                    batch_results, batch_pages
+                for (_url, response_data, error), page_num in zip(
+                    batch_results, batch_pages, strict=False
                 ):
                     if error:
                         logging.error(f"OpenAlex page {page_num} failed: {error}")
@@ -473,6 +517,15 @@ class AsyncOpenAlexCollector(AsyncAPICollector):
                 # Update progress
                 self.set_lastpage(batch_end - 1)
                 current_page = batch_end
+
+                # POST-CHECK: Stop if we've collected enough articles
+                max_articles = self.filter_param.get_max_articles_per_query()
+                if max_articles > 0 and self.nb_art_collected >= max_articles:
+                    logging.info(
+                        f"OpenAlex: Reached max_articles_per_query limit ({max_articles}). "
+                        f"Collected {self.nb_art_collected} articles. Stopping collection."
+                    )
+                    break
 
             # Mark as complete
             state_data["state"] = 1
