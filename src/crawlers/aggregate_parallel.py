@@ -4,7 +4,7 @@ Parallel aggregation module for high-speed paper processing.
 This module provides optimized parallel processing for SciLEx aggregation:
 - Parallel file loading (8-12x speedup)
 - Parallel batch processing (20-40x speedup)
-- Simple hash-based deduplication (30-60x speedup vs fuzzy)
+- Simple hash-based deduplication
 
 Expected performance: 5-10 minutes for 200k papers (vs 24-28 hours serial)
 
@@ -21,7 +21,7 @@ Architecture:
     Stage 3: Simple deduplication (serial, optimized)
         ├─ DOI-based dedup (hash set, O(n))
         ├─ Normalized title dedup (hash dict, O(n))
-        └─ No fuzzy matching (overkill, slow)
+        └─ Exact substring matching only
 
 """
 
@@ -169,18 +169,18 @@ def parallel_load_all_files(
 
 
 def _process_batch_worker(
-    args: tuple[list[tuple], str, bool, float, object, list],
+    args: tuple[list[tuple], str, list],
 ) -> list[dict]:
     """
     Worker function to process a batch of papers (spawn-safe, module-level).
 
     Args:
-        args: Tuple of (batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class, keyword_groups)
+        args: Tuple of (batch, keyword_groups)
 
     Returns:
         List of processed paper dictionaries
     """
-    batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class, keyword_groups = args
+    batch, keyword_groups = args
 
     # Import format converters (in worker to avoid pickling issues)
     from src.crawlers.aggregate import (
@@ -210,9 +210,6 @@ def _process_batch_worker(
     # Import text filtering helper
     from src.aggregate_collect import _record_passes_text_filter
 
-    # Initialize fuzzy report if needed (per worker)
-    fuzzy_report = fuzzy_report_class() if fuzzy_report_class and use_fuzzy else None
-
     results = []
 
     for paper, api_name, keywords in batch:
@@ -225,9 +222,6 @@ def _process_batch_worker(
                 if _record_passes_text_filter(
                     converted,
                     keywords,
-                    use_fuzzy=use_fuzzy,
-                    fuzzy_threshold=fuzzy_threshold,
-                    fuzzy_report=fuzzy_report,
                     keyword_groups=keyword_groups,
                 ):
                     results.append(converted)
@@ -241,9 +235,6 @@ def _process_batch_worker(
 
 def parallel_process_papers(
     papers_by_api: list[tuple[dict, str, list[str]]],
-    use_fuzzy: bool = False,
-    fuzzy_threshold: float = 0.85,
-    fuzzy_report_class: object | None = None,
     batch_size: int = 5000,
     num_workers: int | None = None,
     keyword_groups: list | None = None,
@@ -253,9 +244,6 @@ def parallel_process_papers(
 
     Args:
         papers_by_api: List of (paper_dict, api_name, keywords) tuples
-        use_fuzzy: Enable fuzzy keyword matching
-        fuzzy_threshold: Fuzzy matching threshold
-        fuzzy_report_class: FuzzyKeywordMatchReport class (for instantiation)
         batch_size: Papers per batch
         num_workers: Number of parallel workers
         keyword_groups: Optional list of keyword groups from config (for dual-group mode)
@@ -276,9 +264,7 @@ def parallel_process_papers(
     batches = []
     for i in range(0, len(papers_by_api), batch_size):
         batch = papers_by_api[i : i + batch_size]
-        batches.append(
-            (batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class, keyword_groups)
-        )
+        batches.append((batch, keyword_groups))
 
     logging.info(f"Processing {len(papers_by_api):,} papers in {len(batches)} batches")
 
@@ -338,7 +324,7 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     Strategy:
     1. DOI-based dedup (hash set, O(n))
     2. Normalized title dedup (hash dict, O(n))
-    3. NO fuzzy matching (overkill, slow, minimal benefit)
+    3. Exact substring matching only (fast, sufficient for most cases)
 
     Normalization:
     - Lowercase
@@ -464,9 +450,6 @@ def parallel_aggregate(
     state_details: dict,
     dir_collect: str,
     txt_filters: bool = True,
-    use_fuzzy: bool = False,
-    fuzzy_threshold: float = 0.85,
-    fuzzy_report_class: object | None = None,
     num_workers: int | None = None,
     batch_size: int = 5000,
     keyword_groups: list | None = None,
@@ -478,9 +461,6 @@ def parallel_aggregate(
         state_details: Collection state dictionary
         dir_collect: Base collection directory
         txt_filters: Enable text filtering
-        use_fuzzy: Enable fuzzy keyword matching
-        fuzzy_threshold: Fuzzy matching threshold
-        fuzzy_report_class: FuzzyKeywordMatchReport class
         num_workers: Number of parallel workers
         batch_size: Papers per batch
         keyword_groups: Optional list of keyword groups from config (for dual-group mode)
@@ -521,9 +501,6 @@ def parallel_aggregate(
         )
         df, process_stats = parallel_process_papers(
             papers_by_api,
-            use_fuzzy=use_fuzzy,
-            fuzzy_threshold=fuzzy_threshold,
-            fuzzy_report_class=fuzzy_report_class,
             batch_size=batch_size,
             num_workers=num_workers,
             keyword_groups=keyword_groups,

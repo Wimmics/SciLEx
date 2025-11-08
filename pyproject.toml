@@ -66,8 +66,6 @@ dependencies = [
     "sphinxcontrib-serializinghtml==2.0.0",
     "statsmodels==0.14.5",
     "tenacity>=9.0.0",
-    "thefuzz[speedup]>=0.22.0",
-    "spacy>=3.7.0",
     "threadpoolctl==3.6.0",
     "tqdm>=4.66.0",
     "trio==0.30.0",

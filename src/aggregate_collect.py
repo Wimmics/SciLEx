@@ -182,43 +182,25 @@ def _keyword_matches_in_abstract(keyword, abstract_text):
     return keyword in abstract_content
 
 
-def _check_keywords_in_text(keywords_list, text, use_fuzzy=False, fuzzy_threshold=0.85):
+def _check_keywords_in_text(keywords_list, text):
     """Check if any keyword from a list matches the text.
 
     Args:
         keywords_list: List of keywords to check
         text: Text to search in (combined title + abstract)
-        use_fuzzy: If True, use fuzzy keyword matching
-        fuzzy_threshold: Similarity threshold for fuzzy matching
 
     Returns:
         bool: True if at least one keyword matches
     """
     text_lower = text.lower()
 
-    # Try exact matching first (fast path)
-    for keyword in keywords_list:
-        if keyword.lower() in text_lower:
-            return True
-
-    # If exact match failed and fuzzy enabled, try fuzzy matching
-    if use_fuzzy:
-        from src.crawlers.fuzzy_keyword_matching import check_keywords_in_text_fuzzy
-
-        is_match, _ = check_keywords_in_text_fuzzy(
-            keywords_list, text, threshold=fuzzy_threshold, require_all=False
-        )
-        return is_match
-
-    return False
+    # Exact substring matching (case-insensitive)
+    return any(keyword.lower() in text_lower for keyword in keywords_list)
 
 
 def _record_passes_text_filter(
     record,
     keywords,
-    use_fuzzy=False,
-    fuzzy_threshold=0.85,
-    fuzzy_report=None,
     keyword_groups=None,
 ):
     """Check if record contains required keywords in title or abstract.
@@ -229,9 +211,6 @@ def _record_passes_text_filter(
     Args:
         record: Paper record dictionary
         keywords: List of keywords from the query (for backward compatibility)
-        use_fuzzy: If True, use fuzzy keyword matching (default: False)
-        fuzzy_threshold: Similarity threshold for fuzzy matching (default: 0.85)
-        fuzzy_report: Optional FuzzyKeywordMatchReport to track statistics
         keyword_groups: Optional list of keyword groups from config (for dual-group mode)
 
     Returns:
@@ -261,24 +240,13 @@ def _record_passes_text_filter(
             keywords = all_keywords
         else:
             # Check Group 1
-            group1_match = _check_keywords_in_text(
-                group1, combined_text, use_fuzzy, fuzzy_threshold
-            )
+            group1_match = _check_keywords_in_text(group1, combined_text)
 
             # Check Group 2
-            group2_match = _check_keywords_in_text(
-                group2, combined_text, use_fuzzy, fuzzy_threshold
-            )
+            group2_match = _check_keywords_in_text(group2, combined_text)
 
             # Both groups must match
-            if group1_match and group2_match:
-                if fuzzy_report:
-                    fuzzy_report.add_exact_match()  # Simplified tracking
-                return True
-            else:
-                if fuzzy_report:
-                    fuzzy_report.add_no_match()
-                return False
+            return group1_match and group2_match
 
     # ========================================================================
     # SINGLE KEYWORD GROUP MODE: Require match from ANY keyword
@@ -287,42 +255,20 @@ def _record_passes_text_filter(
     if keyword_groups:
         keywords = [kw for group in keyword_groups for kw in group if group]
 
-    # Try exact matching first (fast path)
+    # Exact substring matching (case-insensitive)
     title_lower = title.lower()
     for keyword in keywords:
         keyword_lower = keyword.lower()
 
         # Check in title
         if keyword_lower in title_lower:
-            if fuzzy_report:
-                fuzzy_report.add_exact_match()
             return True
 
         # Check in abstract (if valid)
         if is_valid(abstract) and _keyword_matches_in_abstract(keyword, abstract):
-            if fuzzy_report:
-                fuzzy_report.add_exact_match()
-            return True
-
-    # If exact match failed and fuzzy enabled, try fuzzy matching
-    if use_fuzzy:
-        from src.crawlers.fuzzy_keyword_matching import check_keywords_in_text_fuzzy
-
-        is_match, matches = check_keywords_in_text_fuzzy(
-            keywords, combined_text, threshold=fuzzy_threshold, require_all=False
-        )
-
-        if is_match and fuzzy_report:
-            # Record the best fuzzy match
-            best_match = max(matches, key=lambda x: x[1])  # Get highest similarity
-            fuzzy_report.add_fuzzy_match(best_match[0], best_match[1], best_match[2])
-
-        if is_match:
             return True
 
     # No match found
-    if fuzzy_report:
-        fuzzy_report.add_no_match()
     return False
 
 
@@ -975,11 +921,6 @@ if __name__ == "__main__":
         help="Save checkpoint every N papers (default: 100)",
     )
     parser.add_argument(
-        "--auto-install-spacy",
-        action="store_true",
-        help="Automatically install spacy model without prompting",
-    )
-    parser.add_argument(
         "--parallel-workers",
         type=int,
         default=None,
@@ -1019,80 +960,11 @@ if __name__ == "__main__":
     # Initialize filtering tracker
     filtering_tracker = FilteringTracker()
 
-    # Load fuzzy keyword matching configuration
+    # Load configuration
     quality_filters = main_config.get("quality_filters", {})
-    use_fuzzy_keywords = quality_filters.get("use_fuzzy_keyword_matching", False)
-    fuzzy_keyword_threshold = quality_filters.get("fuzzy_keyword_threshold", 0.85)
 
     # Load keyword groups from config for proper dual-group filtering
     keyword_groups = main_config.get("keywords", [])
-
-    # Check for spacy model if fuzzy matching is actually needed
-    # Only load spacy if:
-    # 1. Fuzzy keyword matching is enabled, OR
-    # 2. Fuzzy title deduplication is enabled (use_fuzzy_matching applies to title dedup)
-    needs_fuzzy_title_dedup = quality_filters.get("use_fuzzy_matching", True)
-    if use_fuzzy_keywords or needs_fuzzy_title_dedup:
-        from src.fuzzy_matching import get_nlp
-        from src.utils.spacy_utils import ensure_spacy_model
-
-        # Log why spacy is being loaded
-        reasons = []
-        if use_fuzzy_keywords:
-            reasons.append("fuzzy keyword matching")
-        if needs_fuzzy_title_dedup:
-            reasons.append("fuzzy title deduplication")
-        logging.info(f"Spacy required for: {', '.join(reasons)}")
-
-        # Suppress warnings during initial check (we'll handle it properly)
-        get_nlp(suppress_warning=True)
-
-        logging.info("Checking spacy dependencies...")
-        model_available = ensure_spacy_model(
-            model_name="en_core_web_sm",
-            auto_install=args.auto_install_spacy,  # Auto-install if flag set
-            silent=False,
-        )
-
-        if model_available:
-            logging.info("Spacy model verified ✓")
-        else:
-            logging.warning(
-                "Continuing without spacy model (using fallback normalization)"
-            )
-
-    # Initialize fuzzy keyword matching report if enabled
-    fuzzy_keyword_report = None
-    if txt_filters and use_fuzzy_keywords:
-        from src.crawlers.fuzzy_keyword_matching import (
-            FuzzyKeywordMatchReport,
-            precompute_normalized_keywords,
-        )
-
-        fuzzy_keyword_report = FuzzyKeywordMatchReport()
-        logging.info(
-            f"Fuzzy keyword matching enabled (threshold={fuzzy_keyword_threshold})"
-        )
-
-        # OPTIMIZATION: Pre-compute normalized keywords (Phase 1 - 50x speedup)
-        # This eliminates billions of redundant spacy calls during paper processing
-        keywords = main_config.get("keywords", [])
-        if keywords:
-            # Flatten keyword groups into single list
-            all_keywords = []
-            for group in keywords:
-                if isinstance(group, list):
-                    all_keywords.extend(group)
-                else:
-                    all_keywords.append(group)
-
-            logging.info("Pre-computing normalized keywords for fuzzy matching...")
-            precompute_normalized_keywords(all_keywords)
-    else:
-        if txt_filters:
-            logging.info(
-                "Fuzzy keyword matching disabled (using fast exact substring matching)"
-            )
 
     # Check if state file exists
     if not os.path.isfile(state_path):
@@ -1120,11 +992,6 @@ if __name__ == "__main__":
                 state_details=state_details,
                 dir_collect=dir_collect,
                 txt_filters=txt_filters,
-                use_fuzzy=use_fuzzy_keywords,
-                fuzzy_threshold=fuzzy_keyword_threshold,
-                fuzzy_report_class=fuzzy_keyword_report.__class__
-                if fuzzy_keyword_report
-                else None,
                 num_workers=args.parallel_workers,
                 batch_size=args.batch_size,
                 keyword_groups=keyword_groups,
@@ -1189,8 +1056,6 @@ if __name__ == "__main__":
                 keyword_report = generate_keyword_validation_report(
                     df_clean,
                     keywords,
-                    use_fuzzy=use_fuzzy_keywords,
-                    fuzzy_threshold=fuzzy_keyword_threshold,
                 )
                 logging.info(keyword_report)
 

@@ -16,31 +16,6 @@ import pandas as pd
 
 from src.constants import is_missing
 
-# Import spacy for better text analysis (lazy loaded)
-try:
-    import spacy
-
-    SPACY_AVAILABLE = True
-except ImportError:
-    SPACY_AVAILABLE = False
-    spacy = None
-
-_nlp = None
-
-
-def get_nlp():
-    """Lazy load spacy model."""
-    global _nlp
-    if not SPACY_AVAILABLE:
-        return None
-    if _nlp is None:
-        try:
-            _nlp = spacy.load("en_core_web_sm")
-        except OSError:
-            _nlp = None
-    return _nlp
-
-
 # Common truncation indicators
 TRUNCATION_PATTERNS = [
     r"\.\.\.$",  # Ends with ...
@@ -252,7 +227,7 @@ def detect_language_issues(
     """
     Detect if abstract appears to be in wrong language.
 
-    Uses spacy's linguistic features when available, falls back to heuristic.
+    Uses simple heuristic based on common English words.
 
     Args:
         abstract: Abstract text
@@ -266,30 +241,7 @@ def detect_language_issues(
     if not text or expected_language != "english":
         return None
 
-    # Try using spacy for better language detection
-    nlp = get_nlp()
-    if nlp is not None:
-        doc = nlp(text[:1000])  # Limit to first 1000 chars for performance
-
-        if len(doc) < 10:
-            return None  # Too short to reliably detect language
-
-        # Count English stop words (spacy has better stop word list)
-        stop_word_count = sum(1 for token in doc if token.is_stop)
-        stop_word_ratio = stop_word_count / len(doc)
-
-        # English text typically has 25-40% stop words
-        # If less than 15%, likely non-English
-        if stop_word_ratio < 0.15:
-            return AbstractQualityIssue(
-                issue_type="LANGUAGE",
-                severity=AbstractQualityIssue.INFO,
-                description=f"Abstract may not be in English ({stop_word_ratio:.1%} stop word ratio)",
-            )
-
-        return None
-
-    # Fallback: simple heuristic if spacy not available
+    # Simple heuristic based on common English words
     common_english_words = {
         "the",
         "be",
