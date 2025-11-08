@@ -137,9 +137,13 @@ def _update_state_worker(repo, api, idx, state_data):
             else:
                 state_orig["global"] = 0
 
-            # Save state
-            with open(state_path, "w", encoding="utf-8") as f:
+            # Save state atomically to prevent corruption
+            temp_path = state_path + ".tmp"
+            with open(temp_path, "w", encoding="utf-8") as f:
                 json.dump(state_orig, f, ensure_ascii=False, indent=4)
+
+            # Atomic rename prevents partial writes and corruption
+            os.replace(temp_path, state_path)
 
 
 class Filter_param:
@@ -453,10 +457,22 @@ class CollectCollection:
                             )
 
     def save_state_details(self):
+        """
+        Save state details to JSON file with lock protection.
+        Uses lock to prevent race conditions during multiprocessing.
+        """
         repo = self.get_current_repo()
         state_path = os.path.join(repo, "state_details.json")
-        with open(state_path, "w", encoding="utf-8") as f:
-            json.dump(self.state_details, f, ensure_ascii=False, indent=4)
+
+        # Acquire lock to prevent concurrent writes that corrupt JSON
+        with lock:
+            # Write to temp file first, then atomic rename to prevent partial writes
+            temp_path = state_path + ".tmp"
+            with open(temp_path, "w", encoding="utf-8") as f:
+                json.dump(self.state_details, f, ensure_ascii=False, indent=4)
+
+            # Atomic rename (prevents file corruption if process crashes mid-write)
+            os.replace(temp_path, state_path)
 
     def init_collection_collect(self):
         repo = self.get_current_repo()
