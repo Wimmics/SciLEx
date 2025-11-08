@@ -52,7 +52,8 @@ def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name)
     Worker function for multiprocessing that can be properly serialized.
     This must be at module level (not in a class) for spawn mode to work.
     """
-    repo = os.path.join(output_dir, collect_name)
+    # Use absolute path to avoid issues with different working directories in spawn mode
+    repo = os.path.abspath(os.path.join(output_dir, collect_name))
 
     for idx in range(len(collect_list)):
         coll = collect_list[idx]
@@ -139,11 +140,21 @@ def _update_state_worker(repo, api, idx, state_data):
 
             # Save state atomically to prevent corruption
             temp_path = state_path + ".tmp"
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(state_orig, f, ensure_ascii=False, indent=4)
+            try:
+                # Ensure directory exists (handles multiprocessing edge cases)
+                os.makedirs(os.path.dirname(state_path), exist_ok=True)
 
-            # Atomic rename prevents partial writes and corruption
-            os.replace(temp_path, state_path)
+                with open(temp_path, "w", encoding="utf-8") as f:
+                    json.dump(state_orig, f, ensure_ascii=False, indent=4)
+
+                # Atomic rename prevents partial writes and corruption
+                os.replace(temp_path, state_path)
+            except Exception as e:
+                logging.error(f"Failed to save state for {api}: {e}")
+                # Clean up temp file on failure
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise
 
 
 class Filter_param:
@@ -422,7 +433,19 @@ class CollectCollection:
                     state_orig["global"] = 0
 
                 self.state_details = state_orig
-                self.save_state_details()
+
+                # Write directly here to avoid nested lock acquisition
+                # (previously called save_state_details() which tried to acquire lock again)
+                temp_path = state_path + ".tmp"
+                try:
+                    with open(temp_path, "w", encoding="utf-8") as f:
+                        json.dump(state_orig, f, ensure_ascii=False, indent=4)
+                    os.replace(temp_path, state_path)
+                except Exception as e:
+                    logging.error(f"Failed to save state after update: {e}")
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise
             else:
                 logging.warning("Missing state details file")
 
@@ -468,11 +491,18 @@ class CollectCollection:
         with lock:
             # Write to temp file first, then atomic rename to prevent partial writes
             temp_path = state_path + ".tmp"
-            with open(temp_path, "w", encoding="utf-8") as f:
-                json.dump(self.state_details, f, ensure_ascii=False, indent=4)
+            try:
+                with open(temp_path, "w", encoding="utf-8") as f:
+                    json.dump(self.state_details, f, ensure_ascii=False, indent=4)
 
-            # Atomic rename (prevents file corruption if process crashes mid-write)
-            os.replace(temp_path, state_path)
+                # Atomic rename (prevents file corruption if process crashes mid-write)
+                os.replace(temp_path, state_path)
+            except Exception as e:
+                logging.error(f"Failed to save state details: {e}")
+                # Clean up temp file on failure
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise
 
     def init_collection_collect(self):
         repo = self.get_current_repo()
