@@ -49,7 +49,7 @@ def access_rate_limited_api(url):
 
 def SemanticScholartoZoteroFormat(row):
     from src.constants import MISSING_VALUE
-    
+
     # bookSection?
     zotero_temp = {
         "title": MISSING_VALUE,

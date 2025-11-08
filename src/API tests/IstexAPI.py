@@ -29,7 +29,7 @@ def access_rate_limited_api(url):
 
 def IstextoZoteroFormat(row):
     from src.constants import MISSING_VALUE
-    
+
     zotero_temp = {
         "title": MISSING_VALUE,
         "itemType": MISSING_VALUE,

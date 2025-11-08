@@ -55,6 +55,7 @@ current_col_key = None
 for _index, row in data.iterrows():
     itemType = row["itemType"]
     from src.constants import is_valid
+
     if is_valid(itemType):
         if itemType not in templates_dict:
             resp = requests.get("https://api.zotero.org/items/new?itemType=" + itemType)

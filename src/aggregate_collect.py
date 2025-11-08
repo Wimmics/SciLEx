@@ -7,6 +7,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+
 from dateutil import parser as date_parser
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,7 +20,7 @@ from src.abstract_validation import (
     filter_by_abstract_quality,
     validate_dataframe_abstracts,
 )
-from src.constants import MISSING_VALUE, is_valid, CitationFilterConfig
+from src.constants import MISSING_VALUE, CitationFilterConfig, is_valid
 from src.crawlers.aggregate import (
     ArxivtoZoteroFormat,
     DBLPtoZoteroFormat,
@@ -31,19 +32,17 @@ from src.crawlers.aggregate import (
     OpenAlextoZoteroFormat,
     SemanticScholartoZoteroFormat,
     SpringertoZoteroFormat,
-    deduplicate,
 )
 from src.crawlers.utils import load_all_configs
 from src.duplicate_tracking import analyze_and_report_duplicates
 from src.keyword_validation import (
-    filter_by_keywords,
     generate_keyword_validation_report,
 )
+from src.logging_config import log_section, setup_logging
 from src.quality_validation import (
     apply_quality_filters,
     generate_data_completeness_report,
 )
-from src.logging_config import setup_logging, log_section
 
 # Set up logging configuration with environment variable support
 setup_logging()
@@ -57,79 +56,88 @@ api_config = configs["api_config"]
 
 # Format converters dispatcher - replaces eval() for security
 FORMAT_CONVERTERS = {
-    'SemanticScholar': SemanticScholartoZoteroFormat,
-    'OpenAlex': OpenAlextoZoteroFormat,
-    'IEEE': IEEEtoZoteroFormat,
-    'Elsevier': ElseviertoZoteroFormat,
-    'Springer': SpringertoZoteroFormat,
-    'HAL': HALtoZoteroFormat,
-    'DBLP': DBLPtoZoteroFormat,
-    'Istex': IstextoZoteroFormat,
-    'Arxiv': ArxivtoZoteroFormat,
-    'GoogleScholar': GoogleScholartoZoteroFormat
+    "SemanticScholar": SemanticScholartoZoteroFormat,
+    "OpenAlex": OpenAlextoZoteroFormat,
+    "IEEE": IEEEtoZoteroFormat,
+    "Elsevier": ElseviertoZoteroFormat,
+    "Springer": SpringertoZoteroFormat,
+    "HAL": HALtoZoteroFormat,
+    "DBLP": DBLPtoZoteroFormat,
+    "Istex": IstextoZoteroFormat,
+    "Arxiv": ArxivtoZoteroFormat,
+    "GoogleScholar": GoogleScholartoZoteroFormat,
 }
 
 # ============================================================================
 # Filtering Progress Tracker
 # ============================================================================
 
+
 class FilteringTracker:
     """Track filtering stages and generate comprehensive reports."""
-    
+
     def __init__(self):
         self.stages = []
         self.initial_count = 0
-        
+
     def set_initial(self, count, description="Raw papers collected"):
         """Set initial paper count."""
         self.initial_count = count
-        self.stages.append({
-            "stage": "Initial",
-            "description": description,
-            "papers": count,
-            "removed": 0,
-            "removal_rate": 0.0
-        })
-    
+        self.stages.append(
+            {
+                "stage": "Initial",
+                "description": description,
+                "papers": count,
+                "removed": 0,
+                "removal_rate": 0.0,
+            }
+        )
+
     def add_stage(self, stage_name, papers_remaining, description=""):
         """Add a filtering stage with paper count."""
         if not self.stages:
             self.set_initial(papers_remaining, "Starting point")
             return
-        
+
         prev_count = self.stages[-1]["papers"]
         removed = prev_count - papers_remaining
         removal_rate = (removed / prev_count * 100) if prev_count > 0 else 0.0
-        
-        self.stages.append({
-            "stage": stage_name,
-            "description": description,
-            "papers": papers_remaining,
-            "removed": removed,
-            "removal_rate": removal_rate
-        })
-    
+
+        self.stages.append(
+            {
+                "stage": stage_name,
+                "description": description,
+                "papers": papers_remaining,
+                "removed": removed,
+                "removal_rate": removal_rate,
+            }
+        )
+
     def generate_report(self):
         """Generate comprehensive filtering summary report."""
         if not self.stages or self.initial_count == 0:
             return "No filtering data available"
-        
+
         lines = []
-        lines.append("\n" + "="*80)
+        lines.append("\n" + "=" * 80)
         lines.append("FILTERING PIPELINE SUMMARY")
-        lines.append("="*80)
-        
+        lines.append("=" * 80)
+
         for i, stage_info in enumerate(self.stages):
             stage = stage_info["stage"]
             desc = stage_info["description"]
             papers = stage_info["papers"]
             removed = stage_info["removed"]
             removal_rate = stage_info["removal_rate"]
-            
+
             # Calculate cumulative removal
             cumulative_removed = self.initial_count - papers
-            cumulative_rate = (cumulative_removed / self.initial_count * 100) if self.initial_count > 0 else 0.0
-            
+            cumulative_rate = (
+                (cumulative_removed / self.initial_count * 100)
+                if self.initial_count > 0
+                else 0.0
+            )
+
             lines.append("")
             if i == 0:
                 lines.append(f"[{stage}] {desc}")
@@ -138,22 +146,31 @@ class FilteringTracker:
                 lines.append(f"[{stage}] {desc}")
                 lines.append(f"  Papers remaining: {papers:,}")
                 lines.append(f"  Removed this stage: {removed:,} ({removal_rate:.1f}%)")
-                lines.append(f"  Cumulative removal: {cumulative_removed:,} ({cumulative_rate:.1f}%)")
-        
+                lines.append(
+                    f"  Cumulative removal: {cumulative_removed:,} ({cumulative_rate:.1f}%)"
+                )
+
         final_count = self.stages[-1]["papers"]
         total_removed = self.initial_count - final_count
-        total_removal_rate = (total_removed / self.initial_count * 100) if self.initial_count > 0 else 0.0
-        
+        total_removal_rate = (
+            (total_removed / self.initial_count * 100)
+            if self.initial_count > 0
+            else 0.0
+        )
+
         lines.append("")
-        lines.append("-"*80)
-        lines.append(f"FINAL RESULTS:")
+        lines.append("-" * 80)
+        lines.append("FINAL RESULTS:")
         lines.append(f"  Started with: {self.initial_count:,} papers")
         lines.append(f"  Final output: {final_count:,} papers")
-        lines.append(f"  Total removed: {total_removed:,} papers ({total_removal_rate:.1f}%)")
+        lines.append(
+            f"  Total removed: {total_removed:,} papers ({total_removal_rate:.1f}%)"
+        )
         lines.append(f"  Retention rate: {100 - total_removal_rate:.1f}%")
-        lines.append("="*80)
-        
+        lines.append("=" * 80)
+
         return "\n".join(lines)
+
 
 def _keyword_matches_in_abstract(keyword, abstract_text):
     """Check if keyword appears in abstract text (handles both dict and string formats)."""
@@ -161,7 +178,7 @@ def _keyword_matches_in_abstract(keyword, abstract_text):
         abstract_content = " ".join(abstract_text["p"]).lower()
     else:
         abstract_content = str(abstract_text).lower()
-    
+
     return keyword in abstract_content
 
 
@@ -202,7 +219,7 @@ def _record_passes_text_filter(
     use_fuzzy=False,
     fuzzy_threshold=0.85,
     fuzzy_report=None,
-    keyword_groups=None
+    keyword_groups=None,
 ):
     """Check if record contains required keywords in title or abstract.
 
@@ -244,10 +261,14 @@ def _record_passes_text_filter(
             keywords = all_keywords
         else:
             # Check Group 1
-            group1_match = _check_keywords_in_text(group1, combined_text, use_fuzzy, fuzzy_threshold)
+            group1_match = _check_keywords_in_text(
+                group1, combined_text, use_fuzzy, fuzzy_threshold
+            )
 
             # Check Group 2
-            group2_match = _check_keywords_in_text(group2, combined_text, use_fuzzy, fuzzy_threshold)
+            group2_match = _check_keywords_in_text(
+                group2, combined_text, use_fuzzy, fuzzy_threshold
+            )
 
             # Both groups must match
             if group1_match and group2_match:
@@ -367,7 +388,7 @@ def _calculate_required_citations(months_since_pub):
         )
 
 
-def _apply_time_aware_citation_filter(df, citation_col='nb_citation', date_col='date'):
+def _apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="date"):
     """Apply time-aware citation filtering to DataFrame.
 
     Papers are filtered based on citation count relative to their age:
@@ -385,26 +406,36 @@ def _apply_time_aware_citation_filter(df, citation_col='nb_citation', date_col='
     logging.info("Applying time-aware citation filtering...")
 
     # Calculate age and required citations
-    df['paper_age_months'] = df[date_col].apply(_calculate_paper_age_months)
-    df['citation_threshold'] = df['paper_age_months'].apply(_calculate_required_citations)
+    df["paper_age_months"] = df[date_col].apply(_calculate_paper_age_months)
+    df["citation_threshold"] = df["paper_age_months"].apply(
+        _calculate_required_citations
+    )
 
     # Convert citation count to numeric (handle empty/invalid values)
-    df[citation_col] = pd.to_numeric(df[citation_col], errors='coerce').fillna(0).astype(int)
+    df[citation_col] = (
+        pd.to_numeric(df[citation_col], errors="coerce").fillna(0).astype(int)
+    )
 
     # Apply filtering
     initial_count = len(df)
-    df_filtered = df[df[citation_col] >= df['citation_threshold']].copy()
+    df_filtered = df[df[citation_col] >= df["citation_threshold"]].copy()
     removed_count = initial_count - len(df_filtered)
 
     # Calculate zero-citation statistics
     zero_citation_count = (df[citation_col] == 0).sum()
-    zero_citation_rate = (zero_citation_count / initial_count * 100) if initial_count > 0 else 0.0
+    zero_citation_rate = (
+        (zero_citation_count / initial_count * 100) if initial_count > 0 else 0.0
+    )
 
     # Log statistics by age group
-    logging.info(f"Time-aware citation filter applied:")
+    logging.info("Time-aware citation filter applied:")
     logging.info(f"  Initial papers: {initial_count:,}")
-    logging.info(f"  Papers with 0 citations: {zero_citation_count:,} ({zero_citation_rate:.1f}%)")
-    logging.info(f"  Removed: {removed_count:,} ({removed_count/initial_count*100:.1f}%)")
+    logging.info(
+        f"  Papers with 0 citations: {zero_citation_count:,} ({zero_citation_rate:.1f}%)"
+    )
+    logging.info(
+        f"  Removed: {removed_count:,} ({removed_count / initial_count * 100:.1f}%)"
+    )
     logging.info(f"  Remaining: {len(df_filtered):,}")
 
     # Breakdown by age group
@@ -413,33 +444,43 @@ def _apply_time_aware_citation_filter(df, citation_col='nb_citation', date_col='
         (3, 6, "3-6 months (≥1 citation)"),
         (6, 12, "6-12 months (≥3 citations)"),
         (12, 24, "12-24 months (≥5-8 citations)"),
-        (24, 999, "24+ months (≥10 citations)")
+        (24, 999, "24+ months (≥10 citations)"),
     ]
 
     logging.info("Breakdown by age group:")
     for min_age, max_age, label in age_groups:
         group = df_filtered[
-            (df_filtered['paper_age_months'] >= min_age) &
-            (df_filtered['paper_age_months'] < max_age)
+            (df_filtered["paper_age_months"] >= min_age)
+            & (df_filtered["paper_age_months"] < max_age)
         ]
         if len(group) > 0:
             avg_citations = group[citation_col].mean()
             zero_in_group = (group[citation_col] == 0).sum()
             zero_pct = (zero_in_group / len(group) * 100) if len(group) > 0 else 0
-            logging.info(f"  {label}: {len(group):,} papers (avg {avg_citations:.1f} citations, {zero_in_group} with 0 = {zero_pct:.0f}%)")
+            logging.info(
+                f"  {label}: {len(group):,} papers (avg {avg_citations:.1f} citations, {zero_in_group} with 0 = {zero_pct:.0f}%)"
+            )
 
     # Add warning for high zero-citation rates
     if zero_citation_rate > CitationFilterConfig.HIGH_ZERO_CITATION_RATE:
-        logging.warning("\n" + "="*70)
-        logging.warning(f"HIGH ZERO-CITATION RATE: {zero_citation_rate:.1f}% of papers have 0 citations")
+        logging.warning("\n" + "=" * 70)
+        logging.warning(
+            f"HIGH ZERO-CITATION RATE: {zero_citation_rate:.1f}% of papers have 0 citations"
+        )
         logging.warning("This may indicate:")
-        logging.warning("  • Very recent dataset (expected for preprints < 3 months old)")
-        logging.warning("  • OpenCitations coverage gaps (limited for preprints/recent papers)")
-        logging.warning("  • Consider using Semantic Scholar citations for better coverage")
-        logging.warning("="*70 + "\n")
+        logging.warning(
+            "  • Very recent dataset (expected for preprints < 3 months old)"
+        )
+        logging.warning(
+            "  • OpenCitations coverage gaps (limited for preprints/recent papers)"
+        )
+        logging.warning(
+            "  • Consider using Semantic Scholar citations for better coverage"
+        )
+        logging.warning("=" * 70 + "\n")
 
     # Drop temporary age column (keep citation_threshold for transparency)
-    df_filtered = df_filtered.drop(columns=['paper_age_months'])
+    df_filtered = df_filtered.drop(columns=["paper_age_months"])
 
     return df_filtered
 
@@ -464,8 +505,8 @@ def _count_keyword_matches(row, keyword_groups):
             all_keywords.extend(group)
 
     # Combine title and abstract
-    title = str(row.get('title', '')).lower()
-    abstract = str(row.get('abstract', '')).lower()
+    title = str(row.get("title", "")).lower()
+    abstract = str(row.get("abstract", "")).lower()
     combined_text = f"{title} {abstract}"
 
     # Count matches (a keyword can appear multiple times)
@@ -502,21 +543,22 @@ def _calculate_relevance_score(row, keyword_groups, has_citations=False):
 
     # 2. Citation score (2x weight) - only if citation data available
     if has_citations:
-        citation_count = pd.to_numeric(row.get('nb_citation', 0), errors='coerce')
+        citation_count = pd.to_numeric(row.get("nb_citation", 0), errors="coerce")
         if pd.notna(citation_count):
             # Normalize: log scale to prevent citation-heavy papers dominating
             # log(1+x) to handle 0 citations gracefully
             import math
+
             citation_score = math.log(1 + citation_count)
             score += citation_score * 2
 
     # 3. Quality score (1x weight)
-    quality = row.get('quality_score', 0)
+    quality = row.get("quality_score", 0)
     score += quality / 10  # Normalize to ~1-5 range
 
     # 4. Journal bonus (0.5 points)
-    item_type = str(row.get('itemType', '')).lower()
-    if 'journal' in item_type:
+    item_type = str(row.get("itemType", "")).lower()
+    if "journal" in item_type:
         score += 0.5
 
     return round(score, 2)
@@ -539,16 +581,18 @@ def _apply_relevance_ranking(df, keyword_groups, top_n=None, has_citations=False
     logging.info("Calculating relevance scores...")
 
     # Calculate scores
-    df['relevance_score'] = df.apply(
+    df["relevance_score"] = df.apply(
         lambda row: _calculate_relevance_score(row, keyword_groups, has_citations),
-        axis=1
+        axis=1,
     )
 
     # Sort by relevance (descending)
-    df_ranked = df.sort_values('relevance_score', ascending=False).copy()
+    df_ranked = df.sort_values("relevance_score", ascending=False).copy()
 
-    logging.info(f"Relevance scoring complete")
-    logging.info(f"  Score range: {df_ranked['relevance_score'].min():.2f} - {df_ranked['relevance_score'].max():.2f}")
+    logging.info("Relevance scoring complete")
+    logging.info(
+        f"  Score range: {df_ranked['relevance_score'].min():.2f} - {df_ranked['relevance_score'].max():.2f}"
+    )
     logging.info(f"  Mean score: {df_ranked['relevance_score'].mean():.2f}")
     logging.info(f"  Median score: {df_ranked['relevance_score'].median():.2f}")
 
@@ -556,11 +600,11 @@ def _apply_relevance_ranking(df, keyword_groups, top_n=None, has_citations=False
     if top_n and top_n < len(df_ranked):
         initial_count = len(df_ranked)
         df_ranked = df_ranked.head(top_n)
-        logging.info(f"Filtered to top {top_n} most relevant papers (removed {initial_count - top_n:,})")
+        logging.info(
+            f"Filtered to top {top_n} most relevant papers (removed {initial_count - top_n:,})"
+        )
 
     return df_ranked
-
-
 
 
 def _use_semantic_scholar_citations_fallback(df):
@@ -573,7 +617,9 @@ def _use_semantic_scholar_citations_fallback(df):
         pd.DataFrame: DataFrame with citation data filled from Semantic Scholar where needed
     """
     if "ss_citation_count" not in df.columns:
-        logging.info("Semantic Scholar citation data not available (only papers from SS API have this)")
+        logging.info(
+            "Semantic Scholar citation data not available (only papers from SS API have this)"
+        )
         return df
 
     # Count how many papers have SS citation data
@@ -592,7 +638,7 @@ def _use_semantic_scholar_citations_fallback(df):
         if (pd.isna(row["nb_citation"]) or row["nb_citation"] == 0)
         and pd.notna(row["ss_citation_count"])
         else row["nb_citation"],
-        axis=1
+        axis=1,
     )
 
     df["nb_cited"] = df.apply(
@@ -600,27 +646,30 @@ def _use_semantic_scholar_citations_fallback(df):
         if (pd.isna(row["nb_cited"]) or row["nb_cited"] == 0)
         and pd.notna(row["ss_reference_count"])
         else row["nb_cited"],
-        axis=1
+        axis=1,
     )
 
     # Count improvements
     final_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
     improved_count = initial_zero_count - final_zero_count
 
-    logging.info(f"Semantic Scholar fallback applied:")
+    logging.info("Semantic Scholar fallback applied:")
     logging.info(f"  Papers with 0 citations before: {initial_zero_count:,}")
     logging.info(f"  Papers with 0 citations after: {final_zero_count:,}")
-    logging.info(f"  Improved: {improved_count:,} papers ({improved_count/has_ss_data*100:.1f}% of papers with SS data)")
+    logging.info(
+        f"  Improved: {improved_count:,} papers ({improved_count / has_ss_data * 100:.1f}% of papers with SS data)"
+    )
 
     return df
+
 
 def _load_checkpoint(checkpoint_path):
     """Load checkpoint data if exists."""
     if os.path.exists(checkpoint_path):
         try:
-            with open(checkpoint_path, "r") as f:
+            with open(checkpoint_path) as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logging.warning(f"Could not load checkpoint: {e}")
     return None
 
@@ -631,12 +680,21 @@ def _save_checkpoint(checkpoint_path, data):
         with open(checkpoint_path, "w") as f:
             json.dump(data, f)
         logging.debug(f"Checkpoint saved to {checkpoint_path}")
-    except IOError as e:
+    except OSError as e:
         logging.warning(f"Could not save checkpoint: {e}")
 
 
-def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint_path,
-                               extras, nb_citeds, nb_citations, cache_path=None):
+def _fetch_citation_for_paper(
+    index,
+    doi,
+    stats,
+    checkpoint_interval,
+    checkpoint_path,
+    extras,
+    nb_citeds,
+    nb_citations,
+    cache_path=None,
+):
     """
     Fetch citations for a single paper (thread-safe with caching).
 
@@ -660,7 +718,7 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
 
     try:
         # Check cache first (5x speedup on cache hits)
-        from src.citations.cache import get_cached_citation, cache_citation
+        from src.citations.cache import cache_citation, get_cached_citation
 
         cached_data = get_cached_citation(str(doi), cache_path)
         if cached_data is not None:
@@ -672,7 +730,10 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
 
             # Track API stats from cache
             api_stats = cached_data["api_stats"]
-            if api_stats["cit_status"] == "success" and api_stats["ref_status"] == "success":
+            if (
+                api_stats["cit_status"] == "success"
+                and api_stats["ref_status"] == "success"
+            ):
                 stats["success"] += 1
 
             return {"index": index, "status": "cache_hit"}
@@ -682,7 +743,10 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
         citations, api_stats = cit_tools.getRefandCitFormatted(str(doi))
 
         # Track statistics
-        if api_stats["cit_status"] == "success" and api_stats["ref_status"] == "success":
+        if (
+            api_stats["cit_status"] == "success"
+            and api_stats["ref_status"] == "success"
+        ):
             stats["success"] += 1
         elif "timeout" in [api_stats["cit_status"], api_stats["ref_status"]]:
             stats["timeout"] += 1
@@ -706,7 +770,7 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
             nb_cited=nb_cited,
             nb_citations=nb_citation,
             api_stats=api_stats,
-            cache_path=cache_path
+            cache_path=cache_path,
         )
 
         # Checkpoint save (thread-safe)
@@ -715,12 +779,12 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
                 checkpoint_data = {
                     "last_index": index,
                     "stats": dict(stats),
-                    "extras": extras[:index+1],
-                    "nb_citeds": nb_citeds[:index+1],
-                    "nb_citations": nb_citations[:index+1]
+                    "extras": extras[: index + 1],
+                    "nb_citeds": nb_citeds[: index + 1],
+                    "nb_citations": nb_citations[: index + 1],
                 }
                 _save_checkpoint(checkpoint_path, checkpoint_data)
-                logging.info(f"Checkpoint saved at paper {index+1}")
+                logging.info(f"Checkpoint saved at paper {index + 1}")
 
         return {"index": index, "status": "success"}
 
@@ -730,8 +794,14 @@ def _fetch_citation_for_paper(index, doi, stats, checkpoint_interval, checkpoint
         return {"index": index, "status": "error"}
 
 
-def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
-                               checkpoint_path=None, resume_from=None, use_cache=True):
+def _fetch_citations_parallel(
+    df_clean,
+    num_workers=3,
+    checkpoint_interval=100,
+    checkpoint_path=None,
+    resume_from=None,
+    use_cache=True,
+):
     """
     Fetch citations in parallel using ThreadPoolExecutor with caching.
 
@@ -751,17 +821,24 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
     # Initialize citation cache
     cache_path = None
     if use_cache:
-        from src.citations.cache import initialize_cache, get_cache_stats, cleanup_expired_cache
+        from src.citations.cache import (
+            cleanup_expired_cache,
+            get_cache_stats,
+            initialize_cache,
+        )
+
         cache_path = initialize_cache()
         logging.info(f"Citation cache initialized at {cache_path}")
 
         # Show cache stats
         cache_stats = get_cache_stats(cache_path)
-        logging.info(f"Cache stats: {cache_stats['active_entries']} active entries, "
-                     f"{cache_stats['expired_entries']} expired")
+        logging.info(
+            f"Cache stats: {cache_stats['active_entries']} active entries, "
+            f"{cache_stats['expired_entries']} expired"
+        )
 
         # Clean up expired entries
-        if cache_stats['expired_entries'] > 0:
+        if cache_stats["expired_entries"] > 0:
             removed = cleanup_expired_cache(cache_path)
             logging.info(f"Cleaned up {removed} expired cache entries")
 
@@ -777,7 +854,7 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
         "error": 0,
         "no_doi": 0,
         "cache_hit": 0,
-        "cache_miss": 0
+        "cache_miss": 0,
     }
 
     # Load from checkpoint if resuming
@@ -795,23 +872,40 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
             logging.info(f"Resuming from paper {start_index}")
 
     papers_with_doi = df_clean["DOI"].apply(is_valid).sum()
-    logging.info(f"Fetching citation data for {papers_with_doi}/{total_papers} papers with valid DOIs")
+    logging.info(
+        f"Fetching citation data for {papers_with_doi}/{total_papers} papers with valid DOIs"
+    )
     if use_cache:
-        logging.info(f"Using citation cache (30-day TTL) - expect ~60-80% cache hits on repeated runs")
-    logging.info(f"Using {num_workers} parallel workers (rate limit: ~{num_workers*2.5:.1f} papers/second)")
+        logging.info(
+            "Using citation cache (30-day TTL) - expect ~60-80% cache hits on repeated runs"
+        )
+    logging.info(
+        f"Using {num_workers} parallel workers (rate limit: ~{num_workers * 2.5:.1f} papers/second)"
+    )
 
     # Create progress bar
-    with tqdm(total=total_papers, initial=start_index, desc="Fetching citations", unit="paper") as pbar:
+    with tqdm(
+        total=total_papers, initial=start_index, desc="Fetching citations", unit="paper"
+    ) as pbar:
         # Use ThreadPoolExecutor for parallel fetching
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             # Submit all tasks
             future_to_index = {}
-            for position, (df_index, row) in enumerate(df_clean.iloc[start_index:].iterrows(), start=start_index):
+            for position, (df_index, row) in enumerate(
+                df_clean.iloc[start_index:].iterrows(), start=start_index
+            ):
                 doi = row.get("DOI")
                 future = executor.submit(
                     _fetch_citation_for_paper,
-                    position, doi, stats, checkpoint_interval, checkpoint_path,
-                    extras, nb_citeds, nb_citations, cache_path
+                    position,
+                    doi,
+                    stats,
+                    checkpoint_interval,
+                    checkpoint_path,
+                    extras,
+                    nb_citeds,
+                    nb_citations,
+                    cache_path,
                 )
                 future_to_index[future] = position
 
@@ -825,7 +919,7 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
                     "✓": stats["success"],
                     "✗": stats["error"],
                     "⏱": stats["timeout"],
-                    "⊘": stats["no_doi"]
+                    "⊘": stats["no_doi"],
                 }
                 if use_cache:
                     postfix["💾"] = stats["cache_hit"]  # Cache hits
@@ -834,39 +928,72 @@ def _fetch_citations_parallel(df_clean, num_workers=3, checkpoint_interval=100,
     # Calculate cache hit rate
     cache_hit_rate = 0
     if use_cache and (stats["cache_hit"] + stats["cache_miss"]) > 0:
-        cache_hit_rate = stats["cache_hit"] / (stats["cache_hit"] + stats["cache_miss"]) * 100
+        cache_hit_rate = (
+            stats["cache_hit"] / (stats["cache_hit"] + stats["cache_miss"]) * 100
+        )
 
-    logging.info(f"Citation fetching complete: {stats['success']} successful, "
-                 f"{stats['error']} errors, {stats['timeout']} timeouts, "
-                 f"{stats['no_doi']} without DOI")
+    logging.info(
+        f"Citation fetching complete: {stats['success']} successful, "
+        f"{stats['error']} errors, {stats['timeout']} timeouts, "
+        f"{stats['no_doi']} without DOI"
+    )
     if use_cache:
-        logging.info(f"Cache performance: {stats['cache_hit']} hits, {stats['cache_miss']} misses "
-                     f"({cache_hit_rate:.1f}% hit rate)")
+        logging.info(
+            f"Cache performance: {stats['cache_hit']} hits, {stats['cache_miss']} misses "
+            f"({cache_hit_rate:.1f}% hit rate)"
+        )
 
     return extras, nb_citeds, nb_citations, stats
 
 
 if __name__ == "__main__":
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Aggregate collected papers and fetch citations")
-    parser.add_argument("--resume", action="store_true",
-                        help="Resume from checkpoint if available")
-    parser.add_argument("--skip-citations", action="store_true",
-                        help="Skip citation fetching entirely")
-    parser.add_argument("--no-cache", action="store_true",
-                        help="Disable citation caching (slower - not recommended)")
-    parser.add_argument("--workers", type=int, default=3,
-                        help="Number of parallel workers for citation fetching (default: 3)")
-    parser.add_argument("--checkpoint-interval", type=int, default=100,
-                        help="Save checkpoint every N papers (default: 100)")
-    parser.add_argument("--auto-install-spacy", action="store_true",
-                        help="Automatically install spacy model without prompting")
-    parser.add_argument("--parallel-workers", type=int, default=None,
-                        help="Number of parallel workers (default: auto-detect CPU count - 1)")
-    parser.add_argument("--batch-size", type=int, default=5000,
-                        help="Papers per batch for parallel processing (default: 5000)")
-    parser.add_argument("--profile", action="store_true",
-                        help="Output detailed performance statistics")
+    parser = argparse.ArgumentParser(
+        description="Aggregate collected papers and fetch citations"
+    )
+    parser.add_argument(
+        "--resume", action="store_true", help="Resume from checkpoint if available"
+    )
+    parser.add_argument(
+        "--skip-citations", action="store_true", help="Skip citation fetching entirely"
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable citation caching (slower - not recommended)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=3,
+        help="Number of parallel workers for citation fetching (default: 3)",
+    )
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=100,
+        help="Save checkpoint every N papers (default: 100)",
+    )
+    parser.add_argument(
+        "--auto-install-spacy",
+        action="store_true",
+        help="Automatically install spacy model without prompting",
+    )
+    parser.add_argument(
+        "--parallel-workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers (default: auto-detect CPU count - 1)",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=5000,
+        help="Papers per batch for parallel processing (default: 5000)",
+    )
+    parser.add_argument(
+        "--profile", action="store_true", help="Output detailed performance statistics"
+    )
     args = parser.parse_args()
 
     logger = logging.getLogger(__name__)
@@ -883,11 +1010,12 @@ if __name__ == "__main__":
 
     logger.info(f"Collection directory: {dir_collect}")
     logger.info(f"Text filtering: {'enabled' if txt_filters else 'disabled'}")
-    logger.info(f"Citation fetching: {'enabled' if get_citation else 'disabled (use --skip-citations to disable)'}")
+    logger.info(
+        f"Citation fetching: {'enabled' if get_citation else 'disabled (use --skip-citations to disable)'}"
+    )
 
     all_data = []
 
-    
     # Initialize filtering tracker
     filtering_tracker = FilteringTracker()
 
@@ -905,8 +1033,8 @@ if __name__ == "__main__":
     # 2. Fuzzy title deduplication is enabled (use_fuzzy_matching applies to title dedup)
     needs_fuzzy_title_dedup = quality_filters.get("use_fuzzy_matching", True)
     if use_fuzzy_keywords or needs_fuzzy_title_dedup:
-        from src.utils.spacy_utils import ensure_spacy_model
         from src.fuzzy_matching import get_nlp
+        from src.utils.spacy_utils import ensure_spacy_model
 
         # Log why spacy is being loaded
         reasons = []
@@ -923,23 +1051,28 @@ if __name__ == "__main__":
         model_available = ensure_spacy_model(
             model_name="en_core_web_sm",
             auto_install=args.auto_install_spacy,  # Auto-install if flag set
-            silent=False
+            silent=False,
         )
 
         if model_available:
             logging.info("Spacy model verified ✓")
         else:
-            logging.warning("Continuing without spacy model (using fallback normalization)")
+            logging.warning(
+                "Continuing without spacy model (using fallback normalization)"
+            )
 
     # Initialize fuzzy keyword matching report if enabled
     fuzzy_keyword_report = None
     if txt_filters and use_fuzzy_keywords:
         from src.crawlers.fuzzy_keyword_matching import (
             FuzzyKeywordMatchReport,
-            precompute_normalized_keywords
+            precompute_normalized_keywords,
         )
+
         fuzzy_keyword_report = FuzzyKeywordMatchReport()
-        logging.info(f"Fuzzy keyword matching enabled (threshold={fuzzy_keyword_threshold})")
+        logging.info(
+            f"Fuzzy keyword matching enabled (threshold={fuzzy_keyword_threshold})"
+        )
 
         # OPTIMIZATION: Pre-compute normalized keywords (Phase 1 - 50x speedup)
         # This eliminates billions of redundant spacy calls during paper processing
@@ -957,13 +1090,19 @@ if __name__ == "__main__":
             precompute_normalized_keywords(all_keywords)
     else:
         if txt_filters:
-            logging.info("Fuzzy keyword matching disabled (using fast exact substring matching)")
+            logging.info(
+                "Fuzzy keyword matching disabled (using fast exact substring matching)"
+            )
 
     # Check if state file exists
     if not os.path.isfile(state_path):
         logging.error(f"State file not found: {state_path}")
-        logging.error(f"Collection directory '{dir_collect}' does not contain state_details.json")
-        logging.error("Please run collection first (python src/run_collecte.py) or check 'collect_name' in scilex.config.yml")
+        logging.error(
+            f"Collection directory '{dir_collect}' does not contain state_details.json"
+        )
+        logging.error(
+            "Please run collection first (python src/run_collecte.py) or check 'collect_name' in scilex.config.yml"
+        )
         sys.exit(1)
 
     if os.path.isfile(state_path):
@@ -983,25 +1122,31 @@ if __name__ == "__main__":
                 txt_filters=txt_filters,
                 use_fuzzy=use_fuzzy_keywords,
                 fuzzy_threshold=fuzzy_keyword_threshold,
-                fuzzy_report_class=fuzzy_keyword_report.__class__ if fuzzy_keyword_report else None,
+                fuzzy_report_class=fuzzy_keyword_report.__class__
+                if fuzzy_keyword_report
+                else None,
                 num_workers=args.parallel_workers,
                 batch_size=args.batch_size,
-                keyword_groups=keyword_groups
+                keyword_groups=keyword_groups,
             )
 
             # Output performance statistics if requested
             if args.profile:
-                logging.info("\n" + "="*70)
+                logging.info("\n" + "=" * 70)
                 logging.info("PERFORMANCE STATISTICS")
-                logging.info("="*70)
+                logging.info("=" * 70)
                 for stage, stats in parallel_stats.items():
                     logging.info(f"\n{stage.upper()}:")
                     for key, value in stats.items():
                         if isinstance(value, float):
                             logging.info(f"  {key}: {value:.2f}")
                         else:
-                            logging.info(f"  {key}: {value:,}" if isinstance(value, int) else f"  {key}: {value}")
-                logging.info("="*70 + "\n")
+                            logging.info(
+                                f"  {key}: {value:,}"
+                                if isinstance(value, int)
+                                else f"  {key}: {value}"
+                            )
+                logging.info("=" * 70 + "\n")
 
             # Note: parallel_aggregate already includes simple deduplication
             df_clean = df
@@ -1010,9 +1155,8 @@ if __name__ == "__main__":
             logging.info("Calculating quality scores...")
             from src.crawlers.aggregate import getquality
 
-            df_clean['quality_score'] = df_clean.apply(
-                lambda row: getquality(row, df_clean.columns.tolist()),
-                axis=1
+            df_clean["quality_score"] = df_clean.apply(
+                lambda row: getquality(row, df_clean.columns.tolist()), axis=1
             )
             logging.info("Quality scores calculated and added to dataset")
 
@@ -1023,13 +1167,15 @@ if __name__ == "__main__":
                 df_clean, quality_report = apply_quality_filters(
                     df_clean, quality_filters, generate_report
                 )
-                logging.info(f"After quality filtering: {len(df_clean)} papers remaining")
+                logging.info(
+                    f"After quality filtering: {len(df_clean)} papers remaining"
+                )
 
                 # Track quality filtering stage
                 filtering_tracker.add_stage(
                     "Quality Filter",
                     len(df_clean),
-                    "Papers meeting quality requirements (DOI, abstract, year, author count, etc.)"
+                    "Papers meeting quality requirements (DOI, abstract, year, author count, etc.)",
                 )
 
             # Generate data completeness report
@@ -1041,35 +1187,41 @@ if __name__ == "__main__":
             keywords = main_config.get("keywords", [])
             if keywords and quality_filters.get("generate_quality_report", True):
                 keyword_report = generate_keyword_validation_report(
-                    df_clean, keywords,
+                    df_clean,
+                    keywords,
                     use_fuzzy=use_fuzzy_keywords,
-                    fuzzy_threshold=fuzzy_keyword_threshold
+                    fuzzy_threshold=fuzzy_keyword_threshold,
                 )
                 logging.info(keyword_report)
 
             # Abstract quality validation (Phase 2)
             if quality_filters.get("validate_abstracts", False):
                 logging.info("Validating abstract quality...")
-                min_quality_score = quality_filters.get("min_abstract_quality_score", 50)
+                min_quality_score = quality_filters.get(
+                    "min_abstract_quality_score", 50
+                )
                 df_clean, abstract_stats = validate_dataframe_abstracts(
                     df_clean,
                     min_quality_score=min_quality_score,
-                    generate_report=quality_filters.get("generate_quality_report", True)
+                    generate_report=quality_filters.get(
+                        "generate_quality_report", True
+                    ),
                 )
 
                 # Optionally filter by abstract quality
                 if quality_filters.get("filter_by_abstract_quality", False):
                     df_clean = filter_by_abstract_quality(
-                        df_clean,
-                        min_quality_score=min_quality_score
+                        df_clean, min_quality_score=min_quality_score
                     )
-                    logging.info(f"After abstract quality filtering: {len(df_clean)} papers remaining")
+                    logging.info(
+                        f"After abstract quality filtering: {len(df_clean)} papers remaining"
+                    )
 
                     # Track abstract quality filtering stage
                     filtering_tracker.add_stage(
                         "Abstract Quality Filter",
                         len(df_clean),
-                        f"Abstracts meeting quality threshold (min score: {min_quality_score})"
+                        f"Abstracts meeting quality threshold (min score: {min_quality_score})",
                     )
 
             # Duplicate source tracking (Phase 2)
@@ -1077,7 +1229,9 @@ if __name__ == "__main__":
                 logging.info("Analyzing duplicate sources and API overlap...")
                 analyzer, metadata_quality = analyze_and_report_duplicates(
                     df_clean,
-                    generate_report=quality_filters.get("generate_quality_report", True)
+                    generate_report=quality_filters.get(
+                        "generate_quality_report", True
+                    ),
                 )
 
             if get_citation and len(df_clean) > 0:
@@ -1091,7 +1245,7 @@ if __name__ == "__main__":
                     checkpoint_interval=args.checkpoint_interval,
                     checkpoint_path=checkpoint_path,
                     resume_from=args.resume,
-                    use_cache=not args.no_cache  # Cache enabled by default
+                    use_cache=not args.no_cache,  # Cache enabled by default
                 )
 
                 # Assign results to DataFrame (efficient bulk assignment)
@@ -1102,13 +1256,19 @@ if __name__ == "__main__":
                 # Warn if high failure rate
                 total_with_doi = stats["success"] + stats["error"] + stats["timeout"]
                 if total_with_doi > 0:
-                    failure_rate = (stats["error"] + stats["timeout"]) / total_with_doi * 100
+                    failure_rate = (
+                        (stats["error"] + stats["timeout"]) / total_with_doi * 100
+                    )
                     if failure_rate > 10:
-                        logging.warning(f"High failure rate: {failure_rate:.1f}% of API calls failed")
+                        logging.warning(
+                            f"High failure rate: {failure_rate:.1f}% of API calls failed"
+                        )
 
                 # Use Semantic Scholar citations as fallback if enabled
                 if quality_filters.get("use_semantic_scholar_citations", True):
-                    logging.info("Using Semantic Scholar citations as fallback for missing/zero OpenCitations data...")
+                    logging.info(
+                        "Using Semantic Scholar citations as fallback for missing/zero OpenCitations data..."
+                    )
                     df_clean = _use_semantic_scholar_citations_fallback(df_clean)
 
                 # Apply time-aware citation filtering if enabled in config
@@ -1119,14 +1279,16 @@ if __name__ == "__main__":
                     filtering_tracker.add_stage(
                         "Citation Filter",
                         len(df_clean),
-                        "Papers meeting time-aware citation thresholds"
+                        "Papers meeting time-aware citation thresholds",
                     )
 
                 # Clean up checkpoint file on success
                 if os.path.exists(checkpoint_path):
                     try:
                         os.remove(checkpoint_path)
-                        logging.info("Checkpoint file removed after successful completion")
+                        logging.info(
+                            "Checkpoint file removed after successful completion"
+                        )
                     except OSError:
                         pass
             elif get_citation and len(df_clean) == 0:
@@ -1134,19 +1296,21 @@ if __name__ == "__main__":
 
             # Apply relevance ranking (final step before saving)
             if quality_filters.get("apply_relevance_ranking", True):
-                top_n = quality_filters.get("max_papers", None)  # Optional: limit to top N
+                top_n = quality_filters.get(
+                    "max_papers", None
+                )  # Optional: limit to top N
                 df_clean = _apply_relevance_ranking(
                     df_clean,
                     keyword_groups=keyword_groups,
                     top_n=top_n,
-                    has_citations=get_citation and len(df_clean) > 0
+                    has_citations=get_citation and len(df_clean) > 0,
                 )
 
                 # Track relevance ranking stage
                 filtering_tracker.add_stage(
                     "Relevance Ranking",
                     len(df_clean),
-                    f"{'Top ' + str(top_n) + ' ' if top_n else ''}Papers ranked by composite relevance score"
+                    f"{'Top ' + str(top_n) + ' ' if top_n else ''}Papers ranked by composite relevance score",
                 )
 
             # Display comprehensive filtering summary

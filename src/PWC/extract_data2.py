@@ -40,7 +40,7 @@ def getWriteToken():
 
 def PaperWithCodetoZoteroFormat(row):
     from src.constants import MISSING_VALUE
-    
+
     # print(">>SemanticScholartoZoteroFormat")
     # bookSection?
     zotero_temp = {
@@ -407,6 +407,7 @@ if pushData:
                 row = PaperWithCodetoZoteroFormat(models_data_[k])
                 itemType = row["itemType"]
                 from src.constants import is_valid
+
                 if is_valid(itemType):
                     if itemType not in templates_dict:
                         resp = requests.get(

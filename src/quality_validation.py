@@ -7,9 +7,10 @@ during the aggregation phase.
 """
 
 import logging
-from typing import Dict, List, Tuple
+
 import pandas as pd
-from src.constants import is_valid, is_missing, MISSING_VALUE
+
+from src.constants import is_missing, is_valid
 
 
 class QualityReport:
@@ -112,7 +113,7 @@ def count_authors(authors_value) -> int:
     return 1 if authors_str.strip() else 0
 
 
-def validate_abstract(abstract, min_words: int, max_words: int) -> Tuple[bool, str]:
+def validate_abstract(abstract, min_words: int, max_words: int) -> tuple[bool, str]:
     """
     Validate abstract quality.
 
@@ -133,7 +134,7 @@ def validate_abstract(abstract, min_words: int, max_words: int) -> Tuple[bool, s
     return True, ""
 
 
-def passes_quality_filters(record: Dict, filters: Dict) -> Tuple[bool, str]:
+def passes_quality_filters(record: dict, filters: dict) -> tuple[bool, str]:
     """
     Check if a paper record passes all quality filters.
 
@@ -178,8 +179,8 @@ def passes_quality_filters(record: Dict, filters: Dict) -> Tuple[bool, str]:
 
 
 def apply_quality_filters(
-    df: pd.DataFrame, filters: Dict, generate_report: bool = True
-) -> Tuple[pd.DataFrame, QualityReport]:
+    df: pd.DataFrame, filters: dict, generate_report: bool = True
+) -> tuple[pd.DataFrame, QualityReport]:
     """
     Apply quality filters to a DataFrame of papers.
 
@@ -260,7 +261,9 @@ def generate_data_completeness_report(df: pd.DataFrame) -> str:
         if field in df.columns:
             non_missing = df[field].apply(is_valid).sum()
             percentage = non_missing / len(df) * 100
-            report_lines.append(f"  {field:25s}: {non_missing:5d} / {len(df):5d} ({percentage:5.1f}%)")
+            report_lines.append(
+                f"  {field:25s}: {non_missing:5d} / {len(df):5d} ({percentage:5.1f}%)"
+            )
         else:
             report_lines.append(f"  {field:25s}: Field not present")
 

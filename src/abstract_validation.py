@@ -11,19 +11,22 @@ This module provides sophisticated abstract quality checks beyond basic length v
 
 import logging
 import re
-from typing import Dict, List, Tuple, Optional
+
 import pandas as pd
-from src.constants import is_valid, is_missing, MISSING_VALUE
+
+from src.constants import is_missing
 
 # Import spacy for better text analysis (lazy loaded)
 try:
     import spacy
+
     SPACY_AVAILABLE = True
 except ImportError:
     SPACY_AVAILABLE = False
     spacy = None
 
 _nlp = None
+
 
 def get_nlp():
     """Lazy load spacy model."""
@@ -40,36 +43,36 @@ def get_nlp():
 
 # Common truncation indicators
 TRUNCATION_PATTERNS = [
-    r'\.\.\.$',              # Ends with ...
-    r'\.\.\. $',             # Ends with ... and space
-    r'\[more\]$',            # Ends with [more]
-    r'\[continued\]$',       # Ends with [continued]
-    r'\(continued\)$',       # Ends with (continued)
-    r' et\.?$',              # Ends with " et" or " et."
-    r'\bet al$',             # Ends with "et al" (incomplete citation)
-    r'see more at',          # "see more at..."
-    r'read more',            # "read more..."
-    r'^\[truncated\]',       # Starts with [truncated]
-    r'\[truncated\]$',       # Ends with [truncated]
+    r"\.\.\.$",  # Ends with ...
+    r"\.\.\. $",  # Ends with ... and space
+    r"\[more\]$",  # Ends with [more]
+    r"\[continued\]$",  # Ends with [continued]
+    r"\(continued\)$",  # Ends with (continued)
+    r" et\.?$",  # Ends with " et" or " et."
+    r"\bet al$",  # Ends with "et al" (incomplete citation)
+    r"see more at",  # "see more at..."
+    r"read more",  # "read more..."
+    r"^\[truncated\]",  # Starts with [truncated]
+    r"\[truncated\]$",  # Ends with [truncated]
 ]
 
 # Boilerplate patterns (generic publisher text)
 BOILERPLATE_PATTERNS = [
-    r'^this (?:paper|article|study) (?:presents|describes|discusses|explores)',
-    r'^(?:in|at) this (?:paper|article|study)',
-    r'^(?:the|a) (?:paper|article|study) (?:presents|describes|discusses)',
-    r'^abstract:?\s*$',      # Just the word "Abstract:"
-    r'^no abstract available',
-    r'^abstract not available',
-    r'^copyright.*all rights reserved',
-    r'^©.*all rights reserved',
+    r"^this (?:paper|article|study) (?:presents|describes|discusses|explores)",
+    r"^(?:in|at) this (?:paper|article|study)",
+    r"^(?:the|a) (?:paper|article|study) (?:presents|describes|discusses)",
+    r"^abstract:?\s*$",  # Just the word "Abstract:"
+    r"^no abstract available",
+    r"^abstract not available",
+    r"^copyright.*all rights reserved",
+    r"^©.*all rights reserved",
 ]
 
 # Patterns indicating incomplete sentences
 INCOMPLETE_SENTENCE_PATTERNS = [
-    r'[,;:]$',               # Ends with comma, semicolon, or colon
-    r'\b(?:and|or|but|however|therefore|thus|hence|moreover|furthermore)$',  # Ends with conjunction
-    r'\b(?:the|a|an|of|in|on|at|to|for|with|by|from)$',  # Ends with preposition/article
+    r"[,;:]$",  # Ends with comma, semicolon, or colon
+    r"\b(?:and|or|but|however|therefore|thus|hence|moreover|furthermore)$",  # Ends with conjunction
+    r"\b(?:the|a|an|of|in|on|at|to|for|with|by|from)$",  # Ends with preposition/article
 ]
 
 
@@ -77,9 +80,9 @@ class AbstractQualityIssue:
     """Represents a quality issue found in an abstract."""
 
     # Issue severity levels
-    CRITICAL = "CRITICAL"   # Abstract unusable
-    WARNING = "WARNING"     # Abstract usable but has issues
-    INFO = "INFO"           # Minor issue, probably fine
+    CRITICAL = "CRITICAL"  # Abstract unusable
+    WARNING = "WARNING"  # Abstract usable but has issues
+    INFO = "INFO"  # Minor issue, probably fine
 
     def __init__(self, issue_type: str, severity: str, description: str):
         self.issue_type = issue_type
@@ -95,7 +98,7 @@ class AbstractQualityScore:
 
     def __init__(self, abstract: str):
         self.abstract = abstract
-        self.issues: List[AbstractQualityIssue] = []
+        self.issues: list[AbstractQualityIssue] = []
         self.quality_score = 100  # Start at 100, deduct for issues
 
     def add_issue(self, issue: AbstractQualityIssue):
@@ -120,8 +123,7 @@ class AbstractQualityScore:
     def has_critical_issues(self) -> bool:
         """Check if abstract has critical quality issues."""
         return any(
-            issue.severity == AbstractQualityIssue.CRITICAL
-            for issue in self.issues
+            issue.severity == AbstractQualityIssue.CRITICAL for issue in self.issues
         )
 
     def is_acceptable(self, min_score: int = 50) -> bool:
@@ -141,12 +143,12 @@ def normalize_abstract(abstract) -> str:
         text = str(abstract)
 
     # Clean up whitespace
-    text = re.sub(r'\s+', ' ', text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
 
     return text
 
 
-def detect_truncation(abstract: str) -> Optional[AbstractQualityIssue]:
+def detect_truncation(abstract: str) -> AbstractQualityIssue | None:
     """
     Detect if abstract appears truncated.
 
@@ -164,7 +166,7 @@ def detect_truncation(abstract: str) -> Optional[AbstractQualityIssue]:
             return AbstractQualityIssue(
                 issue_type="TRUNCATED",
                 severity=AbstractQualityIssue.CRITICAL,
-                description=f"Abstract appears truncated (matches pattern: {pattern})"
+                description=f"Abstract appears truncated (matches pattern: {pattern})",
             )
 
     # Check for incomplete sentences (ends with preposition/conjunction)
@@ -173,13 +175,13 @@ def detect_truncation(abstract: str) -> Optional[AbstractQualityIssue]:
             return AbstractQualityIssue(
                 issue_type="INCOMPLETE_SENTENCE",
                 severity=AbstractQualityIssue.WARNING,
-                description="Abstract may end with incomplete sentence"
+                description="Abstract may end with incomplete sentence",
             )
 
     return None
 
 
-def detect_boilerplate(abstract: str) -> Optional[AbstractQualityIssue]:
+def detect_boilerplate(abstract: str) -> AbstractQualityIssue | None:
     """
     Detect generic publisher boilerplate text.
 
@@ -196,13 +198,15 @@ def detect_boilerplate(abstract: str) -> Optional[AbstractQualityIssue]:
             return AbstractQualityIssue(
                 issue_type="BOILERPLATE",
                 severity=AbstractQualityIssue.WARNING,
-                description="Abstract contains generic boilerplate text"
+                description="Abstract contains generic boilerplate text",
             )
 
     return None
 
 
-def detect_length_issues(abstract: str, min_words: int = 30, max_words: int = 1000) -> Optional[AbstractQualityIssue]:
+def detect_length_issues(
+    abstract: str, min_words: int = 30, max_words: int = 1000
+) -> AbstractQualityIssue | None:
     """
     Detect length-related quality issues.
 
@@ -220,7 +224,7 @@ def detect_length_issues(abstract: str, min_words: int = 30, max_words: int = 10
         return AbstractQualityIssue(
             issue_type="MISSING",
             severity=AbstractQualityIssue.CRITICAL,
-            description="Abstract is missing or empty"
+            description="Abstract is missing or empty",
         )
 
     word_count = len(text.split())
@@ -229,20 +233,22 @@ def detect_length_issues(abstract: str, min_words: int = 30, max_words: int = 10
         return AbstractQualityIssue(
             issue_type="TOO_SHORT",
             severity=AbstractQualityIssue.WARNING,
-            description=f"Abstract too short ({word_count} words, minimum {min_words})"
+            description=f"Abstract too short ({word_count} words, minimum {min_words})",
         )
 
     if max_words > 0 and word_count > max_words:
         return AbstractQualityIssue(
             issue_type="TOO_LONG",
             severity=AbstractQualityIssue.WARNING,
-            description=f"Abstract too long ({word_count} words, maximum {max_words}) - may be full text"
+            description=f"Abstract too long ({word_count} words, maximum {max_words}) - may be full text",
         )
 
     return None
 
 
-def detect_language_issues(abstract: str, expected_language: str = "english") -> Optional[AbstractQualityIssue]:
+def detect_language_issues(
+    abstract: str, expected_language: str = "english"
+) -> AbstractQualityIssue | None:
     """
     Detect if abstract appears to be in wrong language.
 
@@ -278,18 +284,60 @@ def detect_language_issues(abstract: str, expected_language: str = "english") ->
             return AbstractQualityIssue(
                 issue_type="LANGUAGE",
                 severity=AbstractQualityIssue.INFO,
-                description=f"Abstract may not be in English ({stop_word_ratio:.1%} stop word ratio)"
+                description=f"Abstract may not be in English ({stop_word_ratio:.1%} stop word ratio)",
             )
 
         return None
 
     # Fallback: simple heuristic if spacy not available
     common_english_words = {
-        'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i',
-        'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at',
-        'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she',
-        'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'is',
-        'are', 'was', 'were', 'been', 'has', 'had', 'having'
+        "the",
+        "be",
+        "to",
+        "of",
+        "and",
+        "a",
+        "in",
+        "that",
+        "have",
+        "i",
+        "it",
+        "for",
+        "not",
+        "on",
+        "with",
+        "he",
+        "as",
+        "you",
+        "do",
+        "at",
+        "this",
+        "but",
+        "his",
+        "by",
+        "from",
+        "they",
+        "we",
+        "say",
+        "her",
+        "she",
+        "or",
+        "an",
+        "will",
+        "my",
+        "one",
+        "all",
+        "would",
+        "there",
+        "their",
+        "is",
+        "are",
+        "was",
+        "were",
+        "been",
+        "has",
+        "had",
+        "having",
     }
 
     words = text.lower().split()
@@ -305,13 +353,13 @@ def detect_language_issues(abstract: str, expected_language: str = "english") ->
         return AbstractQualityIssue(
             issue_type="LANGUAGE",
             severity=AbstractQualityIssue.INFO,
-            description=f"Abstract may not be in English ({english_word_ratio:.1%} common English words)"
+            description=f"Abstract may not be in English ({english_word_ratio:.1%} common English words)",
         )
 
     return None
 
 
-def detect_formatting_issues(abstract: str) -> Optional[AbstractQualityIssue]:
+def detect_formatting_issues(abstract: str) -> AbstractQualityIssue | None:
     """
     Detect formatting problems that indicate data quality issues.
 
@@ -324,11 +372,11 @@ def detect_formatting_issues(abstract: str) -> Optional[AbstractQualityIssue]:
         return None
 
     # Check for excessive HTML/XML tags
-    if re.search(r'<[^>]+>', text):
+    if re.search(r"<[^>]+>", text):
         return AbstractQualityIssue(
             issue_type="FORMATTING",
             severity=AbstractQualityIssue.WARNING,
-            description="Abstract contains HTML/XML tags"
+            description="Abstract contains HTML/XML tags",
         )
 
     # Check for excessive special characters (indicates encoding issues)
@@ -337,15 +385,15 @@ def detect_formatting_issues(abstract: str) -> Optional[AbstractQualityIssue]:
         return AbstractQualityIssue(
             issue_type="ENCODING",
             severity=AbstractQualityIssue.WARNING,
-            description="Abstract may have encoding issues (many special characters)"
+            description="Abstract may have encoding issues (many special characters)",
         )
 
     # Check for repeated characters (often indicates errors)
-    if re.search(r'(.)\1{5,}', text):  # Same character repeated 6+ times
+    if re.search(r"(.)\1{5,}", text):  # Same character repeated 6+ times
         return AbstractQualityIssue(
             issue_type="FORMATTING",
             severity=AbstractQualityIssue.INFO,
-            description="Abstract contains repeated characters"
+            description="Abstract contains repeated characters",
         )
 
     return None
@@ -356,7 +404,7 @@ def validate_abstract_quality(
     min_words: int = 30,
     max_words: int = 1000,
     check_language: bool = True,
-    expected_language: str = "english"
+    expected_language: str = "english",
 ) -> AbstractQualityScore:
     """
     Perform comprehensive quality validation on an abstract.
@@ -396,8 +444,8 @@ def validate_dataframe_abstracts(
     df: pd.DataFrame,
     abstract_column: str = "abstract",
     min_quality_score: int = 50,
-    generate_report: bool = True
-) -> Tuple[pd.DataFrame, Dict]:
+    generate_report: bool = True,
+) -> tuple[pd.DataFrame, dict]:
     """
     Validate abstract quality for all records in DataFrame.
 
@@ -416,8 +464,8 @@ def validate_dataframe_abstracts(
     df_result = df.copy()
 
     # Add quality columns
-    df_result['abstract_quality_score'] = 0
-    df_result['abstract_quality_issues'] = ""
+    df_result["abstract_quality_score"] = 0
+    df_result["abstract_quality_issues"] = ""
 
     # Statistics
     stats = {
@@ -439,8 +487,8 @@ def validate_dataframe_abstracts(
         abstract = row.get(abstract_column)
         quality = validate_abstract_quality(abstract)
 
-        df_result.loc[idx, 'abstract_quality_score'] = quality.get_score()
-        df_result.loc[idx, 'abstract_quality_issues'] = "; ".join(
+        df_result.loc[idx, "abstract_quality_score"] = quality.get_score()
+        df_result.loc[idx, "abstract_quality_issues"] = "; ".join(
             [f"{issue.issue_type}" for issue in quality.issues]
         )
 
@@ -475,15 +523,15 @@ def validate_dataframe_abstracts(
     return df_result, stats
 
 
-def _generate_abstract_quality_report(stats: Dict) -> str:
+def _generate_abstract_quality_report(stats: dict) -> str:
     """Generate human-readable abstract quality report."""
     report_lines = [
         "\n" + "=" * 70,
         "ABSTRACT QUALITY VALIDATION REPORT",
         "=" * 70,
         f"Total papers analyzed: {stats['total']}",
-        f"Acceptable quality: {stats['acceptable']} ({stats['acceptable']/stats['total']*100:.1f}%)",
-        f"Poor quality: {stats['poor_quality']} ({stats['poor_quality']/stats['total']*100:.1f}%)",
+        f"Acceptable quality: {stats['acceptable']} ({stats['acceptable'] / stats['total'] * 100:.1f}%)",
+        f"Poor quality: {stats['poor_quality']} ({stats['poor_quality'] / stats['total'] * 100:.1f}%)",
         f"Average quality score: {stats['average_score']:.1f}/100",
         "",
         "Quality issues detected:",
@@ -497,18 +545,18 @@ def _generate_abstract_quality_report(stats: Dict) -> str:
         "Interpretation:",
     ]
 
-    if stats['average_score'] >= 80:
+    if stats["average_score"] >= 80:
         report_lines.append("  ✓ EXCELLENT: Abstract quality is very high")
-    elif stats['average_score'] >= 60:
+    elif stats["average_score"] >= 60:
         report_lines.append("  ✓ GOOD: Abstract quality is acceptable")
-    elif stats['average_score'] >= 40:
+    elif stats["average_score"] >= 40:
         report_lines.append("  ⚠️  MODERATE: Many abstracts have quality issues")
     else:
         report_lines.append("  ⚠️  POOR: Serious abstract quality problems detected")
 
-    if stats['truncated'] > stats['total'] * 0.1:
+    if stats["truncated"] > stats["total"] * 0.1:
         report_lines.append(
-            f"  ⚠️  WARNING: {stats['truncated']/stats['total']*100:.1f}% of abstracts are truncated"
+            f"  ⚠️  WARNING: {stats['truncated'] / stats['total'] * 100:.1f}% of abstracts are truncated"
         )
 
     report_lines.append("=" * 70 + "\n")
@@ -516,9 +564,7 @@ def _generate_abstract_quality_report(stats: Dict) -> str:
 
 
 def filter_by_abstract_quality(
-    df: pd.DataFrame,
-    min_quality_score: int = 50,
-    abstract_column: str = "abstract"
+    df: pd.DataFrame, min_quality_score: int = 50, abstract_column: str = "abstract"
 ) -> pd.DataFrame:
     """
     Filter DataFrame to keep only papers with acceptable abstract quality.
@@ -541,19 +587,18 @@ def filter_by_abstract_quality(
 
     # Filter
     df_filtered = df_with_scores[
-        df_with_scores['abstract_quality_score'] >= min_quality_score
+        df_with_scores["abstract_quality_score"] >= min_quality_score
     ].copy()
 
     # Remove temporary columns
     df_filtered = df_filtered.drop(
-        columns=['abstract_quality_score', 'abstract_quality_issues'],
-        errors='ignore'
+        columns=["abstract_quality_score", "abstract_quality_issues"], errors="ignore"
     )
 
     removed = len(df) - len(df_filtered)
     if removed > 0:
         logging.info(
-            f"Filtered out {removed} papers ({removed/len(df)*100:.1f}%) "
+            f"Filtered out {removed} papers ({removed / len(df) * 100:.1f}%) "
             f"with poor abstract quality (score < {min_quality_score})"
         )
 

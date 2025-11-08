@@ -12,16 +12,16 @@ States:
 
 import logging
 import threading
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Dict, Optional
+from typing import Optional
 
 
 class CircuitState(Enum):
     """Circuit breaker states."""
+
     CLOSED = "closed"  # Normal operation
-    OPEN = "open"      # Failing, blocking requests
+    OPEN = "open"  # Failing, blocking requests
     HALF_OPEN = "half_open"  # Testing if endpoint recovered
 
 
@@ -36,7 +36,7 @@ class CircuitBreaker:
         self,
         failure_threshold: int = 5,
         timeout_seconds: int = 60,
-        name: str = "default"
+        name: str = "default",
     ):
         """
         Initialize circuit breaker.
@@ -54,7 +54,7 @@ class CircuitBreaker:
         self._lock = threading.Lock()
         self._state = CircuitState.CLOSED
         self._failure_count = 0
-        self._last_failure_time: Optional[datetime] = None
+        self._last_failure_time: datetime | None = None
         self._success_count = 0
 
     @property
@@ -155,7 +155,7 @@ class CircuitBreaker:
             self._failure_count = 0
             self._last_failure_time = None
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """Get circuit breaker statistics."""
         with self._lock:
             return {
@@ -163,9 +163,11 @@ class CircuitBreaker:
                 "state": self._state.value,
                 "failure_count": self._failure_count,
                 "success_count": self._success_count,
-                "last_failure_time": self._last_failure_time.isoformat() if self._last_failure_time else None,
+                "last_failure_time": self._last_failure_time.isoformat()
+                if self._last_failure_time
+                else None,
                 "failure_threshold": self.failure_threshold,
-                "timeout_seconds": self.timeout_seconds
+                "timeout_seconds": self.timeout_seconds,
             }
 
 
@@ -176,7 +178,7 @@ class CircuitBreakerRegistry:
     Thread-safe singleton pattern.
     """
 
-    _instance: Optional['CircuitBreakerRegistry'] = None
+    _instance: Optional["CircuitBreakerRegistry"] = None
     _lock = threading.Lock()
 
     def __new__(cls):
@@ -185,15 +187,12 @@ class CircuitBreakerRegistry:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
-                    cls._instance._breakers: Dict[str, CircuitBreaker] = {}
+                    cls._instance._breakers: dict[str, CircuitBreaker] = {}
                     cls._instance._registry_lock = threading.Lock()
         return cls._instance
 
     def get_breaker(
-        self,
-        api_name: str,
-        failure_threshold: int = 5,
-        timeout_seconds: int = 60
+        self, api_name: str, failure_threshold: int = 5, timeout_seconds: int = 60
     ) -> CircuitBreaker:
         """
         Get or create circuit breaker for an API.
@@ -211,7 +210,7 @@ class CircuitBreakerRegistry:
                 self._breakers[api_name] = CircuitBreaker(
                     failure_threshold=failure_threshold,
                     timeout_seconds=timeout_seconds,
-                    name=api_name
+                    name=api_name,
                 )
                 logging.debug(
                     f"Created circuit breaker for '{api_name}' "
@@ -219,12 +218,11 @@ class CircuitBreakerRegistry:
                 )
             return self._breakers[api_name]
 
-    def get_all_stats(self) -> Dict[str, Dict]:
+    def get_all_stats(self) -> dict[str, dict]:
         """Get statistics for all circuit breakers."""
         with self._registry_lock:
             return {
-                name: breaker.get_stats()
-                for name, breaker in self._breakers.items()
+                name: breaker.get_stats() for name, breaker in self._breakers.items()
             }
 
     def reset_all(self):

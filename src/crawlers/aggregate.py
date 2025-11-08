@@ -63,7 +63,13 @@ def getquality(df_row, column_names):
     """
     # Define field importance weights
     critical_fields = {"DOI", "title", "authors", "date"}
-    important_fields = {"abstract", "journalAbbreviation", "volume", "issue", "publisher"}
+    important_fields = {
+        "abstract",
+        "journalAbbreviation",
+        "volume",
+        "issue",
+        "publisher",
+    }
     # All other fields get weight 1
 
     quality = 0
@@ -114,7 +120,7 @@ def _find_best_duplicate_index(duplicates_df, column_names):
         idx = duplicates_df.index[i]
         qual = getquality(duplicates_df.loc[idx], column_names)
         quality_list.append(qual)
-    
+
     max_value = max(quality_list)
     return quality_list.index(max_value)
 
@@ -169,7 +175,7 @@ def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.95):
             continue
 
         logging.info(f"Found {len(duplicate_values)} duplicates by {col}")
-        
+
         for dup_value in duplicate_values:
             duplicates_temp = df_output[df_output[col] == dup_value]
             column_values = {key: [] for key in column_names}
@@ -180,7 +186,9 @@ def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.95):
                 archive_list.append(str(df_output.loc[idx]["archive"]))
                 for col_name in column_names:
                     value = df_output.loc[idx, col_name]
-                    column_values[col_name].append(MISSING_VALUE if not is_valid(value) else value)
+                    column_values[col_name].append(
+                        MISSING_VALUE if not is_valid(value) else value
+                    )
 
             # Find best duplicate
             best_idx = _find_best_duplicate_index(duplicates_temp, column_names)
@@ -188,7 +196,9 @@ def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.95):
             chosen_archive = str(best_record["archive"])
 
             # Update archives field
-            best_record["archive"] = _merge_duplicate_archives(archive_list, chosen_archive)
+            best_record["archive"] = _merge_duplicate_archives(
+                archive_list, chosen_archive
+            )
 
             # Fill missing values from other duplicates
             best_record = _fill_missing_values(best_record, column_values, column_names)
@@ -221,7 +231,7 @@ def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.95):
             fuzzy_match_indices = [idx_i]
 
             # Compare with remaining titles
-            for idx_j, title_j in titles_to_check[i + 1:]:
+            for idx_j, title_j in titles_to_check[i + 1 :]:
                 if idx_j in processed_indices:
                     continue
 
@@ -229,7 +239,9 @@ def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.95):
                     title_i, title_j, fuzzy_threshold
                 )
 
-                if is_duplicate and similarity < 1.0:  # Exclude exact matches (already handled)
+                if (
+                    is_duplicate and similarity < 1.0
+                ):  # Exclude exact matches (already handled)
                     fuzzy_match_indices.append(idx_j)
                     processed_indices.add(idx_j)
 
@@ -245,7 +257,9 @@ def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.95):
                     archive_list.append(str(df_output.loc[idx, "archive"]))
                     for col_name in column_names:
                         value = df_output.loc[idx, col_name]
-                        column_values[col_name].append(MISSING_VALUE if not is_valid(value) else value)
+                        column_values[col_name].append(
+                            MISSING_VALUE if not is_valid(value) else value
+                        )
 
                 # Find best duplicate
                 best_idx = _find_best_duplicate_index(duplicates_temp, column_names)
@@ -253,10 +267,14 @@ def deduplicate(df_input, use_fuzzy_matching=True, fuzzy_threshold=0.95):
                 chosen_archive = str(best_record["archive"])
 
                 # Update archives field
-                best_record["archive"] = _merge_duplicate_archives(archive_list, chosen_archive)
+                best_record["archive"] = _merge_duplicate_archives(
+                    archive_list, chosen_archive
+                )
 
                 # Fill missing values from other duplicates
-                best_record = _fill_missing_values(best_record, column_values, column_names)
+                best_record = _fill_missing_values(
+                    best_record, column_values, column_names
+                )
 
                 # Replace duplicates with merged record
                 df_output = df_output.drop(duplicates_temp.index)
@@ -1008,11 +1026,10 @@ def ElseviertoZoteroFormat(row):
     return zotero_temp
 
 
-
 def GoogleScholartoZoteroFormat(row):
     """
     Convert Google Scholar (scholarly package) results to Zotero format.
-    
+
     Note: Google Scholar data from scholarly package can be incomplete.
     Many fields may be missing (DOI, publisher, volume, etc.).
     """
@@ -1035,13 +1052,13 @@ def GoogleScholartoZoteroFormat(row):
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
     }
-    
+
     zotero_temp["archive"] = "GoogleScholar"
-    
+
     # Title
     if safe_get(row, "title"):
         zotero_temp["title"] = row["title"]
-    
+
     # Authors - scholarly returns authors as a list of names
     if safe_get(row, "authors"):
         authors = row["authors"]
@@ -1053,11 +1070,11 @@ def GoogleScholartoZoteroFormat(row):
         elif isinstance(authors, str):
             # Sometimes it might be a string
             zotero_temp["authors"] = authors
-    
+
     # Abstract
     if safe_get(row, "abstract"):
         zotero_temp["abstract"] = row["abstract"]
-    
+
     # Venue - try to determine item type from venue
     if safe_get(row, "venue"):
         venue = row["venue"].lower()
@@ -1065,7 +1082,10 @@ def GoogleScholartoZoteroFormat(row):
         if any(keyword in venue for keyword in ["journal", "ieee", "acm", "springer"]):
             zotero_temp["itemType"] = "journalArticle"
             zotero_temp["journalAbbreviation"] = row["venue"]
-        elif any(keyword in venue for keyword in ["conference", "proceedings", "workshop", "symposium"]):
+        elif any(
+            keyword in venue
+            for keyword in ["conference", "proceedings", "workshop", "symposium"]
+        ):
             zotero_temp["itemType"] = "conferencePaper"
             zotero_temp["conferenceName"] = row["venue"]
         elif any(keyword in venue for keyword in ["book", "chapter"]):
@@ -1074,23 +1094,23 @@ def GoogleScholartoZoteroFormat(row):
             # Default to journal article if venue exists but type unclear
             zotero_temp["itemType"] = "journalArticle"
             zotero_temp["journalAbbreviation"] = row["venue"]
-    
+
     # If no venue or item type still not set, default to Manuscript
     if not is_valid(zotero_temp.get("itemType")):
         zotero_temp["itemType"] = "Manuscript"
-    
+
     # Year/Date
     if safe_get(row, "year"):
         zotero_temp["date"] = str(row["year"])
-    
+
     # URL
     if safe_get(row, "url"):
         zotero_temp["url"] = row["url"]
-    
+
     # eprint URL (open access)
     if safe_get(row, "eprint_url"):
         zotero_temp["rights"] = row["eprint_url"]
-    
+
     # Scholar ID (use as archive ID)
     if safe_get(row, "scholar_id"):
         scholar_id = row["scholar_id"]
@@ -1098,12 +1118,12 @@ def GoogleScholartoZoteroFormat(row):
             zotero_temp["archiveID"] = scholar_id[0]
         elif isinstance(scholar_id, str):
             zotero_temp["archiveID"] = scholar_id
-    
+
     # Note: Google Scholar (via scholarly) typically does not provide:
     # - DOI (rarely available)
     # - Publisher information
     # - Volume/Issue numbers
     # - Page numbers
     # These fields will remain as MISSING_VALUE
-    
+
     return zotero_temp

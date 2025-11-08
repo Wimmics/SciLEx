@@ -23,8 +23,6 @@ Architecture:
         ├─ Normalized title dedup (hash dict, O(n))
         └─ No fuzzy matching (overkill, slow)
 
-Author: SciLEx Team
-Date: 2025
 """
 
 import json
@@ -32,18 +30,20 @@ import logging
 import os
 import time
 from multiprocessing import Pool, cpu_count
-from typing import Dict, List, Tuple, Optional
+
 import pandas as pd
 from tqdm import tqdm
 
-from src.constants import MISSING_VALUE, is_valid
-
+from src.constants import is_valid
 
 # ============================================================================
 # PHASE 1: PARALLEL FILE LOADING
 # ============================================================================
 
-def _load_json_file_worker(args: Tuple[str, str, List[str], str]) -> Tuple[List[Dict], str, List[str], int]:
+
+def _load_json_file_worker(
+    args: tuple[str, str, list[str], str],
+) -> tuple[list[dict], str, list[str], int]:
     """
     Worker function to load a single JSON file (spawn-safe, module-level).
 
@@ -56,10 +56,10 @@ def _load_json_file_worker(args: Tuple[str, str, List[str], str]) -> Tuple[List[
     file_path, api_name, keywords, query_index = args
 
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, encoding="utf-8") as f:
             data = json.load(f)
 
-        papers = data.get('results', [])
+        papers = data.get("results", [])
         return (papers, api_name, keywords, len(papers))
 
     except json.JSONDecodeError as e:
@@ -72,10 +72,8 @@ def _load_json_file_worker(args: Tuple[str, str, List[str], str]) -> Tuple[List[
 
 
 def parallel_load_all_files(
-    state_details: Dict,
-    dir_collect: str,
-    num_workers: Optional[int] = None
-) -> Tuple[List[Tuple[Dict, str, List[str]]], Dict]:
+    state_details: dict, dir_collect: str, num_workers: int | None = None
+) -> tuple[list[tuple[dict, str, list[str]]], dict]:
     """
     Load all JSON files in parallel using multiprocessing.
 
@@ -127,12 +125,14 @@ def parallel_load_all_files(
 
     with Pool(num_workers) as pool:
         # Use imap_unordered for progress tracking
-        results = list(tqdm(
-            pool.imap_unordered(_load_json_file_worker, file_tasks),
-            total=len(file_tasks),
-            desc="Loading JSON files",
-            unit="file"
-        ))
+        results = list(
+            tqdm(
+                pool.imap_unordered(_load_json_file_worker, file_tasks),
+                total=len(file_tasks),
+                desc="Loading JSON files",
+                unit="file",
+            )
+        )
 
     # Collect results
     for papers_list, api_name, keywords, num_papers in results:
@@ -146,15 +146,19 @@ def parallel_load_all_files(
 
     # Statistics
     stats = {
-        'files_loaded': len(file_tasks),
-        'total_papers': total_papers,
-        'elapsed_seconds': elapsed,
-        'files_per_second': len(file_tasks) / elapsed if elapsed > 0 else 0,
-        'papers_per_second': total_papers / elapsed if elapsed > 0 else 0
+        "files_loaded": len(file_tasks),
+        "total_papers": total_papers,
+        "elapsed_seconds": elapsed,
+        "files_per_second": len(file_tasks) / elapsed if elapsed > 0 else 0,
+        "papers_per_second": total_papers / elapsed if elapsed > 0 else 0,
     }
 
-    logging.info(f"Loaded {total_papers:,} papers from {len(file_tasks)} files in {elapsed:.1f}s")
-    logging.info(f"Throughput: {stats['files_per_second']:.1f} files/sec, {stats['papers_per_second']:.1f} papers/sec")
+    logging.info(
+        f"Loaded {total_papers:,} papers from {len(file_tasks)} files in {elapsed:.1f}s"
+    )
+    logging.info(
+        f"Throughput: {stats['files_per_second']:.1f} files/sec, {stats['papers_per_second']:.1f} papers/sec"
+    )
 
     return papers_by_api, stats
 
@@ -163,7 +167,10 @@ def parallel_load_all_files(
 # PHASE 2: PARALLEL BATCH PROCESSING
 # ============================================================================
 
-def _process_batch_worker(args: Tuple[List[Tuple], str, bool, float, object, List]) -> List[Dict]:
+
+def _process_batch_worker(
+    args: tuple[list[tuple], str, bool, float, object, list],
+) -> list[dict]:
     """
     Worker function to process a batch of papers (spawn-safe, module-level).
 
@@ -177,27 +184,27 @@ def _process_batch_worker(args: Tuple[List[Tuple], str, bool, float, object, Lis
 
     # Import format converters (in worker to avoid pickling issues)
     from src.crawlers.aggregate import (
-        SemanticScholartoZoteroFormat,
-        OpenAlextoZoteroFormat,
-        IEEEtoZoteroFormat,
-        ElseviertoZoteroFormat,
-        SpringertoZoteroFormat,
-        HALtoZoteroFormat,
-        DBLPtoZoteroFormat,
         ArxivtoZoteroFormat,
-        GoogleScholartoZoteroFormat
+        DBLPtoZoteroFormat,
+        ElseviertoZoteroFormat,
+        GoogleScholartoZoteroFormat,
+        HALtoZoteroFormat,
+        IEEEtoZoteroFormat,
+        OpenAlextoZoteroFormat,
+        SemanticScholartoZoteroFormat,
+        SpringertoZoteroFormat,
     )
 
     FORMAT_CONVERTERS = {
-        'SemanticScholar': SemanticScholartoZoteroFormat,
-        'OpenAlex': OpenAlextoZoteroFormat,
-        'IEEE': IEEEtoZoteroFormat,
-        'Elsevier': ElseviertoZoteroFormat,
-        'Springer': SpringertoZoteroFormat,
-        'HAL': HALtoZoteroFormat,
-        'DBLP': DBLPtoZoteroFormat,
-        'Arxiv': ArxivtoZoteroFormat,
-        'GoogleScholar': GoogleScholartoZoteroFormat
+        "SemanticScholar": SemanticScholartoZoteroFormat,
+        "OpenAlex": OpenAlextoZoteroFormat,
+        "IEEE": IEEEtoZoteroFormat,
+        "Elsevier": ElseviertoZoteroFormat,
+        "Springer": SpringertoZoteroFormat,
+        "HAL": HALtoZoteroFormat,
+        "DBLP": DBLPtoZoteroFormat,
+        "Arxiv": ArxivtoZoteroFormat,
+        "GoogleScholar": GoogleScholartoZoteroFormat,
     }
 
     # Import text filtering helper
@@ -221,7 +228,7 @@ def _process_batch_worker(args: Tuple[List[Tuple], str, bool, float, object, Lis
                     use_fuzzy=use_fuzzy,
                     fuzzy_threshold=fuzzy_threshold,
                     fuzzy_report=fuzzy_report,
-                    keyword_groups=keyword_groups
+                    keyword_groups=keyword_groups,
                 ):
                     results.append(converted)
 
@@ -233,14 +240,14 @@ def _process_batch_worker(args: Tuple[List[Tuple], str, bool, float, object, Lis
 
 
 def parallel_process_papers(
-    papers_by_api: List[Tuple[Dict, str, List[str]]],
+    papers_by_api: list[tuple[dict, str, list[str]]],
     use_fuzzy: bool = False,
     fuzzy_threshold: float = 0.85,
-    fuzzy_report_class: Optional[object] = None,
+    fuzzy_report_class: object | None = None,
     batch_size: int = 5000,
-    num_workers: Optional[int] = None,
-    keyword_groups: Optional[List] = None
-) -> Tuple[pd.DataFrame, Dict]:
+    num_workers: int | None = None,
+    keyword_groups: list | None = None,
+) -> tuple[pd.DataFrame, dict]:
     """
     Process papers in parallel batches (convert format + text filtering).
 
@@ -261,13 +268,17 @@ def parallel_process_papers(
     if num_workers is None:
         num_workers = max(1, cpu_count() - 1)
 
-    logging.info(f"Parallel batch processing with {num_workers} workers, batch size {batch_size}")
+    logging.info(
+        f"Parallel batch processing with {num_workers} workers, batch size {batch_size}"
+    )
 
     # Split into batches
     batches = []
     for i in range(0, len(papers_by_api), batch_size):
-        batch = papers_by_api[i:i+batch_size]
-        batches.append((batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class, keyword_groups))
+        batch = papers_by_api[i : i + batch_size]
+        batches.append(
+            (batch, use_fuzzy, fuzzy_threshold, fuzzy_report_class, keyword_groups)
+        )
 
     logging.info(f"Processing {len(papers_by_api):,} papers in {len(batches)} batches")
 
@@ -276,12 +287,14 @@ def parallel_process_papers(
     all_results = []
 
     with Pool(num_workers) as pool:
-        results = list(tqdm(
-            pool.imap_unordered(_process_batch_worker, batches),
-            total=len(batches),
-            desc="Processing papers",
-            unit="batch"
-        ))
+        results = list(
+            tqdm(
+                pool.imap_unordered(_process_batch_worker, batches),
+                total=len(batches),
+                desc="Processing papers",
+                unit="batch",
+            )
+        )
 
     # Flatten results
     for batch_results in results:
@@ -294,16 +307,20 @@ def parallel_process_papers(
 
     # Statistics
     stats = {
-        'papers_processed': len(papers_by_api),
-        'papers_filtered': len(df),
-        'papers_rejected': len(papers_by_api) - len(df),
-        'rejection_rate': (len(papers_by_api) - len(df)) / len(papers_by_api) if len(papers_by_api) > 0 else 0,
-        'elapsed_seconds': elapsed,
-        'papers_per_second': len(papers_by_api) / elapsed if elapsed > 0 else 0
+        "papers_processed": len(papers_by_api),
+        "papers_filtered": len(df),
+        "papers_rejected": len(papers_by_api) - len(df),
+        "rejection_rate": (len(papers_by_api) - len(df)) / len(papers_by_api)
+        if len(papers_by_api) > 0
+        else 0,
+        "elapsed_seconds": elapsed,
+        "papers_per_second": len(papers_by_api) / elapsed if elapsed > 0 else 0,
     }
 
     logging.info(f"Processed {len(papers_by_api):,} papers in {elapsed:.1f}s")
-    logging.info(f"Filtered: {len(df):,} papers ({stats['rejection_rate']*100:.1f}% rejected)")
+    logging.info(
+        f"Filtered: {len(df):,} papers ({stats['rejection_rate'] * 100:.1f}% rejected)"
+    )
     logging.info(f"Throughput: {stats['papers_per_second']:.1f} papers/sec")
 
     return df, stats
@@ -313,7 +330,8 @@ def parallel_process_papers(
 # PHASE 3: SIMPLE HASH-BASED DEDUPLICATION
 # ============================================================================
 
-def simple_deduplicate(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
+
+def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """
     Simple, fast deduplication using hash-based exact matching.
 
@@ -348,42 +366,62 @@ def simple_deduplicate(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
     # STEP 1: DOI-based deduplication
     # ========================================================================
 
-    # Count valid DOIs before dedup
-    valid_dois = df_output['DOI'].apply(is_valid).sum()
+    # Separate papers with valid vs missing DOIs
+    has_valid_doi = df_output["DOI"].apply(is_valid)
+    papers_with_doi = df_output[has_valid_doi].copy()
+    papers_without_doi = df_output[~has_valid_doi].copy()
 
-    # Drop duplicates by DOI (keep first occurrence)
-    df_before_doi = len(df_output)
-    df_output = df_output.drop_duplicates(subset=['DOI'], keep='first')
-    doi_removed = df_before_doi - len(df_output)
+    valid_dois = len(papers_with_doi)
 
-    logging.info(f"DOI deduplication: {valid_dois:,} valid DOIs, removed {doi_removed:,} duplicates")
+    # Drop duplicates ONLY among papers with valid DOIs
+    doi_before = len(papers_with_doi)
+    papers_with_doi = papers_with_doi.drop_duplicates(subset=["DOI"], keep="first")
+    doi_removed = doi_before - len(papers_with_doi)
+
+    # Recombine: deduplicated papers with DOI + all papers without DOI
+    df_output = pd.concat([papers_with_doi, papers_without_doi], ignore_index=True)
+
+    logging.info(
+        f"DOI deduplication: {valid_dois:,} valid DOIs, removed {doi_removed:,} duplicates"
+    )
 
     # ========================================================================
     # STEP 2: Normalized title deduplication
     # ========================================================================
 
     # Create normalized title column (lowercase, stripped, no punctuation)
-    df_output['title_normalized'] = (
-        df_output['title']
-        .fillna('')
+    df_output["title_normalized"] = (
+        df_output["title"]
+        .fillna("")
         .str.lower()
         .str.strip()
-        .str.replace(r'[^\w\s]', '', regex=True)  # Remove punctuation
-        .str.replace(r'\s+', ' ', regex=True)      # Normalize whitespace
+        .str.replace(r"[^\w\s]", "", regex=True)  # Remove punctuation
+        .str.replace(r"\s+", " ", regex=True)  # Normalize whitespace
     )
 
-    # Count valid titles before dedup
-    valid_titles = (df_output['title_normalized'] != '').sum()
+    # Separate papers with valid vs missing titles
+    has_valid_title = df_output["title_normalized"] != ""
+    papers_with_title = df_output[has_valid_title].copy()
+    papers_without_title = df_output[~has_valid_title].copy()
 
-    # Drop duplicates by normalized title (keep first occurrence)
-    df_before_title = len(df_output)
-    df_output = df_output.drop_duplicates(subset=['title_normalized'], keep='first')
-    title_removed = df_before_title - len(df_output)
+    valid_titles = len(papers_with_title)
+
+    # Drop duplicates ONLY among papers with valid titles
+    title_before = len(papers_with_title)
+    papers_with_title = papers_with_title.drop_duplicates(
+        subset=["title_normalized"], keep="first"
+    )
+    title_removed = title_before - len(papers_with_title)
+
+    # Recombine: deduplicated papers with title + all papers without title
+    df_output = pd.concat([papers_with_title, papers_without_title], ignore_index=True)
 
     # Drop the temporary normalized column
-    df_output = df_output.drop(columns=['title_normalized'])
+    df_output = df_output.drop(columns=["title_normalized"])
 
-    logging.info(f"Title deduplication: {valid_titles:,} valid titles, removed {title_removed:,} duplicates")
+    logging.info(
+        f"Title deduplication: {valid_titles:,} valid titles, removed {title_removed:,} duplicates"
+    )
 
     # ========================================================================
     # Final statistics
@@ -394,18 +432,22 @@ def simple_deduplicate(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
     total_removed = initial_count - final_count
 
     stats = {
-        'initial_count': initial_count,
-        'final_count': final_count,
-        'total_removed': total_removed,
-        'removal_rate': total_removed / initial_count if initial_count > 0 else 0,
-        'doi_removed': doi_removed,
-        'title_removed': title_removed,
-        'elapsed_seconds': elapsed,
-        'papers_per_second': initial_count / elapsed if elapsed > 0 else 0
+        "initial_count": initial_count,
+        "final_count": final_count,
+        "total_removed": total_removed,
+        "removal_rate": total_removed / initial_count if initial_count > 0 else 0,
+        "doi_removed": doi_removed,
+        "title_removed": title_removed,
+        "elapsed_seconds": elapsed,
+        "papers_per_second": initial_count / elapsed if elapsed > 0 else 0,
     }
 
-    logging.info(f"Deduplication complete: {initial_count:,} → {final_count:,} papers ({total_removed:,} removed, {stats['removal_rate']*100:.1f}%)")
-    logging.info(f"Deduplication took {elapsed:.2f}s ({stats['papers_per_second']:.1f} papers/sec)")
+    logging.info(
+        f"Deduplication complete: {initial_count:,} → {final_count:,} papers ({total_removed:,} removed, {stats['removal_rate'] * 100:.1f}%)"
+    )
+    logging.info(
+        f"Deduplication took {elapsed:.2f}s ({stats['papers_per_second']:.1f} papers/sec)"
+    )
 
     # Reset index
     df_output = df_output.reset_index(drop=True)
@@ -417,17 +459,18 @@ def simple_deduplicate(df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict]:
 # MAIN PARALLEL AGGREGATION FUNCTION
 # ============================================================================
 
+
 def parallel_aggregate(
-    state_details: Dict,
+    state_details: dict,
     dir_collect: str,
     txt_filters: bool = True,
     use_fuzzy: bool = False,
     fuzzy_threshold: float = 0.85,
-    fuzzy_report_class: Optional[object] = None,
-    num_workers: Optional[int] = None,
+    fuzzy_report_class: object | None = None,
+    num_workers: int | None = None,
     batch_size: int = 5000,
-    keyword_groups: Optional[List] = None
-) -> Tuple[pd.DataFrame, Dict]:
+    keyword_groups: list | None = None,
+) -> tuple[pd.DataFrame, dict]:
     """
     Main parallel aggregation function (orchestrates all phases).
 
@@ -462,7 +505,7 @@ def parallel_aggregate(
     papers_by_api, load_stats = parallel_load_all_files(
         state_details, dir_collect, num_workers
     )
-    combined_stats['loading'] = load_stats
+    combined_stats["loading"] = load_stats
 
     if not papers_by_api:
         logging.error("No papers loaded. Check collection directory and state file.")
@@ -473,7 +516,9 @@ def parallel_aggregate(
     # ========================================================================
 
     if txt_filters:
-        logging.info("\n--- Phase 2: Parallel Batch Processing (with text filtering) ---")
+        logging.info(
+            "\n--- Phase 2: Parallel Batch Processing (with text filtering) ---"
+        )
         df, process_stats = parallel_process_papers(
             papers_by_api,
             use_fuzzy=use_fuzzy,
@@ -481,9 +526,9 @@ def parallel_aggregate(
             fuzzy_report_class=fuzzy_report_class,
             batch_size=batch_size,
             num_workers=num_workers,
-            keyword_groups=keyword_groups
+            keyword_groups=keyword_groups,
         )
-        combined_stats['processing'] = process_stats
+        combined_stats["processing"] = process_stats
     else:
         # No filtering - just convert formats
         logging.info("\n--- Phase 2: Format Conversion (no filtering) ---")
@@ -500,29 +545,35 @@ def parallel_aggregate(
 
     logging.info("\n--- Phase 3: Simple Hash-Based Deduplication ---")
     df_dedup, dedup_stats = simple_deduplicate(df)
-    combined_stats['deduplication'] = dedup_stats
+    combined_stats["deduplication"] = dedup_stats
 
     # ========================================================================
     # FINAL SUMMARY
     # ========================================================================
 
     overall_elapsed = time.time() - overall_start
-    combined_stats['overall'] = {
-        'total_elapsed_seconds': overall_elapsed,
-        'papers_loaded': load_stats['total_papers'],
-        'papers_after_filtering': len(df),
-        'papers_final': len(df_dedup),
-        'overall_throughput': load_stats['total_papers'] / overall_elapsed if overall_elapsed > 0 else 0
+    combined_stats["overall"] = {
+        "total_elapsed_seconds": overall_elapsed,
+        "papers_loaded": load_stats["total_papers"],
+        "papers_after_filtering": len(df),
+        "papers_final": len(df_dedup),
+        "overall_throughput": load_stats["total_papers"] / overall_elapsed
+        if overall_elapsed > 0
+        else 0,
     }
 
     logging.info("\n" + "=" * 70)
     logging.info("PARALLEL AGGREGATION COMPLETE")
     logging.info("=" * 70)
-    logging.info(f"Total time: {overall_elapsed:.1f}s ({overall_elapsed/60:.1f} minutes)")
+    logging.info(
+        f"Total time: {overall_elapsed:.1f}s ({overall_elapsed / 60:.1f} minutes)"
+    )
     logging.info(f"Papers loaded: {load_stats['total_papers']:,}")
     logging.info(f"Papers after filtering: {len(df):,}")
     logging.info(f"Papers after deduplication: {len(df_dedup):,}")
-    logging.info(f"Overall throughput: {combined_stats['overall']['overall_throughput']:.1f} papers/sec")
+    logging.info(
+        f"Overall throughput: {combined_stats['overall']['overall_throughput']:.1f} papers/sec"
+    )
     logging.info("=" * 70 + "\n")
 
     return df_dedup, combined_stats

@@ -22,6 +22,7 @@ nb_cited = []
 for _index, row in df.iterrows():
     doi = row["DOI"]
     from src.constants import is_valid
+
     if is_valid(doi):
         citations = cit_tools.getRefandCitFormatted(str(doi))
         e = cit_tools.countCitations(citations)

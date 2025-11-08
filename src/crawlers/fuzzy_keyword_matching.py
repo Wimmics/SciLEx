@@ -19,21 +19,21 @@ PERFORMANCE OPTIMIZATIONS:
 """
 
 import logging
-from typing import List, Tuple, Optional, Dict
-from thefuzz import fuzz
-from src.fuzzy_matching import normalize_title, get_nlp
-from src.constants import is_valid, is_missing
 
+from thefuzz import fuzz
+
+from src.constants import is_missing
+from src.fuzzy_matching import get_nlp, normalize_title
 
 # ============================================================================
 # PHASE 1: KEYWORD NORMALIZATION CACHE
 # ============================================================================
 
 # Module-level cache for pre-computed normalized keywords
-_normalized_keywords_cache: Dict[str, str] = {}
+_normalized_keywords_cache: dict[str, str] = {}
 
 
-def precompute_normalized_keywords(keywords: List[str]) -> Dict[str, str]:
+def precompute_normalized_keywords(keywords: list[str]) -> dict[str, str]:
     """
     Pre-compute and cache normalized forms of all keywords.
 
@@ -52,7 +52,9 @@ def precompute_normalized_keywords(keywords: List[str]) -> Dict[str, str]:
         if keyword not in _normalized_keywords_cache:
             _normalized_keywords_cache[keyword] = normalize_title(keyword)
 
-    logging.info(f"Pre-computed normalization for {len(_normalized_keywords_cache)} keywords")
+    logging.info(
+        f"Pre-computed normalization for {len(_normalized_keywords_cache)} keywords"
+    )
     return _normalized_keywords_cache
 
 
@@ -75,7 +77,7 @@ def normalize_text(text: str) -> str:
     return normalize_title(text)
 
 
-def extract_ngrams(text: str, n: int) -> List[str]:
+def extract_ngrams(text: str, n: int) -> list[str]:
     """
     Extract n-gram phrases from text.
 
@@ -95,7 +97,7 @@ def extract_ngrams(text: str, n: int) -> List[str]:
 
     ngrams = []
     for i in range(len(words) - n + 1):
-        ngram = ' '.join(words[i:i+n])
+        ngram = " ".join(words[i : i + n])
         ngrams.append(ngram)
 
     return ngrams
@@ -105,7 +107,8 @@ def extract_ngrams(text: str, n: int) -> List[str]:
 # PHASE 2: BATCH SPACY PROCESSING
 # ============================================================================
 
-def batch_normalize_texts(texts: List[str], batch_size: int = 1000) -> List[str]:
+
+def batch_normalize_texts(texts: list[str], batch_size: int = 1000) -> list[str]:
     """
     Normalize multiple texts in one spacy call using nlp.pipe().
 
@@ -136,26 +139,30 @@ def batch_normalize_texts(texts: List[str], batch_size: int = 1000) -> List[str]
         docs = nlp.pipe(
             (text.lower() for text in texts),
             batch_size=batch_size,
-            disable=[]  # Use all components for full normalization
+            disable=[],  # Use all components for full normalization
         )
 
         for doc in docs:
             # Extract lemmatized tokens (no stop words, punctuation, or spaces)
             tokens = [
-                token.lemma_ for token in doc
+                token.lemma_
+                for token in doc
                 if not token.is_stop and not token.is_punct and not token.is_space
             ]
-            normalized.append(' '.join(tokens).strip())
+            normalized.append(" ".join(tokens).strip())
 
     except Exception as e:
-        logging.warning(f"Batch normalization failed: {e}. Falling back to simple normalization.")
+        logging.warning(
+            f"Batch normalization failed: {e}. Falling back to simple normalization."
+        )
         normalized = [text.lower().strip() for text in texts]
 
     return normalized
 
 
-def calculate_keyword_similarity(keyword: str, text_phrase: str,
-                                norm_phrase: Optional[str] = None) -> float:
+def calculate_keyword_similarity(
+    keyword: str, text_phrase: str, norm_phrase: str | None = None
+) -> float:
     """
     Calculate similarity between keyword and a text phrase.
 
@@ -199,8 +206,8 @@ def keyword_matches_text_fuzzy(
     text: str,
     threshold: float = 0.85,
     check_exact_first: bool = True,
-    ngram_norm_cache: Optional[Dict[str, str]] = None
-) -> Tuple[bool, float, str]:
+    ngram_norm_cache: dict[str, str] | None = None,
+) -> tuple[bool, float, str]:
     """
     Check if keyword fuzzy-matches any phrase in text.
 
@@ -270,11 +277,8 @@ def keyword_matches_text_fuzzy(
 
 
 def check_keywords_in_text_fuzzy(
-    keywords: List[str],
-    text: str,
-    threshold: float = 0.85,
-    require_all: bool = False
-) -> Tuple[bool, List[Tuple[str, float, str]]]:
+    keywords: list[str], text: str, threshold: float = 0.85, require_all: bool = False
+) -> tuple[bool, list[tuple[str, float, str]]]:
     """
     Check if keywords match text using fuzzy matching.
 
@@ -312,7 +316,7 @@ def check_keywords_in_text_fuzzy(
     normalized_ngrams = batch_normalize_texts(unique_ngrams)
 
     # Create n-gram cache for this paper
-    ngram_norm_cache = dict(zip(unique_ngrams, normalized_ngrams))
+    ngram_norm_cache = dict(zip(unique_ngrams, normalized_ngrams, strict=False))
 
     # Check each keyword using the shared n-gram cache
     matches = []
@@ -335,11 +339,11 @@ def check_keywords_in_text_fuzzy(
 
 
 def check_dual_keywords_fuzzy(
-    keywords_group1: List[str],
-    keywords_group2: List[str],
+    keywords_group1: list[str],
+    keywords_group2: list[str],
     text: str,
-    threshold: float = 0.85
-) -> Tuple[bool, List[Tuple[str, float, str]]]:
+    threshold: float = 0.85,
+) -> tuple[bool, list[tuple[str, float, str]]]:
     """
     Check dual keyword groups (must match from BOTH groups).
 
@@ -391,11 +395,13 @@ class FuzzyKeywordMatchReport:
 
         # Store first 10 examples for reporting
         if len(self.fuzzy_match_examples) < 10:
-            self.fuzzy_match_examples.append({
-                'keyword': keyword,
-                'similarity': similarity,
-                'matched_phrase': matched_phrase
-            })
+            self.fuzzy_match_examples.append(
+                {
+                    "keyword": keyword,
+                    "similarity": similarity,
+                    "matched_phrase": matched_phrase,
+                }
+            )
 
     def add_no_match(self):
         """Record a paper with no keyword matches."""
@@ -418,7 +424,7 @@ class FuzzyKeywordMatchReport:
             f"Exact keyword matches: {self.exact_matches}",
             f"Fuzzy keyword matches: {self.fuzzy_matches} ({fuzzy_rate:.1f}%)",
             f"No keyword matches (filtered): {self.no_matches}",
-            ""
+            "",
         ]
 
         if self.fuzzy_match_examples:
@@ -431,10 +437,12 @@ class FuzzyKeywordMatchReport:
                 )
             report_lines.append("")
 
-        report_lines.extend([
-            "Fuzzy matching helps catch keyword variations like abbreviations,",
-            "plural forms, and related terms that exact matching would miss.",
-            "=" * 70 + "\n"
-        ])
+        report_lines.extend(
+            [
+                "Fuzzy matching helps catch keyword variations like abbreviations,",
+                "plural forms, and related terms that exact matching would miss.",
+                "=" * 70 + "\n",
+            ]
+        )
 
         return "\n".join(report_lines)

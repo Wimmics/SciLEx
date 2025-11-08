@@ -8,19 +8,19 @@ Created on Fri Feb 10 10:57:49 2023
 @version: 1.0.1
 """
 
-import asyncio
 import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
-import yaml
 from datetime import datetime
+
+import yaml
 
 from src.crawlers.collector_collection import CollectCollection
 from src.crawlers.utils import load_all_configs
-from src.logging_config import setup_logging, log_section
+from src.logging_config import log_section, setup_logging
 
 # Set up logging configuration with environment variable support
 # LOG_LEVEL=DEBUG python src/run_collecte.py    # For debugging
@@ -78,53 +78,21 @@ def main():
     # Log collection start
     log_section(logger, "SciLEx Systematic Review Collection")
     logger.info(f"Started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Configuration: {len(keywords[0]) if keywords else 0} keywords, {len(years)} years, {len(apis)} APIs")
+    logger.info(
+        f"Configuration: {len(keywords[0]) if keywords else 0} keywords, {len(years)} years, {len(apis)} APIs"
+    )
 
     colle_col = CollectCollection(main_config, api_config)
-
-    # Check if async should be disabled (default is now ASYNC)
-    # Set USE_ASYNC_COLLECTION=false to use legacy sync pipeline
-    use_async = os.environ.get('USE_ASYNC_COLLECTION', 'true').lower() != 'false'
-
-    logger.info(f"Pipeline mode: {'ASYNC (optimized)' if use_async else 'SYNC (legacy)'}")
-
-    if use_async:
-        asyncio.run(colle_col.run_async_collection())
-    else:
-        colle_col.create_collects_jobs()
+    colle_col.create_collects_jobs()
 
     # Log completion
     end_time = datetime.now()
     elapsed = (end_time - start_time).total_seconds()
     log_section(logger, "Collection Complete")
     logger.info(f"Finished at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Total time: {elapsed:.1f}s ({elapsed/60:.1f}m)")
-
-
-async def main_async():
-    """Async entry point for collection"""
-    logger = logging.getLogger(__name__)
-    start_time = datetime.now()
-
-    log_section(logger, "SciLEx Systematic Review Collection (ASYNC)")
-    logger.info(f"Started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-
-    colle_col = CollectCollection(main_config, api_config)
-    await colle_col.run_async_collection()
-
-    end_time = datetime.now()
-    elapsed = (end_time - start_time).total_seconds()
-    log_section(logger, "Collection Complete")
-    logger.info(f"Finished at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"Total time: {elapsed:.1f}s ({elapsed/60:.1f}m)")
+    logger.info(f"Total time: {elapsed:.1f}s ({elapsed / 60:.1f}m)")
 
 
 if __name__ == "__main__":
-    # Check for async flag (default is now ASYNC - set to 'false' to disable)
-    use_async = os.environ.get('USE_ASYNC_COLLECTION', 'true').lower() != 'false'
-
     # This guard is required for multiprocessing on macOS/Windows (spawn mode)
-    if use_async:
-        asyncio.run(main_async())
-    else:
-        main()
+    main()

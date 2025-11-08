@@ -9,12 +9,12 @@ import json
 import logging
 import random
 import string
-from typing import Optional, Dict, List, Any
+from typing import Any
 
 import pandas as pd
 import requests
 
-from src.constants import MISSING_VALUE, is_valid, ZoteroConstants
+from src.constants import MISSING_VALUE, ZoteroConstants, is_valid
 
 
 class ZoteroAPI:
@@ -47,7 +47,9 @@ class ZoteroAPI:
             ValueError: If user_role is not "user" or "group"
         """
         if user_role not in ["user", "group"]:
-            raise ValueError(f"Invalid user_role: {user_role}. Must be 'user' or 'group'")
+            raise ValueError(
+                f"Invalid user_role: {user_role}. Must be 'user' or 'group'"
+            )
 
         self.user_id = user_id
         self.user_role = user_role
@@ -71,7 +73,7 @@ class ZoteroAPI:
             )
         )
 
-    def _get(self, path: str, params: Optional[Dict] = None) -> Optional[requests.Response]:
+    def _get(self, path: str, params: dict | None = None) -> requests.Response | None:
         """
         Perform a GET request to the Zotero API.
 
@@ -84,7 +86,9 @@ class ZoteroAPI:
         """
         url = f"{ZoteroConstants.API_BASE_URL}{self.base_endpoint}{path}"
         try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            response = requests.get(
+                url, headers=self.headers, params=params, timeout=30
+            )
             response.raise_for_status()
             return response
         except requests.exceptions.Timeout:
@@ -93,7 +97,7 @@ class ZoteroAPI:
             logging.error(f"GET request failed for {url}: {e}")
         return None
 
-    def _post(self, path: str, data: Any) -> Optional[requests.Response]:
+    def _post(self, path: str, data: Any) -> requests.Response | None:
         """
         Perform a POST request to the Zotero API.
 
@@ -125,7 +129,7 @@ class ZoteroAPI:
             logging.error(f"POST request failed for {url}: {e}")
         return None
 
-    def get_collections(self, limit: int = 100) -> Optional[List[Dict]]:
+    def get_collections(self, limit: int = 100) -> list[dict] | None:
         """
         Retrieve all collections for the user/group.
 
@@ -143,7 +147,7 @@ class ZoteroAPI:
                 logging.error(f"Failed to parse collections JSON: {e}")
         return None
 
-    def find_collection_by_name(self, name: str) -> Optional[Dict]:
+    def find_collection_by_name(self, name: str) -> dict | None:
         """
         Find a collection by its name.
 
@@ -164,7 +168,7 @@ class ZoteroAPI:
 
         return None
 
-    def create_collection(self, name: str) -> Optional[Dict]:
+    def create_collection(self, name: str) -> dict | None:
         """
         Create a new collection.
 
@@ -183,7 +187,7 @@ class ZoteroAPI:
             return self.find_collection_by_name(name)
         return None
 
-    def get_or_create_collection(self, name: str) -> Optional[Dict]:
+    def get_or_create_collection(self, name: str) -> dict | None:
         """
         Get an existing collection or create it if it doesn't exist.
 
@@ -201,9 +205,7 @@ class ZoteroAPI:
         # Create if not found
         return self.create_collection(name)
 
-    def get_collection_items(
-        self, collection_key: str, limit: int = 100
-    ) -> List[Dict]:
+    def get_collection_items(self, collection_key: str, limit: int = 100) -> list[dict]:
         """
         Get all items in a collection.
 
@@ -271,7 +273,7 @@ class ZoteroAPI:
         logging.info(f"Found {len(urls)} existing URLs in collection")
         return urls
 
-    def get_item_template(self, item_type: str) -> Optional[Dict]:
+    def get_item_template(self, item_type: str) -> dict | None:
         """
         Get the Zotero template for a specific item type.
 
@@ -291,7 +293,7 @@ class ZoteroAPI:
             logging.error(f"Failed to fetch template for {item_type}: {e}")
         return None
 
-    def post_item(self, item_data: Dict) -> bool:
+    def post_item(self, item_data: dict) -> bool:
         """
         Post a single item to Zotero.
 
@@ -303,15 +305,17 @@ class ZoteroAPI:
         """
         response = self._post("/items", data=[item_data])
         if response and response.status_code in [200, 201]:
-            logging.info(f"Successfully posted item: {item_data.get('title', 'Unknown')}")
+            logging.info(
+                f"Successfully posted item: {item_data.get('title', 'Unknown')}"
+            )
             return True
 
         logging.warning(f"Failed to post item: {item_data.get('title', 'Unknown')}")
         return False
 
     def post_items_bulk(
-        self, items: List[Dict], batch_size: int = 50
-    ) -> Dict[str, int]:
+        self, items: list[dict], batch_size: int = 50
+    ) -> dict[str, int]:
         """
         Post multiple items to Zotero using true bulk API calls.
 
@@ -367,8 +371,8 @@ class ZoteroAPI:
 def prepare_zotero_item(
     row: pd.Series,
     collection_key: str,
-    templates_cache: Dict[str, Dict],
-) -> Optional[Dict]:
+    templates_cache: dict[str, dict],
+) -> dict | None:
     """
     Prepare a Zotero item from a DataFrame row.
 
@@ -380,6 +384,7 @@ def prepare_zotero_item(
     Returns:
         Prepared item dictionary, or None if item_type is invalid
     """
+
     # Helper to get value from either Series or named tuple
     def get_value(row, field: str, default=MISSING_VALUE):
         if hasattr(row, "get"):  # pd.Series

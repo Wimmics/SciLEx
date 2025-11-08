@@ -129,7 +129,9 @@ def push_new_items_to_zotero(
     logging.info("Processing papers for upload...")
 
     # Use itertuples for faster iteration (5-10x faster than iterrows)
-    for row in tqdm(data.itertuples(index=False), total=len(data), desc="Preparing items"):
+    for row in tqdm(
+        data.itertuples(index=False), total=len(data), desc="Preparing items"
+    ):
         # Prepare Zotero item from row
         item = prepare_zotero_item(row, collection_key, templates_cache)
 
@@ -140,7 +142,9 @@ def push_new_items_to_zotero(
         # Check for duplicate URL
         item_url = item.get("url")
         if not is_valid(item_url):
-            title = getattr(row, "title", "Unknown") if hasattr(row, "title") else "Unknown"
+            title = (
+                getattr(row, "title", "Unknown") if hasattr(row, "title") else "Unknown"
+            )
             logging.warning(f"Skipping paper without valid URL: {title}")
             results["skipped"] += 1
             continue
@@ -200,7 +204,9 @@ def main():
     if not user_id:
         logging.error("Zotero user_id not found in api.config.yml")
         logging.error("Please add 'user_id' to the zotero section in api.config.yml")
-        logging.error("You can find your user ID at: https://www.zotero.org/settings/keys")
+        logging.error(
+            "You can find your user ID at: https://www.zotero.org/settings/keys"
+        )
         return
 
     collection_name = main_config.get("collect_name", "new_models")

@@ -13,16 +13,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from crawlers.collectors import (
-    Filter_param,
-    SemanticScholar_collector,
-    OpenAlex_collector,
-    DBLP_collector,
-    IEEE_collector,
-    Elsevier_collector,
-    Springer_collector,
-    HAL_collector,
     Arxiv_collector,
+    DBLP_collector,
+    Elsevier_collector,
+    Filter_param,
+    HAL_collector,
+    IEEE_collector,
     Istex_collector,
+    OpenAlex_collector,
+    SemanticScholar_collector,
+    Springer_collector,
 )
 
 
@@ -75,18 +75,18 @@ class TestDualKeywordLogic:
         filter_string = query_params.get("filter", [""])[0]
 
         # Should have separate display_name.search for each keyword
-        assert (
-            "display_name.search:knowledge graph" in filter_string
-        ), "OpenAlex should search for 'knowledge graph'"
-        assert (
-            "display_name.search:LLM" in filter_string
-        ), "OpenAlex should search for 'LLM'"
+        assert "display_name.search:knowledge graph" in filter_string, (
+            "OpenAlex should search for 'knowledge graph'"
+        )
+        assert "display_name.search:LLM" in filter_string, (
+            "OpenAlex should search for 'LLM'"
+        )
 
         # Should use comma to separate (AND logic)
         keyword_filters = [f for f in filter_string.split(",") if "display_name" in f]
-        assert (
-            len(keyword_filters) >= 2
-        ), "OpenAlex should have separate filters for each keyword"
+        assert len(keyword_filters) >= 2, (
+            "OpenAlex should have separate filters for each keyword"
+        )
 
     def test_dblp_preserves_phrases(self):
         """Test DBLP uses hyphens to preserve multi-word phrases."""
@@ -99,9 +99,9 @@ class TestDualKeywordLogic:
         query_string = query_params.get("q", [""])[0]
 
         # Should use hyphens for multi-word phrases
-        assert (
-            "knowledge-graph" in query_string
-        ), "DBLP should use hyphen for 'knowledge graph' phrase"
+        assert "knowledge-graph" in query_string, (
+            "DBLP should use hyphen for 'knowledge graph' phrase"
+        )
 
         # Should have both keywords (may start with space or +)
         assert "knowledge-graph" in query_string

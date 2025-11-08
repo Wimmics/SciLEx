@@ -21,27 +21,27 @@ Usage:
 import logging
 import os
 import sys
-from typing import Optional
 
 
 # ANSI color codes for terminal output
 class Colors:
     """ANSI color codes for terminal output"""
-    RESET = '\033[0m'
-    BOLD = '\033[1m'
+
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
 
     # Levels
-    DEBUG = '\033[36m'      # Cyan
-    INFO = '\033[32m'       # Green
-    WARNING = '\033[33m'    # Yellow
-    ERROR = '\033[31m'      # Red
-    CRITICAL = '\033[35m'   # Magenta
+    DEBUG = "\033[36m"  # Cyan
+    INFO = "\033[32m"  # Green
+    WARNING = "\033[33m"  # Yellow
+    ERROR = "\033[31m"  # Red
+    CRITICAL = "\033[35m"  # Magenta
 
     # Components
-    API = '\033[94m'        # Light blue
-    PROGRESS = '\033[92m'   # Light green
-    SUCCESS = '\033[92m'    # Light green
-    FAIL = '\033[91m'       # Light red
+    API = "\033[94m"  # Light blue
+    PROGRESS = "\033[92m"  # Light green
+    SUCCESS = "\033[92m"  # Light green
+    FAIL = "\033[91m"  # Light red
 
 
 class ColoredFormatter(logging.Formatter):
@@ -58,10 +58,12 @@ class ColoredFormatter(logging.Formatter):
     def format(self, record):
         # Add color to level name
         if record.levelno in self.COLORS:
-            record.levelname = f"{self.COLORS[record.levelno]}{record.levelname}{Colors.RESET}"
+            record.levelname = (
+                f"{self.COLORS[record.levelno]}{record.levelname}{Colors.RESET}"
+            )
 
         # Add color to API names if present
-        if hasattr(record, 'api_name'):
+        if hasattr(record, "api_name"):
             record.api_name = f"{Colors.API}{record.api_name}{Colors.RESET}"
 
         return super().format(record)
@@ -72,9 +74,9 @@ class ProgressFormatter(logging.Formatter):
 
     def format(self, record):
         # Format progress messages specially
-        if hasattr(record, 'is_progress') and record.is_progress:
+        if hasattr(record, "is_progress") and record.is_progress:
             # Simplified format for progress: [API] Progress message
-            if hasattr(record, 'api_name'):
+            if hasattr(record, "api_name"):
                 return f"{Colors.PROGRESS}[{record.api_name}]{Colors.RESET} {record.getMessage()}"
             return f"{Colors.PROGRESS}▶{Colors.RESET} {record.getMessage()}"
 
@@ -82,9 +84,9 @@ class ProgressFormatter(logging.Formatter):
 
 
 def setup_logging(
-    level: Optional[str] = None,
-    use_colors: Optional[bool] = None,
-    log_file: Optional[str] = None
+    level: str | None = None,
+    use_colors: bool | None = None,
+    log_file: str | None = None,
 ) -> None:
     """
     Configure logging for SciLEx.
@@ -97,15 +99,15 @@ def setup_logging(
     """
     # Determine log level
     if level is None:
-        level = os.environ.get('LOG_LEVEL', 'INFO').upper()
+        level = os.environ.get("LOG_LEVEL", "INFO").upper()
 
     log_level = getattr(logging, level, logging.INFO)
 
     # Determine if colors should be used
     if use_colors is None:
-        use_colors_env = os.environ.get('LOG_COLOR', '').lower()
+        use_colors_env = os.environ.get("LOG_COLOR", "").lower()
         if use_colors_env:
-            use_colors = use_colors_env in ('true', '1', 'yes')
+            use_colors = use_colors_env in ("true", "1", "yes")
         else:
             # Auto-detect: use colors if stdout is a terminal
             use_colors = sys.stdout.isatty()
@@ -113,13 +115,11 @@ def setup_logging(
     # Create formatters
     if use_colors:
         console_format = ColoredFormatter(
-            '%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%H:%M:%S'
+            "%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
         )
     else:
         console_format = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%H:%M:%S'
+            "%(asctime)s - %(levelname)s - %(message)s", datefmt="%H:%M:%S"
         )
 
     # Configure root logger
@@ -137,18 +137,20 @@ def setup_logging(
 
     # File handler (optional)
     if log_file:
-        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setLevel(log_level)
         # File logs always use non-colored format
         file_format = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
         file_handler.setFormatter(file_format)
         root_logger.addHandler(file_handler)
 
     # Log the configuration
-    root_logger.debug(f"Logging configured: level={level}, colors={use_colors}, file={log_file}")
+    root_logger.debug(
+        f"Logging configured: level={level}, colors={use_colors}, file={log_file}"
+    )
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -181,7 +183,7 @@ class ProgressTracker:
         name: str,
         total_items: int,
         log_interval: int = 10,
-        logger: Optional[logging.Logger] = None
+        logger: logging.Logger | None = None,
     ):
         """
         Initialize progress tracker.
@@ -212,9 +214,9 @@ class ProgressTracker:
 
         # Log at intervals, at completion, or at start
         should_log = (
-            current == 1 or
-            current % self.log_interval == 0 or
-            current >= self.total_items
+            current == 1
+            or current % self.log_interval == 0
+            or current >= self.total_items
         )
 
         if should_log:
@@ -228,15 +230,17 @@ class ProgressTracker:
 
             # Special formatting for completion
             if current >= self.total_items:
-                symbol = f"{Colors.SUCCESS}✓{Colors.RESET}" if sys.stdout.isatty() else "✓"
+                symbol = (
+                    f"{Colors.SUCCESS}✓{Colors.RESET}" if sys.stdout.isatty() else "✓"
+                )
                 self.logger.info(
                     f"{symbol} [{self.name}] Completed: {current}/{self.total_items}{extra_info}",
-                    extra={'is_progress': True, 'api_name': self.name}
+                    extra={"is_progress": True, "api_name": self.name},
                 )
             else:
                 self.logger.info(
                     f"[{self.name}] Progress: {current}/{self.total_items} ({progress_pct:.1f}%){extra_info}",
-                    extra={'is_progress': True, 'api_name': self.name}
+                    extra={"is_progress": True, "api_name": self.name},
                 )
 
     def complete(self, **kwargs):
@@ -245,7 +249,7 @@ class ProgressTracker:
         self.update(self.total_items)
 
 
-def log_section(logger: logging.Logger, title: str, level: str = 'INFO'):
+def log_section(logger: logging.Logger, title: str, level: str = "INFO"):
     """
     Log a section header with visual separator.
 
@@ -261,7 +265,9 @@ def log_section(logger: logging.Logger, title: str, level: str = 'INFO'):
     log_func(separator)
 
 
-def log_api_start(logger: logging.Logger, api_name: str, rate_limit: float, total_queries: int):
+def log_api_start(
+    logger: logging.Logger, api_name: str, rate_limit: float, total_queries: int
+):
     """
     Log API collection start with configuration.
 
@@ -273,15 +279,12 @@ def log_api_start(logger: logging.Logger, api_name: str, rate_limit: float, tota
     """
     logger.info(
         f"[{api_name}] Starting collection: {total_queries} queries (rate limit: {rate_limit} req/sec)",
-        extra={'api_name': api_name}
+        extra={"api_name": api_name},
     )
 
 
 def log_api_complete(
-    logger: logging.Logger,
-    api_name: str,
-    papers_collected: int,
-    elapsed_seconds: float
+    logger: logging.Logger, api_name: str, papers_collected: int, elapsed_seconds: float
 ):
     """
     Log API collection completion with stats.
@@ -295,15 +298,12 @@ def log_api_complete(
     symbol = f"{Colors.SUCCESS}✓{Colors.RESET}" if sys.stdout.isatty() else "✓"
     logger.info(
         f"{symbol} [{api_name}] Completed: {papers_collected} papers in {elapsed_seconds:.1f}s",
-        extra={'api_name': api_name}
+        extra={"api_name": api_name},
     )
 
 
 def log_collection_summary(
-    logger: logging.Logger,
-    total_papers: int,
-    total_time: float,
-    apis_used: list
+    logger: logging.Logger, total_papers: int, total_time: float, apis_used: list
 ):
     """
     Log final collection summary.
@@ -316,6 +316,6 @@ def log_collection_summary(
     """
     log_section(logger, "Collection Summary")
     logger.info(f"Total papers collected: {total_papers}")
-    logger.info(f"Total time: {total_time:.1f}s ({total_time/60:.1f}m)")
+    logger.info(f"Total time: {total_time:.1f}s ({total_time / 60:.1f}m)")
     logger.info(f"APIs used: {', '.join(apis_used)}")
-    logger.info(f"Average speed: {total_papers/total_time:.1f} papers/sec")
+    logger.info(f"Average speed: {total_papers / total_time:.1f} papers/sec")

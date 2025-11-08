@@ -31,7 +31,7 @@ def getWriteToken():
 
 def PaperWithCodetoZoteroFormat(row):
     from src.constants import MISSING_VALUE
-    
+
     # print(">>SemanticScholartoZoteroFormat")
     # bookSection?
     zotero_temp = {
@@ -388,6 +388,7 @@ if pushData:
         row = PaperWithCodetoZoteroFormat(datasets_papers_data[k])
         itemType = row["itemType"]
         from src.constants import is_valid
+
         if is_valid(itemType):
             if itemType not in templates_dict:
                 resp = requests.get(
@@ -462,58 +463,58 @@ if pushData:
             itemType = row["itemType"]
             from src.constants import is_valid
         if is_valid(itemType):
-                if itemType not in templates_dict:
-                    resp = requests.get(
-                        "https://api.zotero.org/items/new?itemType=" + itemType
-                    )
-                    template = resp.json()
-                    templates_dict[itemType] = template
+            if itemType not in templates_dict:
+                resp = requests.get(
+                    "https://api.zotero.org/items/new?itemType=" + itemType
+                )
+                template = resp.json()
+                templates_dict[itemType] = template
 
-                current_temp = templates_dict[itemType]
-                current_temp["tags"] = collectTags(models_data_[k])
-                current_temp["collections"] = [current_col_key]
-                common_cols = [
-                    "publisher",
-                    "title",
-                    "date",
-                    "DOI",
-                    "archive",
-                    "url",
-                    "rights",
-                    "pages",
-                    "journalAbbreviation",
-                    "conferenceName",
-                    "volume",
-                    "issue",
-                ]
-                for col in common_cols:
-                    if col in current_temp and col in row:
-                        current_temp[col] = str(row[col])
+            current_temp = templates_dict[itemType]
+            current_temp["tags"] = collectTags(models_data_[k])
+            current_temp["collections"] = [current_col_key]
+            common_cols = [
+                "publisher",
+                "title",
+                "date",
+                "DOI",
+                "archive",
+                "url",
+                "rights",
+                "pages",
+                "journalAbbreviation",
+                "conferenceName",
+                "volume",
+                "issue",
+            ]
+            for col in common_cols:
+                if col in current_temp and col in row:
+                    current_temp[col] = str(row[col])
 
-                current_temp["abstractNote"] = str(row["abstract"])
-                if "archiveLocation" in current_temp:
-                    current_temp["archiveLocation"] = str(row["archiveID"])
+            current_temp["abstractNote"] = str(row["abstract"])
+            if "archiveLocation" in current_temp:
+                current_temp["archiveLocation"] = str(row["archiveID"])
 
-                template_authors = current_temp["creators"][0].copy()
-                auth_list = []
-                if "authors" in row:
-                    if (
-                        row["authors"] != ""
-                        and is_valid(row.get("authors"))
-                        and not pd.isna(row["authors"])
-                    ):
-                        authors = row["authors"].split(";")
-                        for auth in authors:
-                            current_auth = template_authors.copy()
-                            current_auth["firstName"] = auth
-                            auth_list.append(current_auth)
-                        current_temp["creators"] = auth_list
+            template_authors = current_temp["creators"][0].copy()
+            auth_list = []
+            if "authors" in row:
+                if (
+                    row["authors"] != ""
+                    and is_valid(row.get("authors"))
+                    and not pd.isna(row["authors"])
+                ):
+                    authors = row["authors"].split(";")
+                    for auth in authors:
+                        current_auth = template_authors.copy()
+                        current_auth["firstName"] = auth
+                        auth_list.append(current_auth)
+                    current_temp["creators"] = auth_list
 
-                body = json.dumps([current_temp])
-                headers = {
-                    "Zotero-API-Key": api_key,
-                    "Zotero-Write-Token": getWriteToken(),
-                    "Content-Type": "application/json",
-                }
+            body = json.dumps([current_temp])
+            headers = {
+                "Zotero-API-Key": api_key,
+                "Zotero-Write-Token": getWriteToken(),
+                "Content-Type": "application/json",
+            }
 
-                req2 = requests.post(url + "/items", headers=headers, data=body)
+            req2 = requests.post(url + "/items", headers=headers, data=body)

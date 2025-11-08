@@ -2,13 +2,11 @@ import json
 import logging
 import multiprocessing
 import os
-import time
 from datetime import date
 from itertools import product
 
 import yaml
 
-from .async_wrapper import AsyncCollectorWrapper
 from .collectors import (
     Arxiv_collector,
     DBLP_collector,
@@ -57,7 +55,6 @@ def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name)
     repo = os.path.join(output_dir, collect_name)
 
     for idx in range(len(collect_list)):
-        is_last = idx == len(collect_list) - 1
         coll = collect_list[idx]
         data_query = coll["query"]
         collector_class = api_collectors[coll["api"]]
@@ -176,23 +173,6 @@ class CollectCollection:
         self.state_details = {"global": -1, "details": {}}
         self.init_collection_collect()
 
-        # Initialize StateManager for SQLite-based state persistence (Phase 1B)
-        # This reduces lock contention from JSON file I/O by batching updates
-        self.state_manager = None
-        self.use_state_db = os.environ.get("USE_STATE_DB", "").lower() == "true"
-        if self.use_state_db:
-            logging.info("StateManager enabled (USE_STATE_DB=true)")
-            try:
-                from src.gui.backend.services.state_manager import StateManager
-
-                repo = self.get_current_repo()
-                db_path = os.path.join(repo, "state.db")
-                self.state_manager = StateManager(db_path)
-            except ImportError:
-                logging.warning(
-                    "StateManager not available - GUI removed. USE_STATE_DB=true ignored."
-                )
-
     def validate_api_keys(self):
         """Validate that required API keys are present before starting collection"""
         logger = logging.getLogger(__name__)
@@ -263,7 +243,6 @@ class CollectCollection:
 
     def run_job_collects(self, collect_list):
         for idx in range(len(collect_list)):
-            is_last = idx == len(collect_list) - 1
             coll = collect_list[idx]
             data_query = coll["query"]
             collector = api_collectors[coll["api"]]
@@ -581,137 +560,3 @@ class CollectCollection:
         #    coll_coll.append(collector(data_query, repo,api_key))
 
         # result=pool.map_async(self.job_collect, coll_coll)
-
-    async def create_collects_jobs_async(self):
-        """
-        Async version of create_collects_jobs using AsyncCollectorWrapper.
-
-        This enables parallel collection of multiple APIs using asyncio
-        with per-API rate limiting and concurrency control.
-
-        Optionally uses StateManager for SQLite-based state persistence (Phase 1B).
-        Expected speedup: 2.5-3x (async) to 3-4x (async + StateManager).
-        """
-        logger = logging.getLogger(__name__)
-
-        # Validate API keys before starting
-        self.validate_api_keys()
-
-        # Build list of collections to run
-        collections = []
-        n_coll = 0
-
-        if self.state_details["global"] == 0 or self.state_details["global"] == -1:
-            for api in self.state_details["details"]:
-                if (
-                    self.state_details["details"][api]["state"] == -1
-                    or self.state_details["details"][api]["state"] == 0
-                ):
-                    for k in self.state_details["details"][api]["by_query"]:
-                        query = self.state_details["details"][api]["by_query"][k]
-                        if query["state"] != 1:
-                            collections.append(
-                                {
-                                    "api": api,
-                                    "query": query,
-                                    "path": self.get_current_repo(),
-                                    "key": self.api_config.get(api, {}).get("api_key"),
-                                }
-                            )
-                            n_coll += 1
-
-        num_apis = len(set(c["api"] for c in collections))
-        logger.info(
-            f"Starting async collection: {n_coll} queries across {num_apis} APIs"
-        )
-
-        # Initialize progress tracking
-        self.init_progress_tracking(n_coll)
-
-        # Create async wrapper and run collections in parallel
-        wrapper = AsyncCollectorWrapper()
-
-        try:
-            # Run collections sequentially per API, parallel across APIs
-            # This naturally respects rate limits without global coordination
-            start_time = time.time()
-
-            results = await wrapper.run_collections_sequential_per_api(collections)
-
-            elapsed_time = time.time() - start_time
-            logger.info(f"Async collection completed in {elapsed_time:.1f}s")
-
-            # Update state with results
-            # Use StateManager batch updates if enabled (Phase 1B optimization)
-            if self.state_manager:
-                logger.debug("Using StateManager for batch state updates...")
-
-                # Group updates by API for batch processing
-                updates_by_api = {}
-                for i, result in enumerate(results):
-                    if i < len(collections):
-                        api = collections[i]["api"]
-                        query_id = str(collections[i]["query"].get("id_collect", i))
-
-                        if api not in updates_by_api:
-                            updates_by_api[api] = {}
-
-                        updates_by_api[api][query_id] = result
-
-                # Batch update queries in StateManager (10 per write vs 1 per write)
-                for api, updates in updates_by_api.items():
-                    try:
-                        await self.state_manager.batch_update_queries(api, updates)
-                        logger.debug(
-                            f"StateManager: Batched {len(updates)} updates for {api}"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"StateManager batch update failed for {api}: {str(e)}"
-                        )
-                        # Fall back to JSON updates
-                        for query_id, result in updates.items():
-                            self.update_state_details(api, query_id, result)
-            else:
-                # Fall back to JSON-based state updates (default behavior)
-                for i, result in enumerate(results):
-                    if i < len(collections):
-                        api = collections[i]["api"]
-                        query_id = collections[i]["query"].get("id_collect", i)
-
-                        try:
-                            self.update_state_details(api, str(query_id), result)
-                        except Exception as e:
-                            logging.error(
-                                f"Error updating state for {api} query {query_id}: {str(e)}"
-                            )
-
-        except Exception as e:
-            logging.error(f"Error during async collection: {str(e)}")
-            raise
-
-    async def run_async_collection(self):
-        """
-        High-level async collection runner.
-
-        This is the main entry point for running collections asynchronously.
-        Optionally initializes StateManager for SQLite-based state persistence.
-        """
-        logger = logging.getLogger(__name__)
-
-        try:
-            # Initialize StateManager if enabled (Phase 1B optimization)
-            if self.state_manager:
-                logger.debug("Initializing StateManager for SQLite persistence...")
-                await self.state_manager.initialize()
-                logger.debug(
-                    "StateManager initialized - using SQLite for state persistence"
-                )
-
-            await self.create_collects_jobs_async()
-
-            logger.info("All collections completed successfully")
-
-        except Exception as e:
-            logging.error(f"Async collection failed: {str(e)}")
-            raise

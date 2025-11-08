@@ -4,9 +4,9 @@ import requests
 from ratelimit import limits, sleep_and_retry
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
 
 api_citations = "https://opencitations.net/index/coci/api/v1/citations/"
@@ -122,7 +122,9 @@ def getRefandCitFormatted(doi_str):
             if len(resp_ref) > 0:
                 for ref in resp_ref:
                     citations["cited"].append(ref["cited"])
-                logging.debug(f"Found {len(citations['cited'])} references for {clean_doi}")
+                logging.debug(
+                    f"Found {len(citations['cited'])} references for {clean_doi}"
+                )
         except (ValueError, KeyError) as e:
             logging.warning(f"Error parsing references JSON for DOI {clean_doi}: {e}")
             stats["ref_status"] = "error"

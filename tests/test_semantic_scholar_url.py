@@ -4,9 +4,10 @@ Test to verify Semantic Scholar URL construction with pagination parameters.
 """
 
 import sys
-sys.path.insert(0, '/Users/jean_hubert/dev/SciLEx/src')
 
-from crawlers.collectors import Filter_param, SemanticScholar_collector
+sys.path.insert(0, "/Users/jean_hubert/dev/SciLEx/src")
+
+from crawlers.collectors import SemanticScholar_collector
 
 
 def test_semantic_scholar_url():
@@ -31,7 +32,7 @@ def test_semantic_scholar_url():
     collector = SemanticScholar_collector(
         data_query,
         "/tmp/test",
-        None  # No API key for this test
+        None,  # No API key for this test
     )
 
     # Get URL
@@ -39,8 +40,10 @@ def test_semantic_scholar_url():
 
     print(f"\nCollector: {collector.api_name}")
     print(f"max_by_page: {collector.max_by_page}")
-    print(f"max_articles_per_query: {collector.filter_param.get_max_articles_per_query()}")
-    print(f"\nConstructed URL:")
+    print(
+        f"max_articles_per_query: {collector.filter_param.get_max_articles_per_query()}"
+    )
+    print("\nConstructed URL:")
     print(url)
 
     # Check for pagination parameters

@@ -86,6 +86,7 @@ for row in all_data2.itertuples():
         # "PWC:"
 
     from src.constants import is_valid
+
     if is_valid(row.Short_Title):
         label_t = str(row.Short_Title)
         if "," in str(row.Short_Title):

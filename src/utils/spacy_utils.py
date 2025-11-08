@@ -6,11 +6,11 @@ Provides functions to check, install, and load spacy models with user interactio
 
 import logging
 import subprocess
-import sys
-from typing import Optional
 
 
-def is_spacy_model_installed(model_name: str = "en_core_web_sm", suppress_warnings: bool = True) -> bool:
+def is_spacy_model_installed(
+    model_name: str = "en_core_web_sm", suppress_warnings: bool = True
+) -> bool:
     """
     Check if a spacy model is installed.
 
@@ -23,9 +23,11 @@ def is_spacy_model_installed(model_name: str = "en_core_web_sm", suppress_warnin
     """
     try:
         import spacy
+
         # Temporarily suppress warnings
         if suppress_warnings:
             import warnings
+
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 spacy.load(model_name)
@@ -51,6 +53,7 @@ def install_spacy_model(model_name: str = "en_core_web_sm") -> bool:
 
         # Check for uv
         import shutil
+
         uv_path = shutil.which("uv")
 
         if not uv_path:
@@ -70,7 +73,7 @@ def install_spacy_model(model_name: str = "en_core_web_sm") -> bool:
             cmd,
             capture_output=True,
             text=True,
-            timeout=300  # 5 minute timeout
+            timeout=300,  # 5 minute timeout
         )
 
         if result.returncode == 0:
@@ -79,6 +82,7 @@ def install_spacy_model(model_name: str = "en_core_web_sm") -> bool:
             # Reload the model in fuzzy_matching module
             try:
                 from src.fuzzy_matching import reload_spacy_model
+
                 if reload_spacy_model():
                     logging.info("Spacy model loaded successfully")
                 else:
@@ -117,36 +121,38 @@ def prompt_install_spacy_model(model_name: str = "en_core_web_sm") -> bool:
     package_name = model_name.replace("_", "-")
     install_cmd = f"uv pip install {package_name}"
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"SPACY MODEL NOT FOUND: '{model_name}'")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print(f"The spacy model '{model_name}' is required for optimal fuzzy matching.")
-    print(f"Without it, SciLEx will use simplified text normalization (less accurate).")
-    print(f"")
-    print(f"Benefits of installing the model:")
-    print(f"  • Better lemmatization (e.g., 'algorithms' → 'algorithm')")
-    print(f"  • Improved stop word removal")
-    print(f"  • Higher accuracy in fuzzy keyword matching")
-    print(f"")
-    print(f"Model size: ~12 MB")
-    print(f"Installation time: ~30 seconds")
-    print(f"{'='*70}")
+    print("Without it, SciLEx will use simplified text normalization (less accurate).")
+    print("")
+    print("Benefits of installing the model:")
+    print("  • Better lemmatization (e.g., 'algorithms' → 'algorithm')")
+    print("  • Improved stop word removal")
+    print("  • Higher accuracy in fuzzy keyword matching")
+    print("")
+    print("Model size: ~12 MB")
+    print("Installation time: ~30 seconds")
+    print(f"{'=' * 70}")
 
-    response = input(f"\nInstall spacy model '{model_name}' now? [Y/n]: ").strip().lower()
+    response = (
+        input(f"\nInstall spacy model '{model_name}' now? [Y/n]: ").strip().lower()
+    )
 
-    if response in ('', 'y', 'yes'):
+    if response in ("", "y", "yes"):
         return install_spacy_model(model_name)
     else:
-        logging.warning(f"Spacy model '{model_name}' not installed. Using fallback normalization.")
-        print(f"\nContinuing without spacy model (using fallback normalization)...")
+        logging.warning(
+            f"Spacy model '{model_name}' not installed. Using fallback normalization."
+        )
+        print("\nContinuing without spacy model (using fallback normalization)...")
         print(f"To install later, run: {install_cmd}\n")
         return False
 
 
 def ensure_spacy_model(
-    model_name: str = "en_core_web_sm",
-    auto_install: bool = False,
-    silent: bool = False
+    model_name: str = "en_core_web_sm", auto_install: bool = False, silent: bool = False
 ) -> bool:
     """
     Ensure spacy model is available, with optional auto-installation.
@@ -193,30 +199,34 @@ def check_fuzzy_matching_dependencies() -> dict:
         }
     """
     status = {
-        'spacy': False,
-        'spacy_model': False,
-        'thefuzz': False,
-        'all_available': False
+        "spacy": False,
+        "spacy_model": False,
+        "thefuzz": False,
+        "all_available": False,
     }
 
     # Check spacy
     try:
         import spacy
-        status['spacy'] = True
+
+        status["spacy"] = True
     except ImportError:
         logging.warning("Spacy not installed. Install with: uv pip install spacy")
 
     # Check spacy model
-    if status['spacy']:
-        status['spacy_model'] = is_spacy_model_installed()
+    if status["spacy"]:
+        status["spacy_model"] = is_spacy_model_installed()
 
     # Check thefuzz
     try:
         import thefuzz
-        status['thefuzz'] = True
+
+        status["thefuzz"] = True
     except ImportError:
         logging.warning("thefuzz not installed. Install with: uv pip install thefuzz")
 
-    status['all_available'] = all([status['spacy'], status['spacy_model'], status['thefuzz']])
+    status["all_available"] = all(
+        [status["spacy"], status["spacy_model"], status["thefuzz"]]
+    )
 
     return status

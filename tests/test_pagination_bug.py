@@ -44,7 +44,9 @@ def simulate_current_buggy_logic():
         # Apply limit (AFTER fetching - too late!)
         max_pages = math.ceil(max_articles_per_query / max_by_page)
         has_more_pages = has_more_pages and (page < max_pages)
-        print(f"  Limit check: max_pages={max_pages}, page < max_pages = {page < max_pages}")
+        print(
+            f"  Limit check: max_pages={max_pages}, page < max_pages = {page < max_pages}"
+        )
         print(f"  has_more_pages updated to: {has_more_pages}")
 
         # Increment page
@@ -53,7 +55,9 @@ def simulate_current_buggy_logic():
     print(f"\n{'=' * 70}")
     print(f"RESULT: Collected {nb_art_collected} articles")
     print(f"EXPECTED: {max_articles_per_query} articles")
-    print(f"BUG: Exceeded limit by {nb_art_collected - max_articles_per_query} articles!")
+    print(
+        f"BUG: Exceeded limit by {nb_art_collected - max_articles_per_query} articles!"
+    )
     print(f"{'=' * 70}\n")
 
     return nb_art_collected
@@ -85,7 +89,7 @@ def simulate_fixed_logic():
         max_pages = math.ceil(max_articles_per_query / max_by_page)
         if page > max_pages:
             print(f"  PRE-CHECK: page {page} > max_pages {max_pages}")
-            print(f"  ✓ Stopping BEFORE API call (limit reached)")
+            print("  ✓ Stopping BEFORE API call (limit reached)")
             break
 
         # Simulate API call
@@ -107,7 +111,7 @@ def simulate_fixed_logic():
     print(f"\n{'=' * 70}")
     print(f"RESULT: Collected {nb_art_collected} articles")
     print(f"EXPECTED: {max_articles_per_query} articles")
-    print(f"✓ CORRECT: Matches expected limit!")
+    print("✓ CORRECT: Matches expected limit!")
     print(f"{'=' * 70}\n")
 
     return nb_art_collected

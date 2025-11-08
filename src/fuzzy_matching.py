@@ -12,15 +12,17 @@ and spacy for intelligent text normalization.
 """
 
 import logging
-from typing import List, Tuple
+
 import pandas as pd
-from thefuzz import fuzz
 import spacy
-from src.constants import is_valid, is_missing
+from thefuzz import fuzz
+
+from src.constants import is_missing
 
 # Load spacy model once (lazy loading)
 _nlp = None
 _nlp_checked = False  # Track if we've already checked/warned
+
 
 def get_nlp(suppress_warning: bool = False):
     """
@@ -91,17 +93,18 @@ def normalize_title_simple(title: str) -> str:
 
     # Remove punctuation except spaces and hyphens
     import re
-    normalized = re.sub(r'[^\w\s-]', ' ', normalized)
+
+    normalized = re.sub(r"[^\w\s-]", " ", normalized)
 
     # Collapse multiple spaces
-    normalized = re.sub(r'\s+', ' ', normalized)
+    normalized = re.sub(r"\s+", " ", normalized)
 
     # Remove common stop words
-    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for'}
+    stop_words = {"the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for"}
     words = normalized.split()
     words = [w for w in words if w not in stop_words]
 
-    return ' '.join(words).strip()
+    return " ".join(words).strip()
 
 
 def normalize_title(title: str) -> str:
@@ -134,14 +137,17 @@ def normalize_title(title: str) -> str:
 
     # Extract lemmatized tokens, excluding stop words and punctuation
     tokens = [
-        token.lemma_ for token in doc
+        token.lemma_
+        for token in doc
         if not token.is_stop and not token.is_punct and not token.is_space
     ]
 
-    return ' '.join(tokens).strip()
+    return " ".join(tokens).strip()
 
 
-def calculate_title_similarity(title1: str, title2: str, use_token_sort: bool = True) -> float:
+def calculate_title_similarity(
+    title1: str, title2: str, use_token_sort: bool = True
+) -> float:
     """
     Calculate similarity score between two titles using thefuzz.
 
@@ -181,10 +187,8 @@ def calculate_title_similarity(title1: str, title2: str, use_token_sort: bool = 
 
 
 def are_titles_fuzzy_duplicates(
-    title1: str,
-    title2: str,
-    threshold: float = 0.90
-) -> Tuple[bool, float]:
+    title1: str, title2: str, threshold: float = 0.90
+) -> tuple[bool, float]:
     """
     Check if two titles are fuzzy duplicates.
 
@@ -207,10 +211,8 @@ def are_titles_fuzzy_duplicates(
 
 
 def find_fuzzy_title_matches(
-    target_title: str,
-    candidate_titles: List[str],
-    threshold: float = 0.90
-) -> List[Tuple[int, str, float]]:
+    target_title: str, candidate_titles: list[str], threshold: float = 0.90
+) -> list[tuple[int, str, float]]:
     """
     Find all titles that fuzzy-match the target title.
 
@@ -272,7 +274,8 @@ class FuzzyDuplicationReport:
 
         avg_similarity = (
             sum(self.similarity_scores) / len(self.similarity_scores)
-            if self.similarity_scores else 0.0
+            if self.similarity_scores
+            else 0.0
         )
 
         report_lines = [
@@ -295,10 +298,7 @@ class FuzzyDuplicationReport:
 
 
 def get_fuzzy_duplicate_candidates(
-    df: pd.DataFrame,
-    title: str,
-    threshold: float = 0.90,
-    title_column: str = "title"
+    df: pd.DataFrame, title: str, threshold: float = 0.90, title_column: str = "title"
 ) -> pd.DataFrame:
     """
     Get all records in DataFrame that fuzzy-match the given title.

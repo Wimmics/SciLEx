@@ -11,9 +11,10 @@ This module analyzes:
 
 import logging
 from collections import defaultdict
-from typing import Dict, List, Set, Tuple
+
 import pandas as pd
-from src.constants import is_valid, is_missing
+
+from src.constants import is_missing, is_valid
 
 
 class DuplicateSourceAnalyzer:
@@ -21,13 +22,13 @@ class DuplicateSourceAnalyzer:
 
     def __init__(self):
         # Track papers by API
-        self.papers_by_api: Dict[str, Set[str]] = defaultdict(set)
+        self.papers_by_api: dict[str, set[str]] = defaultdict(set)
 
         # Track papers found by multiple APIs (DOI or title as key)
-        self.duplicate_papers: Dict[str, List[str]] = defaultdict(list)
+        self.duplicate_papers: dict[str, list[str]] = defaultdict(list)
 
         # Track unique papers per API
-        self.unique_papers_by_api: Dict[str, Set[str]] = defaultdict(set)
+        self.unique_papers_by_api: dict[str, set[str]] = defaultdict(set)
 
         # Statistics
         self.total_papers = 0
@@ -46,11 +47,7 @@ class DuplicateSourceAnalyzer:
         self.duplicate_papers[paper_id].append(api_source)
         self.apis_encountered.add(api_source)
 
-    def analyze_from_dataframe(
-        self,
-        df: pd.DataFrame,
-        archive_column: str = "archive"
-    ):
+    def analyze_from_dataframe(self, df: pd.DataFrame, archive_column: str = "archive"):
         """
         Analyze duplicate sources from aggregated DataFrame.
 
@@ -99,7 +96,7 @@ class DuplicateSourceAnalyzer:
                 api = apis[0]
                 self.unique_papers_by_api[api].add(paper_id)
 
-    def get_api_overlap(self, api1: str, api2: str) -> Tuple[int, float]:
+    def get_api_overlap(self, api1: str, api2: str) -> tuple[int, float]:
         """
         Calculate overlap between two APIs.
 
@@ -122,11 +119,13 @@ class DuplicateSourceAnalyzer:
 
         # Calculate percentage relative to smaller API
         smaller_count = min(len(papers1), len(papers2))
-        overlap_percentage = (overlap_count / smaller_count * 100) if smaller_count > 0 else 0.0
+        overlap_percentage = (
+            (overlap_count / smaller_count * 100) if smaller_count > 0 else 0.0
+        )
 
         return overlap_count, overlap_percentage
 
-    def get_all_overlaps(self) -> List[Tuple[str, str, int, float]]:
+    def get_all_overlaps(self) -> list[tuple[str, str, int, float]]:
         """
         Get all pairwise API overlaps.
 
@@ -138,7 +137,7 @@ class DuplicateSourceAnalyzer:
         apis = sorted(self.apis_encountered)
 
         for i, api1 in enumerate(apis):
-            for api2 in apis[i + 1:]:
+            for api2 in apis[i + 1 :]:
                 count, percentage = self.get_api_overlap(api1, api2)
                 if count > 0:
                     overlaps.append((api1, api2, count, percentage))
@@ -148,7 +147,7 @@ class DuplicateSourceAnalyzer:
 
         return overlaps
 
-    def get_api_statistics(self) -> Dict[str, Dict]:
+    def get_api_statistics(self) -> dict[str, dict]:
         """
         Get detailed statistics for each API.
 
@@ -162,8 +161,14 @@ class DuplicateSourceAnalyzer:
             unique_papers = len(self.unique_papers_by_api[api])
             duplicate_papers = total_papers - unique_papers
 
-            unique_percentage = (unique_papers / total_papers * 100) if total_papers > 0 else 0.0
-            coverage_percentage = (total_papers / self.total_unique_papers * 100) if self.total_unique_papers > 0 else 0.0
+            unique_percentage = (
+                (unique_papers / total_papers * 100) if total_papers > 0 else 0.0
+            )
+            coverage_percentage = (
+                (total_papers / self.total_unique_papers * 100)
+                if self.total_unique_papers > 0
+                else 0.0
+            )
 
             stats[api] = {
                 "total_papers": total_papers,
@@ -201,7 +206,9 @@ class DuplicateSourceAnalyzer:
         )
         report_lines.append("-" * 70)
 
-        for api in sorted(stats.keys(), key=lambda a: stats[a]["unique_papers"], reverse=True):
+        for api in sorted(
+            stats.keys(), key=lambda a: stats[a]["unique_papers"], reverse=True
+        ):
             api_stats = stats[api]
             report_lines.append(
                 f"{api:<20} {api_stats['total_papers']:>8} "
@@ -210,45 +217,47 @@ class DuplicateSourceAnalyzer:
                 f"{api_stats['coverage_percentage']:>9.1f}%"
             )
 
-        report_lines.extend([
-            "",
-            "Legend:",
-            "  Total: Number of papers found by this API",
-            "  Unique: Papers found ONLY by this API",
-            "  Unique %: Percentage of this API's papers that are unique",
-            "  Coverage: Percentage of all unique papers found by this API",
-            "",
-            "=" * 70,
-            "API OVERLAP ANALYSIS",
-            "=" * 70,
-        ])
+        report_lines.extend(
+            [
+                "",
+                "Legend:",
+                "  Total: Number of papers found by this API",
+                "  Unique: Papers found ONLY by this API",
+                "  Unique %: Percentage of this API's papers that are unique",
+                "  Coverage: Percentage of all unique papers found by this API",
+                "",
+                "=" * 70,
+                "API OVERLAP ANALYSIS",
+                "=" * 70,
+            ]
+        )
 
         # Pairwise overlaps
         overlaps = self.get_all_overlaps()
 
         if overlaps:
-            report_lines.append(
-                f"{'API Pair':<40} {'Overlap':>10} {'Overlap %':>12}"
-            )
+            report_lines.append(f"{'API Pair':<40} {'Overlap':>10} {'Overlap %':>12}")
             report_lines.append("-" * 70)
 
             for api1, api2, count, percentage in overlaps[:10]:  # Show top 10
                 pair_name = f"{api1} + {api2}"
-                report_lines.append(
-                    f"{pair_name:<40} {count:>10} {percentage:>11.1f}%"
-                )
+                report_lines.append(f"{pair_name:<40} {count:>10} {percentage:>11.1f}%")
 
             if len(overlaps) > 10:
                 report_lines.append(f"... and {len(overlaps) - 10} more pairs")
         else:
-            report_lines.append("No overlaps detected (each API found different papers)")
+            report_lines.append(
+                "No overlaps detected (each API found different papers)"
+            )
 
-        report_lines.extend([
-            "",
-            "=" * 70,
-            "RECOMMENDATIONS",
-            "=" * 70,
-        ])
+        report_lines.extend(
+            [
+                "",
+                "=" * 70,
+                "RECOMMENDATIONS",
+                "=" * 70,
+            ]
+        )
 
         # Generate recommendations
         recommendations = self._generate_recommendations(stats, overlaps)
@@ -259,45 +268,50 @@ class DuplicateSourceAnalyzer:
         return "\n".join(report_lines)
 
     def _generate_recommendations(
-        self,
-        stats: Dict[str, Dict],
-        overlaps: List[Tuple[str, str, int, float]]
-    ) -> List[str]:
+        self, stats: dict[str, dict], overlaps: list[tuple[str, str, int, float]]
+    ) -> list[str]:
         """Generate actionable recommendations based on analysis."""
         recommendations = []
         high_overlap_pairs = []  # Initialize to avoid UnboundLocalError
 
         # Find APIs with high unique content
         high_value_apis = [
-            api for api, s in stats.items()
+            api
+            for api, s in stats.items()
             if s["unique_papers"] > 10 and s["unique_percentage"] > 20
         ]
 
         if high_value_apis:
             recommendations.append("✓ High-value APIs (many unique papers):")
-            for api in sorted(high_value_apis, key=lambda a: stats[a]["unique_papers"], reverse=True):
+            for api in sorted(
+                high_value_apis, key=lambda a: stats[a]["unique_papers"], reverse=True
+            ):
                 unique = stats[api]["unique_papers"]
                 pct = stats[api]["unique_percentage"]
-                recommendations.append(f"  - {api}: {unique} unique papers ({pct:.1f}%)")
+                recommendations.append(
+                    f"  - {api}: {unique} unique papers ({pct:.1f}%)"
+                )
             recommendations.append("")
 
         # Find APIs with high overlap (may be redundant)
         if overlaps:
             high_overlap_pairs = [
-                (api1, api2, pct) for api1, api2, count, pct in overlaps
-                if pct > 70
+                (api1, api2, pct) for api1, api2, count, pct in overlaps if pct > 70
             ]
 
             if high_overlap_pairs:
                 recommendations.append("⚠️  High-overlap API pairs (>70% overlap):")
                 for api1, api2, pct in high_overlap_pairs[:5]:
                     recommendations.append(f"  - {api1} + {api2}: {pct:.1f}% overlap")
-                recommendations.append("  Consider using only one from each pair to reduce costs.")
+                recommendations.append(
+                    "  Consider using only one from each pair to reduce costs."
+                )
                 recommendations.append("")
 
         # Find low-yield APIs
         low_yield_apis = [
-            api for api, s in stats.items()
+            api
+            for api, s in stats.items()
             if s["unique_papers"] < 5 and s["total_papers"] > 10
         ]
 
@@ -309,12 +323,16 @@ class DuplicateSourceAnalyzer:
                 recommendations.append(
                     f"  - {api}: Only {unique} unique out of {total} total papers"
                 )
-            recommendations.append("  Consider dropping these APIs for future collections.")
+            recommendations.append(
+                "  Consider dropping these APIs for future collections."
+            )
             recommendations.append("")
 
         # Overall recommendation
         if not recommendations:
-            recommendations.append("✓ All APIs provide good value with reasonable overlap.")
+            recommendations.append(
+                "✓ All APIs provide good value with reasonable overlap."
+            )
         else:
             recommendations.append("Summary:")
             recommendations.append(
@@ -332,7 +350,7 @@ class DuplicateSourceAnalyzer:
         return recommendations
 
 
-def analyze_api_metadata_quality(df: pd.DataFrame) -> Dict[str, Dict]:
+def analyze_api_metadata_quality(df: pd.DataFrame) -> dict[str, dict]:
     """
     Analyze metadata completeness by API source.
 
@@ -355,7 +373,10 @@ def analyze_api_metadata_quality(df: pd.DataFrame) -> Dict[str, Dict]:
 
         # Parse archive (primary API is marked with *)
         apis = [api.replace("*", "").strip() for api in str(archive).split(";")]
-        primary_api = next((api for api in apis if "*" in str(row.get("archive", "")) and api), apis[0] if apis else "Unknown")
+        primary_api = next(
+            (api for api in apis if "*" in str(row.get("archive", "")) and api),
+            apis[0] if apis else "Unknown",
+        )
 
         # Count papers per API
         api_counts[primary_api] += 1
@@ -374,16 +395,18 @@ def analyze_api_metadata_quality(df: pd.DataFrame) -> Dict[str, Dict]:
             "field_completeness": {
                 field: {
                     "count": count,
-                    "percentage": (count / total_papers * 100) if total_papers > 0 else 0.0
+                    "percentage": (count / total_papers * 100)
+                    if total_papers > 0
+                    else 0.0,
                 }
                 for field, count in counts.items()
-            }
+            },
         }
 
     return quality_stats
 
 
-def generate_metadata_quality_report(quality_stats: Dict[str, Dict]) -> str:
+def generate_metadata_quality_report(quality_stats: dict[str, dict]) -> str:
     """Generate metadata quality report by API."""
     if not quality_stats:
         return "No metadata quality data available."
@@ -402,11 +425,20 @@ def generate_metadata_quality_report(quality_stats: Dict[str, Dict]) -> str:
         report_lines.append("-" * 40)
 
         field_comp = stats["field_completeness"]
-        for field in ["DOI", "title", "authors", "date", "abstract", "journalAbbreviation"]:
+        for field in [
+            "DOI",
+            "title",
+            "authors",
+            "date",
+            "abstract",
+            "journalAbbreviation",
+        ]:
             if field in field_comp:
                 count = field_comp[field]["count"]
                 pct = field_comp[field]["percentage"]
-                report_lines.append(f"  {field:<25}: {count:>4}/{total:>4} ({pct:>5.1f}%)")
+                report_lines.append(
+                    f"  {field:<25}: {count:>4}/{total:>4} ({pct:>5.1f}%)"
+                )
 
     report_lines.append("\n" + "=" * 70 + "\n")
 
@@ -414,9 +446,8 @@ def generate_metadata_quality_report(quality_stats: Dict[str, Dict]) -> str:
 
 
 def analyze_and_report_duplicates(
-    df: pd.DataFrame,
-    generate_report: bool = True
-) -> Tuple[DuplicateSourceAnalyzer, Dict]:
+    df: pd.DataFrame, generate_report: bool = True
+) -> tuple[DuplicateSourceAnalyzer, dict]:
     """
     Comprehensive duplicate source analysis.
 

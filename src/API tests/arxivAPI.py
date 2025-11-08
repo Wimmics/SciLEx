@@ -6,8 +6,8 @@ Created on Wed Jan 18 14:36:15 2023
 """
 
 import logging
-import sys
 import os
+import sys
 
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -46,7 +46,7 @@ arxiv_url = (
 
 def toZoteroFormat(row):
     from src.constants import MISSING_VALUE
-    
+
     zotero_temp = {
         "title": MISSING_VALUE,
         "itemType": MISSING_VALUE,
@@ -66,7 +66,7 @@ def toZoteroFormat(row):
     }
 
     from src.constants import is_valid
-    
+
     # Genre pas clair
     zotero_temp["archive"] = "Arxiv"
     if is_valid(current.get("abstract")):

@@ -10,51 +10,61 @@ import pandas as pd
 # Missing value indicator
 MISSING_VALUE = "NA"
 
+
 # API limits and configuration
 class APILimits:
     """API-related constants."""
+
     PAGE_SIZE = 100
     MAX_RESULTS = 10000
     RATE_LIMIT_CALLS = 10
     RATE_LIMIT_PERIOD = 1  # second
 
+
 # Zotero constants
 class ZoteroConstants:
     """Zotero-related constants."""
+
     DEFAULT_COLLECTION_NAME = "new_models"
     API_BASE_URL = "https://api.zotero.org"
     WRITE_TOKEN_LENGTH = 32
 
+
 # Item type mappings
 class ItemTypes:
     """Document type constants."""
+
     JOURNAL_ARTICLE = "journalArticle"
     CONFERENCE_PAPER = "conferencePaper"
     BOOK_SECTION = "bookSection"
     MANUSCRIPT = "Manuscript"
     BOOK = "book"
 
+
 # Circuit breaker configuration
 class CircuitBreakerConfig:
     """Circuit breaker pattern configuration for API resilience."""
+
     FAILURE_THRESHOLD = 5  # Open circuit after N consecutive failures
-    TIMEOUT_SECONDS = 60   # Wait time before attempting retry from OPEN state
-    MAX_RETRIES = 3        # Maximum number of retry attempts per request
+    TIMEOUT_SECONDS = 60  # Wait time before attempting retry from OPEN state
+    MAX_RETRIES = 3  # Maximum number of retry attempts per request
+
 
 # Citation filter configuration
 class CitationFilterConfig:
     """Time-aware citation filtering thresholds for paper quality assessment."""
+
     # Age thresholds (in months)
-    GRACE_PERIOD_MONTHS = 3      # Very recent papers (0-3 months) - no filtering
-    EARLY_THRESHOLD_MONTHS = 6   # Early stage papers (3-6 months)
-    MEDIUM_THRESHOLD_MONTHS = 12 # Medium age papers (6-12 months)
-    MATURE_THRESHOLD_MONTHS = 24 # Mature papers (12-24 months)
+    GRACE_PERIOD_MONTHS = 3  # Very recent papers (0-3 months) - no filtering
+    EARLY_THRESHOLD_MONTHS = 6  # Early stage papers (3-6 months)
+    MEDIUM_THRESHOLD_MONTHS = 12  # Medium age papers (6-12 months)
+    MATURE_THRESHOLD_MONTHS = 24  # Mature papers (12-24 months)
 
     # Citation count requirements by age group
-    GRACE_PERIOD_CITATIONS = 0   # 0-3 months: 0 citations required
-    EARLY_CITATIONS = 1          # 3-6 months: 1+ citations required
-    MEDIUM_CITATIONS = 3         # 6-12 months: 3+ citations required
-    MATURE_BASE_CITATIONS = 5    # 12-24 months: starts at 5, increases to 8
+    GRACE_PERIOD_CITATIONS = 0  # 0-3 months: 0 citations required
+    EARLY_CITATIONS = 1  # 3-6 months: 1+ citations required
+    MEDIUM_CITATIONS = 3  # 6-12 months: 3+ citations required
+    MATURE_BASE_CITATIONS = 5  # 12-24 months: starts at 5, increases to 8
     ESTABLISHED_BASE_CITATIONS = 10  # 24+ months: starts at 10, increases gradually
 
     # Warning threshold for zero-citation rate

@@ -9,13 +9,11 @@ Features:
 - Automatic cache cleanup
 """
 
-import json
 import logging
 import sqlite3
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Optional, Tuple
 
 # Thread-local storage for database connections (thread-safe)
 _thread_local = threading.local()
@@ -51,7 +49,7 @@ def _get_connection(cache_path: Path) -> sqlite3.Connection:
         _thread_local.connection = sqlite3.connect(
             str(cache_path),
             check_same_thread=False,  # Allow multi-threading
-            timeout=30.0  # 30 second timeout for locks
+            timeout=30.0,  # 30 second timeout for locks
         )
         # Enable WAL mode for better concurrency
         _thread_local.connection.execute("PRAGMA journal_mode=WAL")
@@ -59,7 +57,7 @@ def _get_connection(cache_path: Path) -> sqlite3.Connection:
     return _thread_local.connection
 
 
-def initialize_cache(cache_path: Optional[Path] = None) -> Path:
+def initialize_cache(cache_path: Path | None = None) -> Path:
     """Initialize citation cache database with schema.
 
     Args:
@@ -99,7 +97,7 @@ def initialize_cache(cache_path: Optional[Path] = None) -> Path:
     return cache_path
 
 
-def get_cached_citation(doi: str, cache_path: Optional[Path] = None) -> Optional[Dict]:
+def get_cached_citation(doi: str, cache_path: Path | None = None) -> dict | None:
     """Retrieve cached citation data for a DOI.
 
     Args:
@@ -125,11 +123,14 @@ def get_cached_citation(doi: str, cache_path: Optional[Path] = None) -> Optional
     cursor = conn.cursor()
 
     # Query with expiration check
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT citations_json, nb_cited, nb_citations, cit_status, ref_status
         FROM citations
         WHERE doi = ? AND expires_at > ?
-    """, (doi, datetime.now().isoformat()))
+    """,
+        (doi, datetime.now().isoformat()),
+    )
 
     row = cursor.fetchone()
     if row is None:
@@ -139,10 +140,7 @@ def get_cached_citation(doi: str, cache_path: Optional[Path] = None) -> Optional
         "citations": row[0],  # JSON string
         "nb_cited": row[1],
         "nb_citations": row[2],
-        "api_stats": {
-            "cit_status": row[3],
-            "ref_status": row[4]
-        }
+        "api_stats": {"cit_status": row[3], "ref_status": row[4]},
     }
 
 
@@ -151,9 +149,9 @@ def cache_citation(
     citations_json: str,
     nb_cited: int,
     nb_citations: int,
-    api_stats: Dict[str, str],
-    cache_path: Optional[Path] = None,
-    ttl_days: int = DEFAULT_TTL_DAYS
+    api_stats: dict[str, str],
+    cache_path: Path | None = None,
+    ttl_days: int = DEFAULT_TTL_DAYS,
 ) -> None:
     """Store citation data in cache.
 
@@ -176,26 +174,29 @@ def cache_citation(
     expires_at = now + timedelta(days=ttl_days)
 
     # Insert or replace (UPSERT)
-    cursor.execute("""
+    cursor.execute(
+        """
         INSERT OR REPLACE INTO citations
         (doi, citations_json, nb_cited, nb_citations, cit_status, ref_status, cached_at, expires_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        doi,
-        citations_json,
-        nb_cited,
-        nb_citations,
-        api_stats.get("cit_status", "unknown"),
-        api_stats.get("ref_status", "unknown"),
-        now.isoformat(),
-        expires_at.isoformat()
-    ))
+    """,
+        (
+            doi,
+            citations_json,
+            nb_cited,
+            nb_citations,
+            api_stats.get("cit_status", "unknown"),
+            api_stats.get("ref_status", "unknown"),
+            now.isoformat(),
+            expires_at.isoformat(),
+        ),
+    )
 
     conn.commit()
     logging.debug(f"Cached citation data for DOI: {doi}")
 
 
-def cleanup_expired_cache(cache_path: Optional[Path] = None) -> int:
+def cleanup_expired_cache(cache_path: Path | None = None) -> int:
     """Remove expired entries from cache.
 
     Args:
@@ -211,9 +212,12 @@ def cleanup_expired_cache(cache_path: Optional[Path] = None) -> int:
     cursor = conn.cursor()
 
     # Delete expired entries
-    cursor.execute("""
+    cursor.execute(
+        """
         DELETE FROM citations WHERE expires_at <= ?
-    """, (datetime.now().isoformat(),))
+    """,
+        (datetime.now().isoformat(),),
+    )
 
     removed_count = cursor.rowcount
     conn.commit()
@@ -224,7 +228,7 @@ def cleanup_expired_cache(cache_path: Optional[Path] = None) -> int:
     return removed_count
 
 
-def get_cache_stats(cache_path: Optional[Path] = None) -> Dict:
+def get_cache_stats(cache_path: Path | None = None) -> dict:
     """Get cache statistics.
 
     Args:
@@ -244,9 +248,12 @@ def get_cache_stats(cache_path: Optional[Path] = None) -> Dict:
     total = cursor.fetchone()[0]
 
     # Active (non-expired) entries
-    cursor.execute("""
+    cursor.execute(
+        """
         SELECT COUNT(*) FROM citations WHERE expires_at > ?
-    """, (datetime.now().isoformat(),))
+    """,
+        (datetime.now().isoformat(),),
+    )
     active = cursor.fetchone()[0]
 
     # Expired entries
@@ -256,11 +263,11 @@ def get_cache_stats(cache_path: Optional[Path] = None) -> Dict:
         "total_entries": total,
         "active_entries": active,
         "expired_entries": expired,
-        "cache_path": str(cache_path)
+        "cache_path": str(cache_path),
     }
 
 
-def clear_cache(cache_path: Optional[Path] = None) -> int:
+def clear_cache(cache_path: Path | None = None) -> int:
     """Clear entire cache (delete all entries).
 
     Args:

@@ -6,9 +6,10 @@ helping identify API false positives and assess collection quality.
 """
 
 import logging
-from typing import Dict, List, Set, Tuple
+
 import pandas as pd
-from src.constants import is_valid, is_missing
+
+from src.constants import is_missing
 
 
 def normalize_text(text: str) -> str:
@@ -44,11 +45,11 @@ def check_keyword_in_text(keyword: str, text: str) -> bool:
 
 
 def check_keywords_in_paper(
-    record: Dict,
-    keywords: List[List[str]],
+    record: dict,
+    keywords: list[list[str]],
     use_fuzzy: bool = False,
-    fuzzy_threshold: float = 0.85
-) -> Tuple[bool, List[str]]:
+    fuzzy_threshold: float = 0.85,
+) -> tuple[bool, list[str]]:
     """
     Check if paper contains search keywords in title or abstract.
 
@@ -71,8 +72,8 @@ def check_keywords_in_paper(
     # Use fuzzy matching if enabled
     if use_fuzzy:
         from src.crawlers.fuzzy_keyword_matching import (
+            check_dual_keywords_fuzzy,
             check_keywords_in_text_fuzzy,
-            check_dual_keywords_fuzzy
         )
 
         # Handle single keyword group
@@ -126,9 +127,9 @@ def check_keywords_in_paper(
 
 def generate_keyword_validation_report(
     df: pd.DataFrame,
-    keywords: List[List[str]],
+    keywords: list[list[str]],
     use_fuzzy: bool = False,
-    fuzzy_threshold: float = 0.85
+    fuzzy_threshold: float = 0.85,
 ) -> str:
     """
     Generate a report on keyword presence in collected papers.
@@ -182,7 +183,9 @@ def generate_keyword_validation_report(
     # Show matching mode
     if use_fuzzy:
         report_lines.append(f"Matching mode: FUZZY (threshold={fuzzy_threshold})")
-        report_lines.append("  Catches variations like abbreviations, plurals, and related terms")
+        report_lines.append(
+            "  Catches variations like abbreviations, plurals, and related terms"
+        )
     else:
         report_lines.append("Matching mode: EXACT (case-insensitive substring)")
 
@@ -214,9 +217,7 @@ def generate_keyword_validation_report(
         report_lines.append(
             f"  ⚠️  WARNING: {false_positive_rate:.1f}% of papers don't contain keywords!"
         )
-        report_lines.append(
-            "      This suggests high false positive rate from APIs."
-        )
+        report_lines.append("      This suggests high false positive rate from APIs.")
         if use_fuzzy:
             report_lines.append(
                 "      Even with fuzzy matching! Consider more specific keywords or different APIs."
@@ -244,7 +245,7 @@ def generate_keyword_validation_report(
 
 
 def filter_by_keywords(
-    df: pd.DataFrame, keywords: List[List[str]], strict: bool = False
+    df: pd.DataFrame, keywords: list[list[str]], strict: bool = False
 ) -> pd.DataFrame:
     """
     Filter DataFrame to keep only papers containing keywords.

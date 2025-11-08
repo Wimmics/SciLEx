@@ -24,7 +24,7 @@ with open("/user/cringwal/home/Desktop/Scilex-main/src/scilex.config.yml") as ym
 
 def toZoteroFormat(row):
     from src.constants import MISSING_VALUE
-    
+
     zotero_temp = {
         "title": MISSING_VALUE,
         "itemType": MISSING_VALUE,

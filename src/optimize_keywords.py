@@ -6,21 +6,21 @@ This script analyzes keyword combinations in scilex.config.yml and provides
 recommendations for reducing redundancy and improving query efficiency.
 """
 
-import sys
 import os
+import sys
 from itertools import product
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
 import yaml
-from collections import defaultdict
 
 
 def load_config():
     """Load the scilex configuration"""
     config_path = os.path.join(os.path.dirname(__file__), "scilex.config.yml")
     try:
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
         print(f"Error: Configuration file not found at {config_path}")
@@ -29,16 +29,12 @@ def load_config():
 
 def analyze_keywords(config):
     """Analyze keyword combinations and provide statistics"""
-    keywords = config.get("keywords", [[],[]])
+    keywords = config.get("keywords", [[], []])
     years = config.get("years", [])
     apis = config.get("apis", [])
 
     # Check if dual keyword mode
-    dual_mode = (
-        len(keywords) == 2
-        and len(keywords[0]) > 0
-        and len(keywords[1]) > 0
-    )
+    dual_mode = len(keywords) == 2 and len(keywords[0]) > 0 and len(keywords[1]) > 0
 
     if dual_mode:
         keyword_combinations = list(product(keywords[0], keywords[1]))
@@ -59,7 +55,7 @@ def analyze_keywords(config):
         "total_queries": total_queries,
         "combinations": keyword_combinations,
         "apis": apis,
-        "years": years
+        "years": years,
     }
 
 
@@ -81,7 +77,7 @@ def find_redundancies(stats):
                         continue
 
                     # Check for plural/singular
-                    if kw1.rstrip('s') == kw2.rstrip('s'):
+                    if kw1.rstrip("s") == kw2.rstrip("s"):
                         group_redundancies.append((kw1, kw2, "plural/singular"))
                         checked.add(kw1)
                         checked.add(kw2)
@@ -93,10 +89,12 @@ def find_redundancies(stats):
                         checked.add(kw2)
 
             if group_redundancies:
-                redundancies.append({
-                    "group": f"Group {group_idx + 1}",
-                    "redundancies": group_redundancies
-                })
+                redundancies.append(
+                    {
+                        "group": f"Group {group_idx + 1}",
+                        "redundancies": group_redundancies,
+                    }
+                )
 
     return redundancies
 
@@ -108,46 +106,54 @@ def generate_recommendations(stats, redundancies):
     # Recommendation 1: Reduce redundancies
     if redundancies:
         total_redundant = sum(len(r["redundancies"]) for r in redundancies)
-        recommendations.append({
-            "priority": "HIGH",
-            "title": "Remove Redundant Keywords",
-            "description": f"Found {total_redundant} pairs of redundant keywords",
-            "potential_reduction": f"Could reduce by ~{total_redundant * 2} keyword terms",
-            "action": "Combine singular/plural forms and substring duplicates"
-        })
+        recommendations.append(
+            {
+                "priority": "HIGH",
+                "title": "Remove Redundant Keywords",
+                "description": f"Found {total_redundant} pairs of redundant keywords",
+                "potential_reduction": f"Could reduce by ~{total_redundant * 2} keyword terms",
+                "action": "Combine singular/plural forms and substring duplicates",
+            }
+        )
 
     # Recommendation 2: API reduction
     if stats["num_apis"] > 5:
-        recommendations.append({
-            "priority": "HIGH",
-            "title": "Reduce Number of APIs",
-            "description": f"Currently using {stats['num_apis']} APIs",
-            "potential_reduction": f"Reducing to 3-4 core APIs could cut queries by {((stats['num_apis'] - 3) / stats['num_apis'] * 100):.0f}%",
-            "action": "Focus on SemanticScholar, OpenAlex, and 1-2 specialized APIs"
-        })
+        recommendations.append(
+            {
+                "priority": "HIGH",
+                "title": "Reduce Number of APIs",
+                "description": f"Currently using {stats['num_apis']} APIs",
+                "potential_reduction": f"Reducing to 3-4 core APIs could cut queries by {((stats['num_apis'] - 3) / stats['num_apis'] * 100):.0f}%",
+                "action": "Focus on SemanticScholar, OpenAlex, and 1-2 specialized APIs",
+            }
+        )
 
     # Recommendation 3: Keyword explosion warning
     if stats["total_queries"] > 2000:
-        recommendations.append({
-            "priority": "CRITICAL",
-            "title": "Excessive Total Queries",
-            "description": f"Current configuration generates {stats['total_queries']} API calls",
-            "potential_reduction": "Target: 500-1000 total queries",
-            "action": "Reduce keyword combinations and/or number of APIs"
-        })
+        recommendations.append(
+            {
+                "priority": "CRITICAL",
+                "title": "Excessive Total Queries",
+                "description": f"Current configuration generates {stats['total_queries']} API calls",
+                "potential_reduction": "Target: 500-1000 total queries",
+                "action": "Reduce keyword combinations and/or number of APIs",
+            }
+        )
 
     return recommendations
 
 
 def print_report(stats, redundancies, recommendations):
     """Print optimization report"""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("  SCILEX KEYWORD OPTIMIZATION REPORT")
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
     # Current Configuration
     print("CURRENT CONFIGURATION:")
-    print(f"  Mode: {'Dual Keyword Group' if stats['dual_mode'] else 'Single Keyword Group'}")
+    print(
+        f"  Mode: {'Dual Keyword Group' if stats['dual_mode'] else 'Single Keyword Group'}"
+    )
     print(f"  Keyword Combinations: {stats['num_combinations']}")
     print(f"  APIs: {stats['num_apis']} ({', '.join(stats['apis'])})")
     print(f"  Years: {stats['num_years']} ({', '.join(map(str, stats['years']))})")
@@ -158,7 +164,7 @@ def print_report(stats, redundancies, recommendations):
         print("REDUNDANT KEYWORDS DETECTED:")
         for group_info in redundancies:
             print(f"\n  {group_info['group']}:")
-            for kw1, kw2, reason in group_info['redundancies']:
+            for kw1, kw2, reason in group_info["redundancies"]:
                 print(f"    • '{kw1}' ↔ '{kw2}' ({reason})")
         print()
 
@@ -171,7 +177,7 @@ def print_report(stats, redundancies, recommendations):
             print(f"     Potential Reduction: {rec['potential_reduction']}")
             print(f"     Action: {rec['action']}")
 
-    print("\n" + "="*70 + "\n")
+    print("\n" + "=" * 70 + "\n")
 
 
 def generate_optimized_config(stats, output_path="scilex.config.optimized.yml"):
@@ -182,7 +188,7 @@ def generate_optimized_config(stats, output_path="scilex.config.optimized.yml"):
         "years": stats["years"],
         "# RECOMMENDED": "Reduce to 3-4 core APIs",
         "apis_recommended": ["SemanticScholar", "OpenAlex", "IEEE"],
-        "apis_current": stats["apis"]
+        "apis_current": stats["apis"],
     }
 
     print(f"\nOptimized configuration saved to: {output_path}")
