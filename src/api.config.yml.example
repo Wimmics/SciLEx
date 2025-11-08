@@ -1,13 +1,12 @@
-zotero:
+Zotero:
     api_key: "YOUR_ZOTERO_API_KEY"
     user_id: "YOUR_ZOTERO_USER_ID"  # Find at https://www.zotero.org/settings/keys
     user_mode: "user"  # or "group" for group libraries
-    # NOTE: Config accepts both 'zotero:' and 'Zotero:' keys for backward compatibility
 
-springer:
+Springer:
     api_key: "YOUR_SPRINGER_API_KEY"  # REQUIRED for Springer collection
 
-sem_scholar:
+SemanticScholar:
     api_key: "YOUR_SEMANTIC_SCHOLAR_API_KEY"  # Optional but recommended
     # Note: Get your free API key at https://www.semanticscholar.org/product/api
     #
@@ -21,13 +20,19 @@ sem_scholar:
     #   - Bulk mode: Requires higher-tier access for large-scale retrieval
     #   - If you get 429 errors, use regular mode or apply for bulk access
 
-elsevier:
+Elsevier:
     api_key: "YOUR_ELSEVIER_API_KEY"  # REQUIRED for Elsevier/Scopus collection
     inst_token: "YOUR_INSTITUTIONAL_TOKEN"  # Optional but recommended for better access
 
-ieee:
+IEEE:
     api_key: "YOUR_IEEE_API_KEY"  # REQUIRED for IEEE Xplore collection
-orcid:
+
+GoogleScholar:
+    # Google Scholar uses the free 'scholarly' Python package with automatic proxy rotation
+    # No API key needed! The collection may be slower than paid APIs due to web scraping
+    enabled: false  # Set to false to disable Google Scholar collection
+
+ORCID:
     dir: 'YOUR_WORK_DIRECTORY'
     client_id: "YOUR_ORCID_CLIENT_ID"
     client_secret: "YOUR_ORCID_CLIENT_SECRET"
