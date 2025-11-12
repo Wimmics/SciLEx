@@ -1237,6 +1237,17 @@ if __name__ == "__main__":
     # Note: parallel_aggregate already includes simple deduplication
     df_clean = df
 
+    # Initialize filtering tracker with post-deduplication count
+    filtering_tracker.set_initial(len(df_clean), "Papers after deduplication")
+
+    # Track duplicate sources BEFORE further filtering (so analysis is meaningful)
+    if quality_filters.get("track_duplicate_sources", True):
+        logging.info("Analyzing duplicate sources and API overlap...")
+        analyzer, metadata_quality = analyze_and_report_duplicates(
+            df_clean,
+            generate_report=quality_filters.get("generate_quality_report", True),
+        )
+
     # Calculate and save quality scores for all papers
     logging.info("Calculating quality scores...")
     from src.crawlers.aggregate import getquality
@@ -1260,16 +1271,13 @@ if __name__ == "__main__":
         logging.info("\n=== ItemType Bypass Filter ===")
         df_bypass, df_non_bypass = _apply_itemtype_bypass(df_clean, bypass_item_types)
 
-        # Track bypass stage
+        # Track bypass split as a single stage
+        # Note: df_bypass papers auto-pass to output, df_non_bypass papers continue through filters
         filtering_tracker.add_stage(
-            "ItemType Bypass (Auto-Pass)",
-            len(df_bypass),
-            f"High-quality publications that bypass filters: {', '.join(bypass_item_types)}",
-        )
-        filtering_tracker.add_stage(
-            "Papers Requiring Filtering",
-            len(df_non_bypass),
-            "Papers that need quality validation",
+            "ItemType Bypass Split",
+            len(df_non_bypass),  # Papers continuing through quality validation pipeline
+            f"Split: {len(df_bypass):,} high-quality papers auto-pass ({', '.join(bypass_item_types)}), "
+            f"{len(df_non_bypass):,} papers continue through quality validation",
         )
     else:
         # No bypass configured - all papers go through filters
@@ -1345,14 +1353,6 @@ if __name__ == "__main__":
                 len(df_clean),
                 f"Abstracts meeting quality threshold (min score: {min_quality_score})",
             )
-
-    # Duplicate source tracking (Phase 2)
-    if quality_filters.get("track_duplicate_sources", True):
-        logging.info("Analyzing duplicate sources and API overlap...")
-        analyzer, metadata_quality = analyze_and_report_duplicates(
-            df_clean,
-            generate_report=quality_filters.get("generate_quality_report", True),
-        )
 
     if get_citation and len(df_clean) > 0:
         # Set up checkpoint path

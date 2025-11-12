@@ -34,11 +34,47 @@ quality_filters:
   # Fast-track high-quality publication types that bypass subsequent filters
   # These papers are automatically included without validation (trusted sources)
   # Reduces processing time by ~50% while maintaining quality
+  #
+  # Valid Zotero itemTypes (from most to least common in SciLEx):
+  #   journalArticle    - Journal/magazine articles (most common)
+  #   conferencePaper   - Conference proceedings papers
+  #   preprint          - Preprints (Arxiv, bioRxiv, etc.)
+  #   bookSection       - Book chapters
+  #   book              - Books
+  #   thesis            - PhD dissertations, Master's theses
+  #   report            - Technical reports, white papers
+  #   manuscript        - Unpublished manuscripts, working papers
+  #   presentation      - Conference presentations, posters
+  #   dataset           - Research datasets
+  #   computerProgram   - Software, code repositories
+  #   patent            - Patents
+  #   webpage           - Web pages, blog posts
+  #   blogPost          - Blog posts specifically
+  #   magazineArticle   - Popular magazine articles
+  #   newspaperArticle  - Newspaper articles
+  #   forumPost         - Forum/discussion posts
+  #   podcast           - Podcast episodes
+  #   videoRecording    - Videos, lectures
+  #   audioRecording    - Audio files
+  #   artwork           - Artwork, images
+  #   map               - Maps, geographic data
+  #   document          - Generic documents (catch-all)
+  #
+  # Recommended bypass types for academic research:
+  #   - journalArticle, conferencePaper (peer-reviewed, high quality)
+  #   - bookSection, book (established knowledge)
+  #   - thesis (original research, well-documented)
+  #
+  # NOT recommended for bypass:
+  #   - preprint (not peer-reviewed, should validate)
+  #   - manuscript (draft quality varies)
+  #   - report (quality varies by source)
+  #
   enable_itemtype_bypass: true
   bypass_item_types:
     - journalArticle
     - conferencePaper
-    # - bookSection  
+    # - bookSection
     # - book
 
   # Require papers to have a DOI (improves citation tracking and prevents duplicates)

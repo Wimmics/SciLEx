@@ -418,6 +418,8 @@ def IstextoZoteroFormat(row):
         if row["genre"][0] == "conference":
             zotero_temp["itemType"] = "conferencePaper"
         if row["genre"][0] == "article":
+            zotero_temp["itemType"] = "journalArticle"  # Fixed: was bookSection
+        if row["genre"][0] == "book-chapter":
             zotero_temp["itemType"] = "bookSection"
 
     if row["title"] != "" and row["title"] is not None:
@@ -484,6 +486,10 @@ def IstextoZoteroFormat(row):
             ):
                 zotero_temp["rights"] = row["accessCondition"]["contentType"]
 
+    # Default itemType if not set
+    if not is_valid(zotero_temp.get("itemType")):
+        zotero_temp["itemType"] = "Manuscript"
+
     return zotero_temp
 
 
@@ -510,7 +516,7 @@ def ArxivtoZoteroFormat(row):
     # Genre pas clair
     zotero_temp["archive"] = "Arxiv"
     zotero_temp["rights"] = "True"
-    zotero_temp["itemType"] = "Manuscript"
+
     if row["abstract"] != "" and row["abstract"] is not None:
         zotero_temp["abstract"] = row["abstract"]
     if row["authors"] != "" and row["authors"] is not None:
@@ -523,8 +529,15 @@ def ArxivtoZoteroFormat(row):
         zotero_temp["archiveID"] = row["id"]
     if row["published"] != "" and row["published"] is not None:
         zotero_temp["date"] = row["published"]
+
+    # Determine itemType based on journal field
+    # If journal metadata exists, paper was published (journal article)
+    # Otherwise, it's a preprint
     if row["journal"] != "" and row["journal"] is not None:
         zotero_temp["journalAbbreviation"] = row["journal"]
+        zotero_temp["itemType"] = "journalArticle"
+    else:
+        zotero_temp["itemType"] = "preprint"
 
     return zotero_temp
 
@@ -590,6 +603,11 @@ def DBLPtoZoteroFormat(row):
         zotero_temp["itemType"] = "Manuscript"
 
         # print("NEED TO ADD FOLLOWING TYPE >",row["type"][0])
+
+    # Default itemType if not set
+    if not is_valid(zotero_temp.get("itemType")):
+        zotero_temp["itemType"] = "Manuscript"
+
     return zotero_temp
 
 
@@ -641,6 +659,10 @@ def HALtoZoteroFormat(row):
     if row["docType_s"] == "PROCEEDINGS":
         zotero_temp["itemType"] = "conferencePaper"
     if row["docType_s"] == "Informal Publications":
+        zotero_temp["itemType"] = "Manuscript"
+
+    # Default itemType if not set
+    if not is_valid(zotero_temp.get("itemType")):
         zotero_temp["itemType"] = "Manuscript"
 
     return zotero_temp
@@ -738,6 +760,11 @@ def OpenAlextoZoteroFormat(row):
                 pass
 
             # print("NEED TO ADD FOLLOWING TYPE >",row["host_venue"]["type"])
+
+    # Default itemType if not set
+    if not is_valid(zotero_temp.get("itemType")):
+        zotero_temp["itemType"] = "Manuscript"
+
     return zotero_temp
 
 
@@ -825,6 +852,10 @@ def IEEEtoZoteroFormat(row):
 
         # print("NEED TO ADD FOLLOWING TYPE >",row["content_type"])
 
+    # Default itemType if not set
+    if not is_valid(zotero_temp.get("itemType")):
+        zotero_temp["itemType"] = "Manuscript"
+
     return zotero_temp
 
 
@@ -906,6 +937,10 @@ def SpringertoZoteroFormat(row):
     else:
         pass
         # print("NEED TO ADD FOLLOWING TYPE >",row["content_type"])
+
+    # Default itemType if not set
+    if not is_valid(zotero_temp.get("itemType")):
+        zotero_temp["itemType"] = "Manuscript"
 
     return zotero_temp
 
@@ -994,6 +1029,10 @@ def ElseviertoZoteroFormat(row):
         else:
             pass
             # print("NEED TO ADD FOLLOWING TYPE >",row["subtypeDescription"])
+
+    # Default itemType if not set
+    if not is_valid(zotero_temp.get("itemType")):
+        zotero_temp["itemType"] = "Manuscript"
 
     return zotero_temp
 
