@@ -82,6 +82,12 @@ semantic_scholar_mode: bulk      # "regular" (default, works with standard API k
 
 # Optional: Quality filters (see scilex.config.yml.example for details)
 quality_filters:
+  # ItemType Filtering (Whitelist) - NEW!
+  enable_itemtype_filter: false          # Enable to only keep specific publication types
+  allowed_item_types:                    # Only these types will be kept (others removed)
+    - journalArticle                     # Example: Focus on peer-reviewed work only
+    - conferencePaper
+
   enable_itemtype_bypass: true           # Fast-track trusted publications (~50% speedup)
   bypass_item_types: [journalArticle, conferencePaper]
   apply_citation_filter: true            # Time-aware citation filtering

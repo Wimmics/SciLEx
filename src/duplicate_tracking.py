@@ -14,7 +14,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-from src.constants import is_missing, is_valid
+from src.constants import MISSING_VALUE, is_missing, is_valid
 
 
 class DuplicateSourceAnalyzer:
@@ -360,12 +360,20 @@ def analyze_api_metadata_quality(df: pd.DataFrame) -> dict[str, dict]:
     Returns:
         Dictionary mapping API to metadata quality statistics
     """
-    key_fields = ["DOI", "title", "authors", "date", "abstract", "journalAbbreviation"]
+    key_fields = [
+        "DOI",
+        "title",
+        "authors",
+        "date",
+        "abstract",
+        "journalAbbreviation",
+        "itemType",
+    ]
 
     api_quality = defaultdict(lambda: {field: 0 for field in key_fields})
     api_counts = defaultdict(int)
 
-    for idx, row in df.iterrows():
+    for _, row in df.iterrows():
         archive = row.get("archive", "")
 
         if is_missing(archive):
@@ -432,6 +440,7 @@ def generate_metadata_quality_report(quality_stats: dict[str, dict]) -> str:
             "date",
             "abstract",
             "journalAbbreviation",
+            "itemType",
         ]:
             if field in field_comp:
                 count = field_comp[field]["count"]
@@ -439,6 +448,71 @@ def generate_metadata_quality_report(quality_stats: dict[str, dict]) -> str:
                 report_lines.append(
                     f"  {field:<25}: {count:>4}/{total:>4} ({pct:>5.1f}%)"
                 )
+
+    report_lines.append("\n" + "=" * 70 + "\n")
+
+    return "\n".join(report_lines)
+
+
+def generate_itemtype_distribution_report(df: pd.DataFrame) -> str:
+    """
+    Generate itemType distribution report by API.
+
+    Args:
+        df: DataFrame with papers, archive column, and itemType column
+
+    Returns:
+        Formatted report showing itemType counts and percentages per API
+    """
+    if df.empty:
+        return "No data available for itemType distribution."
+
+    report_lines = [
+        "\n" + "=" * 70,
+        "ITEMTYPE DISTRIBUTION BY API",
+        "=" * 70,
+    ]
+
+    # Group by API and itemType
+    api_itemtype_counts = defaultdict(lambda: defaultdict(int))
+    api_totals = defaultdict(int)
+
+    for _, row in df.iterrows():
+        archive = row.get("archive", "")
+
+        if is_missing(archive):
+            continue
+
+        # Parse archive (primary API is marked with *)
+        apis = [api.replace("*", "").strip() for api in str(archive).split(";")]
+        primary_api = next(
+            (api for api in apis if "*" in str(row.get("archive", "")) and api),
+            apis[0] if apis else "Unknown",
+        )
+
+        # Count total papers per API
+        api_totals[primary_api] += 1
+
+        # Count itemType occurrences
+        item_type = row.get("itemType", MISSING_VALUE)
+        if is_missing(item_type):
+            item_type = "Missing/NA"
+        api_itemtype_counts[primary_api][item_type] += 1
+
+    # Generate report for each API
+    for api in sorted(api_itemtype_counts.keys()):
+        total = api_totals[api]
+        itemtype_counts = api_itemtype_counts[api]
+
+        report_lines.append(f"\n{api} ({total} papers):")
+        report_lines.append("-" * 40)
+
+        # Sort by count (descending) then by itemType name
+        sorted_items = sorted(itemtype_counts.items(), key=lambda x: (-x[1], x[0]))
+
+        for item_type, count in sorted_items:
+            pct = (count / total * 100) if total > 0 else 0.0
+            report_lines.append(f"  {item_type:<25}: {count:>4} ({pct:>5.1f}%)")
 
     report_lines.append("\n" + "=" * 70 + "\n")
 

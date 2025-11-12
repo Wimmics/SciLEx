@@ -34,7 +34,10 @@ from src.crawlers.aggregate import (
     SpringertoZoteroFormat,
 )
 from src.crawlers.utils import load_all_configs
-from src.duplicate_tracking import analyze_and_report_duplicates
+from src.duplicate_tracking import (
+    analyze_and_report_duplicates,
+    generate_itemtype_distribution_report,
+)
 from src.keyword_validation import (
     generate_keyword_validation_report,
 )
@@ -589,6 +592,120 @@ def _apply_itemtype_bypass(df, bypass_item_types):
     logging.info(f"ItemType bypass: {len(non_bypass_df)} papers require filtering")
 
     return bypass_df, non_bypass_df
+
+
+def _apply_itemtype_filter(df, allowed_types, enabled):
+    """
+    Filter papers to only keep specified itemTypes (whitelist mode).
+
+    This filter runs EARLY in the pipeline (after deduplication, before quality filters)
+    to remove unwanted publication types. Papers with missing/NA itemType are removed
+    in strict mode.
+
+    Args:
+        df: Input DataFrame
+        allowed_types: List of allowed itemType values (whitelist)
+                      e.g., ["journalArticle", "conferencePaper"]
+        enabled: Boolean flag to enable/disable filtering
+
+    Returns:
+        tuple: (filtered_df, stats_dict)
+            - filtered_df: DataFrame with only allowed itemTypes
+            - stats_dict: Statistics about filtering operation
+    """
+    stats = {
+        "enabled": enabled,
+        "total_before": len(df),
+        "total_after": 0,
+        "removed": 0,
+        "removed_missing_itemtype": 0,
+        "kept_by_type": {},
+        "removed_by_type": {},
+    }
+
+    # If disabled, return original DataFrame
+    if not enabled:
+        logging.info("ItemType filtering: DISABLED - all itemTypes allowed")
+        stats["total_after"] = len(df)
+        return df, stats
+
+    # Check if itemType column exists
+    if "itemType" not in df.columns:
+        logging.warning(
+            "ItemType filtering: itemType column not found - filtering skipped"
+        )
+        stats["total_after"] = len(df)
+        return df, stats
+
+    # Warn if allowed_types is empty
+    if not allowed_types:
+        logging.warning(
+            "ItemType filtering: allowed_item_types list is EMPTY - all papers will be removed!"
+        )
+        stats["total_after"] = 0
+        stats["removed"] = len(df)
+        return pd.DataFrame(columns=df.columns), stats
+
+    logging.info(
+        f"ItemType filtering: ENABLED - whitelist mode with {len(allowed_types)} allowed types"
+    )
+    logging.info(f"ItemType filtering: Allowed types: {', '.join(allowed_types)}")
+
+    # Identify papers with missing itemType (strict mode - remove these)
+    missing_mask = (
+        df["itemType"].isna() | (df["itemType"] == "") | (df["itemType"] == "NA")
+    )
+    missing_count = missing_mask.sum()
+
+    # Filter: Keep only papers with itemType in allowed list
+    # Papers with missing itemType will be excluded (strict mode)
+    filtered_df = df[df["itemType"].isin(allowed_types) & ~missing_mask].copy()
+
+    # Calculate statistics
+    stats["total_after"] = len(filtered_df)
+    stats["removed"] = stats["total_before"] - stats["total_after"]
+    stats["removed_missing_itemtype"] = missing_count
+
+    # Count kept papers by type
+    if not filtered_df.empty:
+        kept_counts = filtered_df["itemType"].value_counts()
+        stats["kept_by_type"] = kept_counts.to_dict()
+
+    # Count removed papers by type (excluding missing)
+    removed_df = df[~df.index.isin(filtered_df.index) & ~missing_mask]
+    if not removed_df.empty:
+        removed_counts = removed_df["itemType"].value_counts()
+        stats["removed_by_type"] = removed_counts.to_dict()
+
+    # Log detailed statistics
+    logging.info(f"ItemType filtering: {stats['total_before']} papers before filtering")
+    logging.info(
+        f"ItemType filtering: {stats['total_after']} papers after filtering (KEPT)"
+    )
+    logging.info(
+        f"ItemType filtering: {stats['removed']} papers removed ({stats['removed'] / stats['total_before'] * 100:.1f}%)"
+    )
+
+    if stats["removed_missing_itemtype"] > 0:
+        logging.info(
+            f"  - {stats['removed_missing_itemtype']} papers removed: missing/NA itemType"
+        )
+
+    if stats["kept_by_type"]:
+        logging.info("  Papers KEPT by itemType:")
+        for item_type, count in sorted(
+            stats["kept_by_type"].items(), key=lambda x: x[1], reverse=True
+        ):
+            logging.info(f"    - {item_type}: {count} papers")
+
+    if stats["removed_by_type"]:
+        logging.info("  Papers REMOVED by itemType:")
+        for item_type, count in sorted(
+            stats["removed_by_type"].items(), key=lambda x: x[1], reverse=True
+        ):
+            logging.info(f"    - {item_type}: {count} papers")
+
+    return filtered_df, stats
 
 
 def _use_semantic_scholar_citations_fallback(df):
@@ -1204,6 +1321,39 @@ if __name__ == "__main__":
     # Initialize filtering tracker with post-deduplication count
     filtering_tracker.set_initial(len(df_clean), "Papers after deduplication")
 
+    # =========================================================================
+    # STEP 1: ItemType Filtering (Whitelist Mode)
+    # =========================================================================
+    # Apply itemType filtering FIRST, before any other filters
+    # This runs independently of bypass mechanism and filters papers early
+    enable_itemtype_filter = quality_filters.get("enable_itemtype_filter", False)
+    allowed_item_types = quality_filters.get("allowed_item_types", [])
+
+    if enable_itemtype_filter:
+        logging.info("\n=== ItemType Filtering (Whitelist Mode) ===")
+        df_clean, itemtype_stats = _apply_itemtype_filter(
+            df_clean, allowed_item_types, enable_itemtype_filter
+        )
+
+        # Track itemType filtering stage
+        filtering_tracker.add_stage(
+            "ItemType Filter",
+            len(df_clean),
+            f"Whitelist filtering: Only {len(allowed_item_types)} allowed itemTypes kept",
+        )
+
+        # Exit early if all papers were filtered out
+        if len(df_clean) == 0:
+            logging.warning(
+                "All papers filtered out by itemType filter. No papers to process."
+            )
+            logging.warning(
+                "Check your allowed_item_types configuration in scilex.config.yml"
+            )
+            sys.exit(1)
+    else:
+        logging.info("ItemType filtering: DISABLED (all itemTypes allowed)")
+
     # Track duplicate sources BEFORE further filtering (so analysis is meaningful)
     if quality_filters.get("track_duplicate_sources", True):
         logging.info("Analyzing duplicate sources and API overlap...")
@@ -1211,6 +1361,12 @@ if __name__ == "__main__":
             df_clean,
             generate_report=quality_filters.get("generate_quality_report", True),
         )
+
+    # Generate itemType distribution report
+    if quality_filters.get("generate_quality_report", True):
+        logging.info("Generating itemType distribution report...")
+        itemtype_report = generate_itemtype_distribution_report(df_clean)
+        print(itemtype_report)
 
     # Calculate and save quality scores for all papers
     logging.info("Calculating quality scores...")

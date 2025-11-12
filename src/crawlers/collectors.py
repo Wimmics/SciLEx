@@ -574,7 +574,7 @@ class API_collector:
                         # Check if we've collected enough articles
                         max_articles = self.filter_param.get_max_articles_per_query()
                         if max_articles > 0 and self.nb_art_collected >= max_articles:
-                            logging.info(
+                            logging.debug(
                                 f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
                                 f"No more pages needed."
                             )
@@ -646,7 +646,7 @@ class API_collector:
                         # Check if we've collected enough articles
                         max_articles = self.filter_param.get_max_articles_per_query()
                         if max_articles > 0 and self.nb_art_collected >= max_articles:
-                            logging.info(
+                            logging.debug(
                                 f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
                                 f"No more pages needed."
                             )
@@ -1807,7 +1807,7 @@ class Springer_collector(API_collector):
                         # Check if we've collected enough articles
                         max_articles = self.filter_param.get_max_articles_per_query()
                         if max_articles > 0 and self.nb_art_collected >= max_articles:
-                            logging.info(
+                            logging.debug(
                                 f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
                                 f"No more pages needed."
                             )
@@ -2015,7 +2015,7 @@ class GoogleScholarCollector(API_collector):
 
                     # Check if we've collected enough articles (post-check after saving page)
                     if max_articles > 0 and self.nb_art_collected >= max_articles:
-                        logging.info(
+                        logging.debug(
                             f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
                             f"No more pages needed."
                         )

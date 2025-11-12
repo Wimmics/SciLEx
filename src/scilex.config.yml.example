@@ -77,6 +77,43 @@ quality_filters:
     # - bookSection
     # - book
 
+  # === ItemType Filtering (Whitelist Mode) ===
+  # If enabled, ONLY papers with itemTypes in the allowed list will be kept
+  # All other papers will be removed from the aggregated results
+  # This filtering happens EARLY in the pipeline (after deduplication, before quality filters)
+  # Papers with missing/NA itemType will be removed (strict mode)
+  #
+  # Use cases:
+  #   - Focus on peer-reviewed work only (journalArticle, conferencePaper)
+  #   - Exclude grey literature (preprints, reports, theses)
+  #   - Ensure consistent publication quality
+  #
+  # Common itemType combinations:
+  #   Peer-reviewed only: [journalArticle, conferencePaper]
+  #   Academic + Books: [journalArticle, conferencePaper, bookSection, book]
+  #   All scholarly: [journalArticle, conferencePaper, bookSection, book, thesis]
+  #
+  # NOTE: This is INDEPENDENT of bypass_item_types
+  #   - ItemType filtering runs FIRST (removes unwanted types)
+  #   - Bypass mechanism runs SECOND (on papers that passed itemType filter)
+  #
+  enable_itemtype_filter: false  # Set to true to enable whitelist filtering
+  allowed_item_types:
+    - journalArticle      # Peer-reviewed journal articles
+    - conferencePaper     # Conference proceedings
+    - bookSection         # Book chapters
+    - book                # Books and monographs
+    # Other valid types you can add:
+    # - preprint          # arXiv, bioRxiv, etc.
+    # - thesis            # PhD dissertations, master's theses
+    # - report            # Technical reports, white papers
+    # - patent            # Patent documents
+    # - manuscript        # Unpublished manuscripts
+    # - webpage           # Web pages, blog posts
+    # - presentation      # Conference presentations
+    # - dataset           # Research datasets
+    # - computerProgram   # Software, code repositories
+
   # Require papers to have a DOI (improves citation tracking and prevents duplicates)
   # Google Scholar often lacks DOIs - set to false if using primarily GScholar
   # Enhanced: Now validates DOI is non-empty after stripping whitespace
