@@ -122,7 +122,7 @@ def generate_keyword_validation_report(
             keyword_counts[kw] = 0
 
     # Check each paper
-    for idx, row in df.iterrows():
+    for _, row in df.iterrows():
         found, matched = check_keywords_in_paper(row.to_dict(), keywords)
 
         if found:
@@ -171,18 +171,18 @@ def generate_keyword_validation_report(
 
     if false_positive_rate > 30:
         report_lines.append(
-            f"  ⚠️  WARNING: {false_positive_rate:.1f}% of papers don't contain keywords!"
+            f"  Warning: {false_positive_rate:.1f}% of papers don't contain keywords"
         )
         report_lines.append("      This suggests high false positive rate from APIs.")
         report_lines.append("      Consider more specific keywords or different APIs.")
     elif false_positive_rate > 10:
         report_lines.append(
-            f"  ⚠️  MODERATE: {false_positive_rate:.1f}% of papers don't contain keywords."
+            f"  Moderate: {false_positive_rate:.1f}% of papers don't contain keywords"
         )
         report_lines.append("      Some API false positives detected.")
     else:
         report_lines.append(
-            f"  ✓ GOOD: {false_positive_rate:.1f}% false positive rate is acceptable."
+            f"  Good: {false_positive_rate:.1f}% false positive rate is acceptable"
         )
 
     report_lines.append("=" * 70 + "\n")
@@ -209,7 +209,7 @@ def filter_by_keywords(
 
     keep_mask = []
 
-    for idx, row in df.iterrows():
+    for _, row in df.iterrows():
         found, _ = check_keywords_in_paper(row.to_dict(), keywords)
         keep_mask.append(found)
 

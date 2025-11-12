@@ -181,7 +181,7 @@ class DuplicateSourceAnalyzer:
         return stats
 
     def generate_report(self) -> str:
-        """Generate comprehensive duplicate source tracking report."""
+        """Generate duplicate source tracking report."""
         if not self.apis_encountered:
             return "No API source information available."
 
@@ -523,7 +523,7 @@ def analyze_and_report_duplicates(
     df: pd.DataFrame, generate_report: bool = True
 ) -> tuple[DuplicateSourceAnalyzer, dict]:
     """
-    Comprehensive duplicate source analysis.
+    Analyze duplicate sources and metadata quality.
 
     Args:
         df: DataFrame with aggregated papers

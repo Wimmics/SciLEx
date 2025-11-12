@@ -1,26 +1,10 @@
 """
 Parallel aggregation module for paper processing.
 
-This module provides parallel processing for SciLEx aggregation:
-- Parallel file loading
-- Parallel batch processing
-- Hash-based deduplication
-
-Architecture:
-    Stage 1: Parallel file loading (threading)
-        ├─ Load JSON files in parallel (I/O bound)
-        └─ Collect raw paper data
-
-    Stage 2: Parallel batch processing (multiprocessing)
-        ├─ Convert API formats to unified schema
-        ├─ Apply text filtering (keyword matching)
-        └─ Process in batches for cache locality
-
-    Stage 3: Deduplication (serial)
-        ├─ DOI-based dedup (hash set, O(n))
-        ├─ Normalized title dedup (hash dict, O(n))
-        └─ Exact substring matching only
-
+Processing stages:
+1. Parallel file loading (threading): Load JSON files, I/O bound
+2. Parallel batch processing (multiprocessing): Convert formats, apply filters
+3. Deduplication (serial): DOI-based and normalized title matching (O(n))
 """
 
 import json

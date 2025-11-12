@@ -289,7 +289,7 @@ class API_collector:
         headers=None,
     ):
         """
-        Enhanced API call decorator with circuit breaker, retry logic and comprehensive error handling.
+        API call decorator with circuit breaker, retry logic, and error handling.
 
         Args:
             configurated_url: The URL to call
@@ -759,7 +759,7 @@ class SemanticScholar_collector(API_collector):
     ):
         """
         API call with SemanticScholar-specific headers.
-        Uses parent's comprehensive decorator with circuit breaker, retry logic, and error handling.
+        Calls parent decorator with circuit breaker and retry logic.
 
         Args:
             configurated_url: The URL to call
@@ -1049,8 +1049,8 @@ class Elsevier_collector(API_collector):
         self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES
     ):
         """
-        API call with Elsevier-specific headers including institutional token.
-        Uses parent's comprehensive decorator with circuit breaker, retry logic, and error handling.
+        API call with Elsevier-specific headers and optional institutional token.
+        Calls parent decorator with circuit breaker and retry logic.
 
         Args:
             configurated_url: The URL to call
