@@ -313,7 +313,7 @@ def _calculate_required_citations(months_since_pub):
     Returns:
         int: Required citation count
     """
-    if months_since_pub is None:
+    if months_since_pub is None or pd.isna(months_since_pub):
         return CitationFilterConfig.GRACE_PERIOD_CITATIONS  # No date = no filtering
 
     if months_since_pub <= CitationFilterConfig.GRACE_PERIOD_MONTHS:

@@ -640,6 +640,19 @@ def HALtoZoteroFormat(row):
         zotero_temp["journalAbbreviation"] = row["journalTitle_t"]
 
     zotero_temp["date"] = row["submittedDateY_i"]
+
+    # Extract authors from authFullNameIdHal_fs field
+    if "authFullNameIdHal_fs" in row:
+        auth_list = []
+        for auth in row["authFullNameIdHal_fs"]:
+            if auth and auth.strip():
+                # Split on "_FacetSep_" separator and take author name
+                clean_name = auth.split("_FacetSep_")[0].strip()
+                if clean_name:
+                    auth_list.append(clean_name)
+        if len(auth_list) > 0:
+            zotero_temp["authors"] = ";".join(auth_list)
+
     if row["docType_s"] == "ART":
         zotero_temp["itemType"] = "journalArticle"
         if "venue" in row:
@@ -656,6 +669,37 @@ def HALtoZoteroFormat(row):
         zotero_temp["itemType"] = "Manuscript"
 
     return zotero_temp
+
+
+def reconstruct_abstract_from_inverted_index(inverted_index):
+    """Reconstruct abstract text from OpenAlex's inverted index format.
+
+    Args:
+        inverted_index: Dictionary mapping words to their positions
+                       e.g., {"word": [0, 5], "another": [1]}
+
+    Returns:
+        str: Reconstructed abstract text, or None if empty/invalid
+
+    """
+    if not inverted_index:
+        return None
+
+    try:
+        # Find maximum position to size the word array
+        max_position = max(max(positions) for positions in inverted_index.values())
+        words = [""] * (max_position + 1)
+
+        # Place each word at its positions
+        for word, positions in inverted_index.items():
+            for pos in positions:
+                words[pos] = word
+
+        # Join words with spaces
+        return " ".join(words)
+    except (ValueError, TypeError, KeyError):
+        # Handle malformed inverted index gracefully
+        return None
 
 
 # Abstract must be recomposed...
@@ -685,6 +729,14 @@ def OpenAlextoZoteroFormat(row):
     zotero_temp["DOI"] = row["doi"]
     zotero_temp["title"] = row["title"]
     zotero_temp["date"] = row["publication_date"]
+
+    # Extract abstract from inverted index
+    if "abstract_inverted_index" in row and row["abstract_inverted_index"]:
+        reconstructed = reconstruct_abstract_from_inverted_index(
+            row["abstract_inverted_index"]
+        )
+        if reconstructed:
+            zotero_temp["abstract"] = reconstructed
 
     if (
         row["open_access"] != ""

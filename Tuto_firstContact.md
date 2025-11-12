@@ -16,6 +16,14 @@
 
 ## 1. 🛠 Clone the Repository and Install Requirements
 
+**Option 1: Using uv (recommended - fast):**
+```bash
+git clone https://github.com/datalogism/SciLEx.git
+cd SciLEx
+uv sync
+```
+
+**Option 2: Using pip (traditional):**
 ```bash
 git clone https://github.com/datalogism/SciLEx.git
 cd SciLEx
@@ -45,8 +53,8 @@ pip install -r requirements.txt
 ```yaml
 aggregate_txt_filter: true         # Filter articles based on the given keywords 🔍
 aggregate_get_citations: true      # Collect all citations during aggregation 📑
-aggregate_file: '/FileAggreg.csv'  # Aggregated results will be saved here 💾
-apis:                              
+aggregate_file: 'aggregated_data.csv'  # Aggregated results will be saved here 💾
+apis:
   - DBLP
   - Arxiv
   - OpenAlex
@@ -54,17 +62,31 @@ apis:
 collect: true                       # Flag to enable or disable collection ✅
 collect_name: graphrag              # Name for this collection 🏷
 email: YOUR_MAIL                    # Email used for API requests 📧
-fields:                             # Fields to search for keywords (currently all available) 🧩
+fields:                             # Fields to search for keywords 🧩
   - title
   - abstract
-keywords:                            # Two lists of keywords for collection 💡
-  - ["RAG", "Graphrag", "LLM", "sparql", "Multi-agent", "agent", "agentic", "Langchain", "RAG", "RAGs", "rag", "rag"]
-  - ["Knowledge Graph", "Knowledge Graphs", "knowledge graph", "knowledge graph"]
+keywords:                            # Two keyword groups for collection 💡
+  - ["RAG", "LLM", "agent"]         # Group 1: Any of these keywords
+  - ["Knowledge Graph"]             # Group 2: Must also match this (dual mode)
+                                     # OR: Set second group to [] for single mode
+max_articles_per_query: 1000        # Articles per query (-1 = unlimited, 1000 recommended)
 output_dir: output
 years:
   - 2023
   - 2024
   - 2025
+
+# Semantic Scholar API mode (only if using SemanticScholar)
+semantic_scholar_mode: bulk      # "regular" (default, works with standard API keys)
+                                    # "bulk" (requires higher-tier access, 10x faster)
+
+# Optional: Quality filters (see scilex.config.yml.example for details)
+quality_filters:
+  enable_itemtype_bypass: true           # Fast-track trusted publications (~50% speedup)
+  bypass_item_types: [journalArticle, conferencePaper]
+  apply_citation_filter: true            # Time-aware citation filtering
+  apply_relevance_ranking: true          # Composite scoring
+  max_papers: 1000                       # Keep top N most relevant (null = keep all)
 ```
 
 ---
@@ -77,6 +99,14 @@ Once the previous steps are complete, run the collection from the library source
 python src/run_collecte.py
 ```
 
+You'll see real-time progress bars for each API. Expected time: ~5-15 minutes per API.
+
+**Optional:** Control logging verbosity:
+```bash
+LOG_LEVEL=INFO python src/run_collecte.py   # Detailed logs
+LOG_LEVEL=DEBUG python src/run_collecte.py  # Full debugging
+```
+
 ---
 
 ## 4. 📦 Aggregate the Collection
@@ -87,6 +117,15 @@ After collecting all papers, create the final aggregated file:
 python src/aggregate_collect.py
 ```
 
+**Common flags:**
+```bash
+--skip-citations        # Skip citation fetching (faster)
+--workers N             # Parallel workers for citations (default: 3)
+--profile               # Show performance statistics
+--resume                # Resume from checkpoint if interrupted
+--no-cache              # Disable citation cache (slower, not recommended)
+```
+
 ---
 
 ## 5. 📂 View the Results
@@ -94,25 +133,39 @@ python src/aggregate_collect.py
 Results are saved in a dedicated directory inside `./output_dir`. Each directory is named according to the `collect_name` in your configuration:
 
 ```
-output_dir/collect_name/
-├── LibraryOne/           # Individual libraries 📚
-├── Library.../            
-├── LibraryN/             
-│   ├── page0/   
-│   ├── page.../   
-│   └── pagen/
-├── configuration_used.yml # Local copy of the configuration 📝
-└── aggregation_file.csv   # Aggregated results 💾
+output/collect_name_YYYYMMDD_HHMMSS/
+├── SemanticScholar/      # Individual API results 📚
+├── OpenAlex/
+├── DBLP/
+│   ├── 0/                # Query ID
+│   │   ├── page_1        # Result pages (JSON)
+│   │   └── page_2
+├── config_used.yml       # Local copy of the configuration 📝
+├── aggregated_data.csv   # Aggregated results 💾
+└── citation_cache.db     # Citation cache for faster re-runs
 ```
+
+**CSV Output:** Contains `title`, `authors`, `abstract`, `DOI`, `URL`, `year`, `itemType`, and enrichment fields like `citation_count`, `quality_score`, `relevance_score`.
 
 ---
 
 ## 6. 🔄 Push Results to Zotero
 
-If you have your Zotero API key, you can push the `aggregation_file.csv` content to a Zotero library. Note that free Zotero accounts have storage limits, so manual filtering is recommended.
+If you have your Zotero API key, you can push the `aggregated_data.csv` content to a Zotero library. Note that free Zotero accounts have storage limits, so manual filtering is recommended.
 
 ```bash
 python src/push_to_zotero.py
 ```
 
-This will create a new library based on the `collect_name` defined in your configuration 🏁.
+This will create a new collection based on the `collect_name` defined in your configuration 🏁.
+
+**Performance:** 500 papers upload in ~10-15 seconds (optimized with bulk API).
+
+---
+
+## 🐛 Troubleshooting
+
+**Empty results?** Check keywords aren't too specific, try single group mode (`keywords: [["term1", "term2"], []]`)
+
+**Rate limit errors (429)?** Reduce rate limits in `api.config.yml` (e.g., `DBLP: 1.0`)
+
