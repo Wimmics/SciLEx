@@ -816,6 +816,15 @@ class SemanticScholar_collector(API_collector):
                         "abstract": result.get("abstract", ""),
                         "url": result.get("url", ""),
                         "venue": result.get("venue", ""),
+                        "publicationVenue": result.get(
+                            "publicationVenue", None
+                        ),  # FIX: Extract publicationVenue
+                        "publicationTypes": result.get(
+                            "publicationTypes", []
+                        ),  # FIX: Extract publicationTypes
+                        "journal": result.get(
+                            "journal", None
+                        ),  # FIX: Extract journal metadata
                         "citationCount": result.get("citationCount", 0),
                         "referenceCount": result.get("referenceCount", 0),
                         "authors": [
@@ -831,6 +840,9 @@ class SemanticScholar_collector(API_collector):
                             "url", ""
                         ),
                         "DOI": result.get("externalIds", {}).get("DOI", ""),
+                        "paper_id": result.get(
+                            "paperId", ""
+                        ),  # FIX: Extract paperId for archiveID
                     }
                     page_data["results"].append(parsed_result)
 

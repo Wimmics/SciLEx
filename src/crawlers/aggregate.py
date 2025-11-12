@@ -113,15 +113,53 @@ def filter_data(df_input, filter_):
 
 
 def _find_best_duplicate_index(duplicates_df, column_names):
-    """Find the best duplicate record based on data quality."""
+    """Find the best duplicate record, preferring most recent then quality."""
     quality_list = []
+    year_list = []
+
     for i in range(len(duplicates_df)):
         idx = duplicates_df.index[i]
-        qual = getquality(duplicates_df.loc[idx], column_names)
+        record = duplicates_df.loc[idx]
+
+        # Get quality score
+        qual = getquality(record, column_names)
         quality_list.append(qual)
 
-    max_value = max(quality_list)
-    return quality_list.index(max_value)
+        # Extract year from date field
+        year = 0  # Default for missing/invalid years
+        date_str = record.get("date", "")
+        if is_valid(date_str):
+            try:
+                # Try to extract year from ISO date or year string
+                if isinstance(date_str, str):
+                    # Handle ISO dates (YYYY-MM-DD) or just year (YYYY)
+                    year_match = date_str.split("-")[0]
+                    if year_match.isdigit():
+                        year = int(year_match)
+            except (ValueError, AttributeError, IndexError):
+                year = 0
+        year_list.append(year)
+
+    # Find best duplicate: prioritize most recent year, then quality
+    best_idx = 0
+    best_year = year_list[0]
+    best_quality = quality_list[0]
+
+    for i in range(1, len(duplicates_df)):
+        current_year = year_list[i]
+        current_quality = quality_list[i]
+
+        # Prefer most recent year (higher year wins)
+        if current_year > best_year:
+            best_idx = i
+            best_year = current_year
+            best_quality = current_quality
+        # If same year, prefer higher quality
+        elif current_year == best_year and current_quality > best_quality:
+            best_idx = i
+            best_quality = current_quality
+
+    return best_idx
 
 
 def _merge_duplicate_archives(archive_list, chosen_archive):
@@ -262,6 +300,24 @@ def SemanticScholartoZoteroFormat(row):
                 pass
                 # print("NEED TO ADD FOLLOWING TYPES >",row["publicationTypes"])
 
+    # Handle publicationVenue (newer, richer field from Semantic Scholar API)
+    # Priority: publicationVenue > venue (publicationVenue has more structured data)
+    if safe_get(row, "publicationVenue"):
+        pub_venue = row["publicationVenue"]
+        venue_type = safe_get(pub_venue, "type")
+        venue_name = safe_get(pub_venue, "name")
+
+        if venue_type:
+            if venue_type == "journal":
+                zotero_temp["itemType"] = "journalArticle"
+                if venue_name:
+                    zotero_temp["journalAbbreviation"] = venue_name
+            elif venue_type == "conference":
+                zotero_temp["itemType"] = "conferencePaper"
+                if venue_name:
+                    zotero_temp["conferenceName"] = venue_name
+
+    # Fallback to older venue field if publicationVenue not available
     if safe_get(row, "venue"):
         venue_type = safe_get(row["venue"], "type")
         venue_name = safe_get(row["venue"], "name")
@@ -270,7 +326,7 @@ def SemanticScholartoZoteroFormat(row):
                 zotero_temp["itemType"] = "journalArticle"
                 if venue_name:
                     zotero_temp["journalAbbreviation"] = venue_name
-            if venue_type == "conference":
+            elif venue_type == "conference":
                 zotero_temp["itemType"] = "conferencePaper"
                 if venue_name:
                     zotero_temp["conferenceName"] = venue_name

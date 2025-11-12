@@ -22,10 +22,14 @@ class QualityReport:
         self.papers_filtered = 0
         self.filter_reasons = {
             "missing_doi": 0,
+            "empty_doi": 0,  # NEW: Enhanced DOI validation
             "missing_abstract": 0,
             "abstract_too_short": 0,
             "abstract_too_long": 0,
             "missing_year": 0,
+            "outside_year_range": 0,  # NEW: Year range validation
+            "invalid_year_format": 0,  # NEW: Year format validation
+            "not_open_access": 0,  # NEW: Open access filter
             "insufficient_authors": 0,
         }
 
@@ -145,10 +149,14 @@ def passes_quality_filters(record: dict, filters: dict) -> tuple[bool, str]:
     Returns:
         (passes, reason): Tuple of whether record passes and reason if it fails
     """
-    # Check DOI requirement
+    # Check DOI requirement (enhanced validation)
     if filters.get("require_doi", False):
-        if is_missing(record.get("DOI")):
+        doi = record.get("DOI")
+        if is_missing(doi):
             return False, "missing_doi"
+        # Enhanced DOI validation: non-empty after stripping whitespace
+        if isinstance(doi, str) and not doi.strip():
+            return False, "empty_doi"
 
     # Check abstract requirement
     require_abstract = filters.get("require_abstract", False)
@@ -164,9 +172,40 @@ def passes_quality_filters(record: dict, filters: dict) -> tuple[bool, str]:
             return False, reason
 
     # Check year requirement
-    if filters.get("require_year", False):
-        if is_missing(record.get("date")):
-            return False, "missing_year"
+    if filters.get("require_year", False) and is_missing(record.get("date")):
+        return False, "missing_year"
+
+    # Check year range (NEW - validates year is in allowed range)
+    if filters.get("validate_year_range", False):
+        year_range = filters.get("year_range", [])
+        if year_range:
+            date_str = record.get("date")
+            if is_valid(date_str):
+                try:
+                    # Extract year from ISO date (YYYY-MM-DD) or year string (YYYY)
+                    if isinstance(date_str, str):
+                        year_match = date_str.split("-")[0]
+                        if year_match.isdigit():
+                            year = int(year_match)
+                            if year not in year_range:
+                                return False, "outside_year_range"
+                except (ValueError, AttributeError, IndexError):
+                    # If year extraction fails, treat as missing year
+                    return False, "invalid_year_format"
+
+    # Check open access requirement (NEW)
+    if filters.get("require_open_access", False):
+        rights = record.get("rights")
+        # Check if rights field indicates open access
+        # Valid open access indicators: 'open', True, 'True'
+        is_open = False
+        if isinstance(rights, str):
+            is_open = rights.lower() in ["open", "true"]
+        elif isinstance(rights, bool):
+            is_open = rights
+
+        if not is_open:
+            return False, "not_open_access"
 
     # Check minimum author count
     min_authors = filters.get("min_author_count", 0)
@@ -202,7 +241,7 @@ def apply_quality_filters(
     # Track which rows to keep
     keep_mask = []
 
-    for idx, row in df.iterrows():
+    for _idx, row in df.iterrows():
         passes, reason = passes_quality_filters(row.to_dict(), filters)
 
         if passes:

@@ -553,6 +553,44 @@ def _apply_relevance_ranking(df, keyword_groups, top_n=None, has_citations=False
     return df_ranked
 
 
+def _apply_itemtype_bypass(df, bypass_item_types):
+    """
+    Separate papers into bypass and non-bypass groups based on itemType.
+
+    Papers with itemTypes in bypass_item_types skip subsequent quality filters.
+    This speeds up processing for high-quality publication types.
+
+    Args:
+        df: Input DataFrame
+        bypass_item_types: List of itemType values that bypass filters
+                          (e.g., ["journalArticle", "conferencePaper"])
+
+    Returns:
+        tuple: (bypass_df, non_bypass_df)
+            - bypass_df: Papers that bypass filters (high-quality types)
+            - non_bypass_df: Papers that need filtering
+    """
+    if not bypass_item_types:
+        # No bypass configured - all papers need filtering
+        return pd.DataFrame(), df
+
+    # Check if itemType column exists
+    if "itemType" not in df.columns:
+        logging.warning("itemType column not found - bypas filter skipped")
+        return pd.DataFrame(), df
+
+    # Split into bypass and non-bypass groups
+    bypass_df = df[df["itemType"].isin(bypass_item_types)].copy()
+    non_bypass_df = df[~df["itemType"].isin(bypass_item_types)].copy()
+
+    logging.info(
+        f"ItemType bypass: {len(bypass_df)} papers bypass filters ({', '.join(bypass_item_types)})"
+    )
+    logging.info(f"ItemType bypass: {len(non_bypass_df)} papers require filtering")
+
+    return bypass_df, non_bypass_df
+
+
 def _use_semantic_scholar_citations_fallback(df):
     """Use Semantic Scholar citation data as fallback when OpenCitations data is missing or zero.
 
@@ -1090,6 +1128,15 @@ if __name__ == "__main__":
     # Load configuration
     quality_filters = main_config.get("quality_filters", {})
 
+    # Auto-populate year_range from main config if empty
+    if quality_filters.get("validate_year_range", False):
+        year_range = quality_filters.get("year_range", [])
+        if not year_range:
+            # Use years from main config
+            year_range = main_config.get("years", [])
+            quality_filters["year_range"] = year_range
+            logging.info(f"Auto-populated year_range from main config: {year_range}")
+
     # Load keyword groups from config for proper dual-group filtering
     keyword_groups = main_config.get("keywords", [])
 
@@ -1199,14 +1246,55 @@ if __name__ == "__main__":
     )
     logging.info("Quality scores calculated and added to dataset")
 
-    # Apply quality filters if configured
-    if quality_filters:
-        logging.info("Applying quality filters...")
-        generate_report = quality_filters.get("generate_quality_report", True)
-        df_clean, quality_report = apply_quality_filters(
-            df_clean, quality_filters, generate_report
+    # Apply ItemType bypass filter if configured
+    bypass_item_types = (
+        quality_filters.get("bypass_item_types", []) if quality_filters else []
+    )
+    enable_bypass = (
+        quality_filters.get("enable_itemtype_bypass", False)
+        if quality_filters
+        else False
+    )
+
+    if enable_bypass and bypass_item_types:
+        logging.info("\n=== ItemType Bypass Filter ===")
+        df_bypass, df_non_bypass = _apply_itemtype_bypass(df_clean, bypass_item_types)
+
+        # Track bypass stage
+        filtering_tracker.add_stage(
+            "ItemType Bypass (Auto-Pass)",
+            len(df_bypass),
+            f"High-quality publications that bypass filters: {', '.join(bypass_item_types)}",
         )
-        logging.info(f"After quality filtering: {len(df_clean)} papers remaining")
+        filtering_tracker.add_stage(
+            "Papers Requiring Filtering",
+            len(df_non_bypass),
+            "Papers that need quality validation",
+        )
+    else:
+        # No bypass configured - all papers go through filters
+        df_bypass = pd.DataFrame()
+        df_non_bypass = df_clean
+
+    # Apply quality filters to non-bypass papers only
+    if quality_filters and len(df_non_bypass) > 0:
+        logging.info("Applying quality filters to non-bypass papers...")
+        generate_report = quality_filters.get("generate_quality_report", True)
+        df_filtered, quality_report = apply_quality_filters(
+            df_non_bypass, quality_filters, generate_report
+        )
+        logging.info(
+            f"After quality filtering: {len(df_filtered)} papers remaining (from {len(df_non_bypass)} non-bypass papers)"
+        )
+
+        # Merge bypass papers back with filtered papers
+        if len(df_bypass) > 0:
+            df_clean = pd.concat([df_bypass, df_filtered], ignore_index=True)
+            logging.info(
+                f"Merged: {len(df_bypass)} bypass + {len(df_filtered)} filtered = {len(df_clean)} total papers"
+            )
+        else:
+            df_clean = df_filtered
 
         # Track quality filtering stage
         filtering_tracker.add_stage(
@@ -1214,6 +1302,9 @@ if __name__ == "__main__":
             len(df_clean),
             "Papers meeting quality requirements (DOI, abstract, year, author count, etc.)",
         )
+    elif len(df_bypass) > 0:
+        # Only bypass papers, no filtering needed
+        df_clean = df_bypass
 
     # Generate data completeness report
     if quality_filters.get("generate_quality_report", True):
