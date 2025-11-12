@@ -780,8 +780,8 @@ class SemanticScholar_collector(API_collector):
                         "abstract": result.get("abstract", ""),
                         "url": result.get("url", ""),
                         "venue": result.get("venue", ""),
-                        "citation_count": result.get("citationCount", 0),
-                        "reference_count": result.get("referenceCount", 0),
+                        "citationCount": result.get("citationCount", 0),
+                        "referenceCount": result.get("referenceCount", 0),
                         "authors": [
                             {
                                 "name": author.get("name", ""),

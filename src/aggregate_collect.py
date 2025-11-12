@@ -630,6 +630,31 @@ def _save_checkpoint(checkpoint_path, data):
         logging.warning(f"Could not save checkpoint: {e}")
 
 
+def _get_ss_citations_if_available(row):
+    """Extract Semantic Scholar citation data from a paper row.
+
+    Args:
+        row: Pandas Series representing a paper with potential SS citation fields
+
+    Returns:
+        tuple: (citation_count, reference_count) or (None, None) if not available
+    """
+    ss_citation_count = row.get("ss_citation_count")
+    ss_reference_count = row.get("ss_reference_count")
+
+    # Check if SS data exists and is valid (> 0)
+    has_valid_citations = pd.notna(ss_citation_count) and ss_citation_count > 0
+    has_valid_references = pd.notna(ss_reference_count) and ss_reference_count > 0
+
+    if has_valid_citations or has_valid_references:
+        # Return the values, defaulting to 0 if one is missing
+        citation_count = int(ss_citation_count) if has_valid_citations else 0
+        reference_count = int(ss_reference_count) if has_valid_references else 0
+        return (citation_count, reference_count)
+
+    return (None, None)
+
+
 def _fetch_citation_for_paper(
     index,
     doi,
@@ -640,9 +665,16 @@ def _fetch_citation_for_paper(
     nb_citeds,
     nb_citations,
     cache_path=None,
+    ss_citation_count=None,
+    ss_reference_count=None,
 ):
     """
-    Fetch citations for a single paper (thread-safe with caching).
+    Fetch citations for a single paper (thread-safe with three-tier strategy).
+
+    Three-tier strategy: Cache → Semantic Scholar → OpenCitations
+    1. Check citation cache first (instant, no API call)
+    2. If cache miss, check Semantic Scholar data (already in memory, no API call)
+    3. If SS data unavailable, call OpenCitations API
 
     Args:
         index: Paper index in DataFrame
@@ -654,6 +686,8 @@ def _fetch_citation_for_paper(
         nb_citeds: List to store cited count
         nb_citations: List to store citing count
         cache_path: Optional path to citation cache database
+        ss_citation_count: Semantic Scholar citation count (if available)
+        ss_reference_count: Semantic Scholar reference count (if available)
 
     Returns:
         dict: Result with index and status
@@ -684,9 +718,57 @@ def _fetch_citation_for_paper(
 
             return {"index": index, "status": "cache_hit"}
 
-        # Cache miss - call API
+        # Cache miss - check Semantic Scholar data before calling OpenCitations
         stats["cache_miss"] += 1
+
+        # Tier 2: Check if Semantic Scholar data is available (no API call needed)
+        if ss_citation_count is not None or ss_reference_count is not None:
+            stats["ss_used"] += 1
+
+            # Use SS data (already in memory)
+            nb_cited = ss_reference_count if ss_reference_count is not None else 0
+            nb_citation = ss_citation_count if ss_citation_count is not None else 0
+
+            # Create a minimal citations structure (SS doesn't provide detailed citation list)
+            citations = {
+                "citing_dois": [],  # SS API doesn't provide detailed citation DOIs
+                "cited_dois": [],  # SS API doesn't provide detailed reference DOIs
+                "nb_cited": nb_cited,
+                "nb_citations": nb_citation,
+                "source": "semantic_scholar",
+            }
+
+            # Store results
+            extras[index] = str(citations)
+            nb_citeds[index] = nb_cited
+            nb_citations[index] = nb_citation
+
+            # Create success api_stats for caching
+            api_stats = {
+                "cit_status": "success",
+                "ref_status": "success",
+                "source": "semantic_scholar",
+            }
+
+            # Cache SS data for future runs (30-day TTL)
+            cache_citation(
+                doi=str(doi),
+                citations_json=str(citations),
+                nb_cited=nb_cited,
+                nb_citations=nb_citation,
+                api_stats=api_stats,
+                cache_path=cache_path,
+            )
+
+            stats["success"] += 1
+            return {"index": index, "status": "ss_used"}
+
+        # Tier 3: No SS data available - call OpenCitations API
+        stats["opencitations_used"] += 1
         citations, api_stats = cit_tools.getRefandCitFormatted(str(doi))
+
+        # Add source marker to api_stats
+        api_stats["source"] = "opencitations"
 
         # Track statistics
         if (
@@ -801,6 +883,8 @@ def _fetch_citations_parallel(
         "no_doi": 0,
         "cache_hit": 0,
         "cache_miss": 0,
+        "ss_used": 0,
+        "opencitations_used": 0,
     }
 
     # Load from checkpoint if resuming
@@ -829,64 +913,103 @@ def _fetch_citations_parallel(
         f"Using {num_workers} parallel workers (rate limit: ~{num_workers * 2.5:.1f} papers/second)"
     )
 
-    # Create progress bar
-    with tqdm(
-        total=total_papers, initial=start_index, desc="Fetching citations", unit="paper"
-    ) as pbar:
-        # Use ThreadPoolExecutor for parallel fetching
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Submit all tasks
-            future_to_index = {}
-            for position, (df_index, row) in enumerate(
-                df_clean.iloc[start_index:].iterrows(), start=start_index
-            ):
-                doi = row.get("DOI")
-                future = executor.submit(
-                    _fetch_citation_for_paper,
-                    position,
-                    doi,
-                    stats,
-                    checkpoint_interval,
-                    checkpoint_path,
-                    extras,
-                    nb_citeds,
-                    nb_citations,
-                    cache_path,
-                )
-                future_to_index[future] = position
+    # Create progress bar and ThreadPoolExecutor for parallel fetching
+    with (
+        tqdm(
+            total=total_papers,
+            initial=start_index,
+            desc="Fetching citations",
+            unit="paper",
+        ) as pbar,
+        ThreadPoolExecutor(max_workers=num_workers) as executor,
+    ):
+        # Submit all tasks
+        future_to_index = {}
+        for position, (_df_index, row) in enumerate(
+            df_clean.iloc[start_index:].iterrows(), start=start_index
+        ):
+            doi = row.get("DOI")
 
-            # Process completed tasks
-            for future in as_completed(future_to_index):
-                result = future.result()
-                pbar.update(1)
+            # Extract Semantic Scholar citation data if available
+            ss_cit_count, ss_ref_count = _get_ss_citations_if_available(row)
 
-                # Update progress bar with statistics (include cache stats)
-                postfix = {
-                    "✓": stats["success"],
-                    "✗": stats["error"],
-                    "⏱": stats["timeout"],
-                    "⊘": stats["no_doi"],
-                }
-                if use_cache:
-                    postfix["💾"] = stats["cache_hit"]  # Cache hits
-                pbar.set_postfix(postfix)
+            future = executor.submit(
+                _fetch_citation_for_paper,
+                position,
+                doi,
+                stats,
+                checkpoint_interval,
+                checkpoint_path,
+                extras,
+                nb_citeds,
+                nb_citations,
+                cache_path,
+                ss_cit_count,
+                ss_ref_count,
+            )
+            future_to_index[future] = position
 
-    # Calculate cache hit rate
+        # Process completed tasks
+        for future in as_completed(future_to_index):
+            future.result()  # Wait for task completion (raises exceptions if any)
+            pbar.update(1)
+
+            # Update progress bar with statistics (three-tier breakdown)
+            postfix = {
+                "✓": stats["success"],
+                "✗": stats["error"],
+                "⏱": stats["timeout"],
+                "⊘": stats["no_doi"],
+            }
+            if use_cache:
+                postfix["💾"] = stats["cache_hit"]  # Cache hits
+                postfix["🔬"] = stats["ss_used"]  # Semantic Scholar used
+                postfix["🔗"] = stats["opencitations_used"]  # OpenCitations API calls
+            pbar.set_postfix(postfix)
+
+    # Calculate statistics and percentages
+    total_with_doi = total_papers - stats["no_doi"]
     cache_hit_rate = 0
+    ss_usage_rate = 0
+    opencitations_rate = 0
+
     if use_cache and (stats["cache_hit"] + stats["cache_miss"]) > 0:
         cache_hit_rate = (
             stats["cache_hit"] / (stats["cache_hit"] + stats["cache_miss"]) * 100
         )
+
+    if total_with_doi > 0:
+        ss_usage_rate = stats["ss_used"] / total_with_doi * 100
+        opencitations_rate = stats["opencitations_used"] / total_with_doi * 100
 
     logging.info(
         f"Citation fetching complete: {stats['success']} successful, "
         f"{stats['error']} errors, {stats['timeout']} timeouts, "
         f"{stats['no_doi']} without DOI"
     )
+
     if use_cache:
         logging.info(
             f"Cache performance: {stats['cache_hit']} hits, {stats['cache_miss']} misses "
             f"({cache_hit_rate:.1f}% hit rate)"
+        )
+
+    # Three-tier strategy breakdown
+    logging.info("Citation source breakdown (for papers with DOI):")
+    logging.info(f"  💾 Cache hits: {stats['cache_hit']} papers")
+    logging.info(
+        f"  🔬 Semantic Scholar: {stats['ss_used']} papers ({ss_usage_rate:.1f}%)"
+    )
+    logging.info(
+        f"  🔗 OpenCitations API: {stats['opencitations_used']} papers ({opencitations_rate:.1f}%)"
+    )
+
+    # Calculate API call savings
+    api_calls_saved = stats["cache_hit"] + stats["ss_used"]
+    if total_with_doi > 0:
+        savings_rate = api_calls_saved / total_with_doi * 100
+        logging.info(
+            f"  💰 API calls saved: {api_calls_saved}/{total_with_doi} ({savings_rate:.1f}%)"
         )
 
     return extras, nb_citeds, nb_citations, stats
