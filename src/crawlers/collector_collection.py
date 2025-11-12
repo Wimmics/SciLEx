@@ -1,9 +1,12 @@
 import logging
-import multiprocessing
 import os
+import threading
+from collections import defaultdict
 from itertools import product
+from queue import Queue
 
 import yaml
+from tqdm import tqdm
 
 from .collectors import (
     Arxiv_collector,
@@ -41,47 +44,81 @@ api_collectors = {
 }
 
 
-# Global worker function for multiprocessing (must be at module level for pickling)
-def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name):
+# Thread worker function (processes all queries for one API)
+def _run_job_collects_worker(
+    api_name, collect_list, api_config, output_dir, collect_name, progress_queue
+):
     """
-    Worker function for multiprocessing that can be properly serialized.
-    This must be at module level (not in a class) for spawn mode to work.
+    Thread worker function for one API.
+    Processes all queries for the assigned API and sends progress updates via queue.
+
+    Args:
+        api_name: Name of the API (e.g., "SemanticScholar")
+        collect_list: List of query dicts for this API
+        api_config: API configuration dict
+        output_dir: Output directory path
+        collect_name: Collection name
+        progress_queue: Queue for sending progress updates to main thread
     """
-    # Use absolute path to avoid issues with different working directories in spawn mode
+    # Use absolute path
     repo = os.path.abspath(os.path.join(output_dir, collect_name))
 
-    for idx in range(len(collect_list)):
-        coll = collect_list[idx]
-        data_query = coll["query"]
-        collector_class = api_collectors[coll["api"]]
+    # Process each query for this API
+    for coll_dict in collect_list:
+        data_query = coll_dict["query"]
+        query_id = data_query.get("id_collect", 0)
+        collector_class = api_collectors[api_name]
         api_key = None
         inst_token = None
 
-        if coll["api"] in api_config:
-            api_key = api_config[coll["api"]].get("api_key")
-            if coll["api"] == "Elsevier" and "inst_token" in api_config[coll["api"]]:
-                inst_token = api_config[coll["api"]]["inst_token"]
+        if api_name in api_config:
+            api_key = api_config[api_name].get("api_key")
+            if api_name == "Elsevier" and "inst_token" in api_config[api_name]:
+                inst_token = api_config[api_name]["inst_token"]
                 logging.debug("Using institutional token for Elsevier API")
 
         try:
             # Initialize collector
-            if coll["api"] == "Elsevier" and inst_token:
+            if api_name == "Elsevier" and inst_token:
                 current_coll = collector_class(data_query, repo, api_key, inst_token)
             else:
                 current_coll = collector_class(data_query, repo, api_key)
 
             # Run collection
             res = current_coll.runCollect()
+            articles_collected = res.get("coll_art", 0)
 
             logging.debug(
-                f"Completed collection for {coll['api']} query {data_query.get('id_collect', 'unknown')}: {res.get('coll_art', 0)} articles"
+                f"Completed collection for {api_name} query {query_id}: {articles_collected} articles"
+            )
+
+            # Send progress update to main thread via queue
+            progress_queue.put(
+                {
+                    "api": api_name,
+                    "query_id": query_id,
+                    "articles_collected": articles_collected,
+                    "success": True,
+                }
             )
 
         except Exception as e:
-            logging.error(f"Error during collection for {coll['api']}: {str(e)}")
+            logging.error(
+                f"Error during collection for {api_name} query {query_id}: {str(e)}"
+            )
+            # Send error progress update
+            progress_queue.put(
+                {
+                    "api": api_name,
+                    "query_id": query_id,
+                    "articles_collected": 0,
+                    "success": False,
+                    "error": str(e),
+                }
+            )
 
-        # Note: Removed fixed 2-second delay - rate limiting is now handled per-API
-        # by individual collectors using configured rate limits from api.config.yml
+    # Note: Rate limiting is handled per-API by individual collectors
+    # using configured rate limits from api.config.yml
 
 
 class Filter_param:
@@ -144,43 +181,6 @@ class CollectCollection:
 
         logger.debug("API key validation passed")
         return True
-
-    def init_progress_tracking(self, total_jobs):
-        """Initialize progress tracking"""
-        self.total_jobs = total_jobs
-        self.completed_jobs = 0
-        self.progress_lock = multiprocessing.Lock()
-
-    def update_progress(self):
-        """Update progress counter (thread-safe) - uses print() to bypass log level filtering"""
-        with self.progress_lock:
-            self.completed_jobs += 1
-            progress_pct = (self.completed_jobs / self.total_jobs) * 100
-            # Use print() instead of logging to ensure visibility regardless of log level
-            print(
-                f"Progress: {self.completed_jobs}/{self.total_jobs} ({progress_pct:.1f}%) collections completed"
-            )
-
-    def job_collect(self, collector):
-        try:
-            res = collector.runCollect()
-            self.update_state_details(collector.api_name, str(collector.collectId), res)
-            self.update_progress()
-        except Exception as e:
-            logging.error(f"Error during collection for {collector.api_name}: {str(e)}")
-            # Mark as failed in state
-            error_state = {
-                "state": -1,  # -1 indicates error
-                "error": str(e),
-                "last_page": 0,
-            }
-            try:
-                self.update_state_details(
-                    collector.api_name, str(collector.collectId), error_state
-                )
-            except Exception as state_error:
-                logging.error(f"Failed to update state after error: {str(state_error)}")
-            self.update_progress()
 
     def run_job_collects(self, collect_list):
         for idx in range(len(collect_list)):
@@ -380,15 +380,15 @@ class CollectCollection:
         print("Building query composition")
         queries_by_api = self.queryCompositor()
 
-        # Create jobs list, skipping already-completed queries
+        # Create grouped jobs dict (one list per API), skipping already-completed queries
         repo = self.get_current_repo()
-        jobs_list = []
+        jobs_by_api = {}  # Grouped: {"API_name": [query1, query2, ...]}
         n_coll = 0
         n_skipped = 0
 
         for api in queries_by_api:
-            current_api_job = []
             queries = queries_by_api[api]
+            api_jobs = []
 
             for idx, query in enumerate(queries):
                 # Check if this query is already complete (has result files)
@@ -397,17 +397,18 @@ class CollectCollection:
                     logger.debug(f"Skipping {api} query {idx} (already has results)")
                     continue
 
-                # Add query to job list
+                # Add query to API's job list
                 query["id_collect"] = idx
                 query["total_art"] = 0  # Unknown until first API response
                 query["last_page"] = 0  # Start from page 0
                 query["coll_art"] = 0  # No articles collected yet
                 query["state"] = 0  # Incomplete (0=incomplete, 1=complete, -1=error)
-                current_api_job.append({"query": query, "api": api})
+                api_jobs.append({"query": query, "api": api})
                 n_coll += 1
 
-            if len(current_api_job) > 0:
-                jobs_list.append(current_api_job)
+            # Only add API if it has queries to process
+            if api_jobs:
+                jobs_by_api[api] = api_jobs
 
         # Log summary
         if n_skipped > 0:
@@ -416,7 +417,7 @@ class CollectCollection:
             )
 
         # Check if there are any jobs to process
-        if len(jobs_list) == 0:
+        if len(jobs_by_api) == 0:
             logger.warning(
                 "No collections to conduct. All queries already have results."
             )
@@ -425,37 +426,113 @@ class CollectCollection:
             )
             return
 
-        # Calculate number of processes - simplified logic
-        num_cores = min(len(jobs_list), multiprocessing.cpu_count())
-        if num_cores < 1:
-            num_cores = 1
-
+        # One thread per API
+        num_threads = len(jobs_by_api)
+        num_apis = len(jobs_by_api)
         print(
-            f"Starting sync collection: {n_coll} queries using {num_cores} parallel processes"
+            f"Starting collection: {n_coll} queries across {num_apis} API(s) using {num_threads} threads (1 per API)\n"
         )
 
-        # Initialize progress tracking
-        self.init_progress_tracking(len(jobs_list))
+        # Create per-API progress tracking
+        api_progress_bars = {}
+        api_stats = defaultdict(lambda: {"completed": 0, "total": 0, "articles": 0})
 
-        # Prepare data for worker functions (must be serializable)
-        worker_args = [
-            (
-                job_list,
-                self.api_config,
-                self.main_config["output_dir"],
-                self.main_config["collect_name"],
+        # Initialize progress bars for each API
+        for api_name, api_jobs in sorted(jobs_by_api.items()):
+            query_count = len(api_jobs)
+            api_stats[api_name]["total"] = query_count
+            api_progress_bars[api_name] = tqdm(
+                total=query_count,
+                desc=f"{api_name:20s}",
+                unit="query",
+                position=len(api_progress_bars),
+                leave=True,
             )
-            for job_list in jobs_list
-        ]
 
-        pool = multiprocessing.Pool(processes=num_cores)
+        # Create shared progress queue
+        progress_queue = Queue()
+
+        # Create one thread per API
+        threads = []
+        for api_name, api_jobs in jobs_by_api.items():
+            thread = threading.Thread(
+                target=_run_job_collects_worker,
+                args=(
+                    api_name,
+                    api_jobs,
+                    self.api_config,
+                    self.main_config["output_dir"],
+                    self.main_config["collect_name"],
+                    progress_queue,
+                ),
+                name=f"Worker-{api_name}",
+            )
+            thread.start()
+            threads.append(thread)
+
+        # Monitor progress queue in main thread
+        completed_count = 0
+        total_queries = sum(len(api_jobs) for api_jobs in jobs_by_api.values())
+
         try:
-            # Use starmap to pass multiple arguments to worker function
-            result = pool.starmap_async(_run_job_collects_worker, worker_args)
-            result.wait()
+            while completed_count < total_queries:
+                try:
+                    # Get result from queue with timeout
+                    result = progress_queue.get(timeout=0.1)
+
+                    # Update stats
+                    api_name = result["api"]
+                    articles = result["articles_collected"]
+                    api_stats[api_name]["completed"] += 1
+                    api_stats[api_name]["articles"] += articles
+
+                    # Update progress bar
+                    if api_name in api_progress_bars:
+                        pbar = api_progress_bars[api_name]
+                        pbar.update(1)
+                        pbar.set_postfix({"papers": api_stats[api_name]["articles"]})
+
+                        # Log milestone when query completes
+                        completed = api_stats[api_name]["completed"]
+                        total = api_stats[api_name]["total"]
+                        total_articles = api_stats[api_name]["articles"]
+
+                        # Log at 25%, 50%, 75%, and 100% completion
+                        if completed % max(1, total // 4) == 0 or completed == total:
+                            logging.info(
+                                f"[{api_name}] Progress: {completed}/{total} queries | {total_articles} papers collected"
+                            )
+
+                    completed_count += 1
+
+                except Exception:
+                    # Check if all threads are done
+                    if not any(t.is_alive() for t in threads):
+                        break
+                    continue
+
         finally:
-            pool.close()
-            pool.join()
+            # Wait for all threads to complete
+            for thread in threads:
+                thread.join()
+
+            # Close all progress bars
+            for pbar in api_progress_bars.values():
+                pbar.close()
+
+            # Print final summary
+            print("\n" + "=" * 60)
+            print("Collection Complete - Summary:")
+            print("=" * 60)
+            for api_name in sorted(api_stats.keys()):
+                stats = api_stats[api_name]
+                print(
+                    f"{api_name:20s}: {stats['completed']:3d} queries | {stats['articles']:,} papers"
+                )
+                logging.info(
+                    f"[{api_name}] Complete: {stats['articles']} papers from {stats['completed']} queries"
+                )
+            print("=" * 60 + "\n")
 
         # FIRST ATTEMPT > not ordered by api > could lead to ratelimit overload
         # random.shuffle(jobs_list)
