@@ -947,6 +947,10 @@ if __name__ == "__main__":
     dir_collect = os.path.join(main_config["output_dir"], main_config["collect_name"])
     # Get output filename from config, with fallback and handle leading slashes
     output_filename = main_config.get("aggregate_file", "FileAggreg.csv").lstrip("/")
+
+    # NEW: Path to config snapshot (preferred)
+    config_used_path = os.path.join(dir_collect, "config_used.yml")
+    # LEGACY: Path to state file (deprecated)
     state_path = os.path.join(dir_collect, "state_details.json")
 
     logger.info(f"Collection directory: {dir_collect}")
@@ -966,229 +970,260 @@ if __name__ == "__main__":
     # Load keyword groups from config for proper dual-group filtering
     keyword_groups = main_config.get("keywords", [])
 
-    # Check if state file exists
-    if not os.path.isfile(state_path):
-        logging.error(f"State file not found: {state_path}")
-        logging.error(
-            f"Collection directory '{dir_collect}' does not contain state_details.json"
+    # =========================================================================
+    # LOAD COLLECTION METADATA: config_used.yml (NEW) or state_details.json (LEGACY)
+    # =========================================================================
+
+    config_used = None
+    state_details = None
+
+    if os.path.isfile(config_used_path):
+        # NEW MODE: Use config snapshot (preferred)
+        logging.info("Found config_used.yml - using for aggregation (NEW MODE)")
+        import yaml
+
+        try:
+            with open(config_used_path, encoding="utf-8") as f:
+                config_used = yaml.safe_load(f)
+            logging.debug("Config snapshot loaded successfully")
+        except yaml.YAMLError as e:
+            logging.error(f"Failed to parse config_used.yml: {e}")
+            logging.error("Falling back to state_details.json if available...")
+            config_used = None
+        except Exception as e:
+            logging.error(f"Error loading config_used.yml: {e}")
+            logging.error("Falling back to state_details.json if available...")
+            config_used = None
+
+    if config_used is None and os.path.isfile(state_path):
+        # LEGACY MODE: Fall back to state file (deprecated)
+        logging.warning("Using state_details.json for aggregation (LEGACY MODE)")
+        logging.warning(
+            "Consider re-running collection to generate config_used.yml for better reliability."
         )
-        logging.error(
-            "Please run collection first (python src/run_collecte.py) or check 'collect_name' in scilex.config.yml"
-        )
+
+        try:
+            with open(state_path, encoding="utf-8") as read_file:
+                state_details = json.load(read_file)
+            logging.debug("State details file loaded successfully")
+        except json.JSONDecodeError as e:
+            logging.error(f"Failed to parse state_details.json: {e}")
+            logging.error(
+                "State file may be corrupted. Please re-run collection or delete corrupted state file."
+            )
+            sys.exit(1)
+        except Exception as e:
+            logging.error(f"Error loading state_details.json: {e}")
+            sys.exit(1)
+
+    if config_used is None and state_details is None:
+        # ERROR: Neither file found
+        logging.error(f"No collection metadata found in: {dir_collect}")
+        logging.error(f"  - config_used.yml not found at: {config_used_path}")
+        logging.error(f"  - state_details.json not found at: {state_path}")
+        logging.error("")
+        logging.error("Please run collection first:")
+        logging.error("  python src/run_collecte.py")
+        logging.error("")
+        logging.error("Or check 'collect_name' in scilex.config.yml")
         sys.exit(1)
 
-    if os.path.isfile(state_path):
-        logging.debug("State details file found, proceeding with aggregation")
-        with open(state_path, encoding="utf-8") as read_file:
-            state_details = json.load(read_file)
+    # =========================================================================
+    # RUN PARALLEL AGGREGATION (with config_used or state_details)
+    # =========================================================================
 
-            # Use optimized parallel aggregation (100x faster than legacy serial mode)
-            logging.info("Using parallel aggregation mode")
+    logging.info("Using parallel aggregation mode")
+    from src.crawlers.aggregate_parallel import parallel_aggregate
 
-            from src.crawlers.aggregate_parallel import parallel_aggregate
+    # Run parallel aggregation with appropriate parameters
+    df, parallel_stats = parallel_aggregate(
+        dir_collect=dir_collect,
+        state_details=state_details,
+        config_used=config_used,
+        txt_filters=txt_filters,
+        num_workers=args.parallel_workers,
+        batch_size=args.batch_size,
+        keyword_groups=keyword_groups,
+    )
 
-            # Run parallel aggregation
-            df, parallel_stats = parallel_aggregate(
-                state_details=state_details,
-                dir_collect=dir_collect,
-                txt_filters=txt_filters,
-                num_workers=args.parallel_workers,
-                batch_size=args.batch_size,
-                keyword_groups=keyword_groups,
-            )
-
-            # Output performance statistics if requested
-            if args.profile:
-                logging.info("\n" + "=" * 70)
-                logging.info("PERFORMANCE STATISTICS")
-                logging.info("=" * 70)
-                for stage, stats in parallel_stats.items():
-                    logging.info(f"\n{stage.upper()}:")
-                    for key, value in stats.items():
-                        if isinstance(value, float):
-                            logging.info(f"  {key}: {value:.2f}")
-                        else:
-                            logging.info(
-                                f"  {key}: {value:,}"
-                                if isinstance(value, int)
-                                else f"  {key}: {value}"
-                            )
-                logging.info("=" * 70 + "\n")
-
-            # Note: parallel_aggregate already includes simple deduplication
-            df_clean = df
-
-            # Calculate and save quality scores for all papers
-            logging.info("Calculating quality scores...")
-            from src.crawlers.aggregate import getquality
-
-            df_clean["quality_score"] = df_clean.apply(
-                lambda row: getquality(row, df_clean.columns.tolist()), axis=1
-            )
-            logging.info("Quality scores calculated and added to dataset")
-
-            # Apply quality filters if configured
-            if quality_filters:
-                logging.info("Applying quality filters...")
-                generate_report = quality_filters.get("generate_quality_report", True)
-                df_clean, quality_report = apply_quality_filters(
-                    df_clean, quality_filters, generate_report
-                )
-                logging.info(
-                    f"After quality filtering: {len(df_clean)} papers remaining"
-                )
-
-                # Track quality filtering stage
-                filtering_tracker.add_stage(
-                    "Quality Filter",
-                    len(df_clean),
-                    "Papers meeting quality requirements (DOI, abstract, year, author count, etc.)",
-                )
-
-            # Generate data completeness report
-            if quality_filters.get("generate_quality_report", True):
-                completeness_report = generate_data_completeness_report(df_clean)
-                logging.info(completeness_report)
-
-            # Generate keyword validation report
-            keywords = main_config.get("keywords", [])
-            if keywords and quality_filters.get("generate_quality_report", True):
-                keyword_report = generate_keyword_validation_report(
-                    df_clean,
-                    keywords,
-                )
-                logging.info(keyword_report)
-
-            # Abstract quality validation (Phase 2)
-            if quality_filters.get("validate_abstracts", False):
-                logging.info("Validating abstract quality...")
-                min_quality_score = quality_filters.get(
-                    "min_abstract_quality_score", 50
-                )
-                df_clean, abstract_stats = validate_dataframe_abstracts(
-                    df_clean,
-                    min_quality_score=min_quality_score,
-                    generate_report=quality_filters.get(
-                        "generate_quality_report", True
-                    ),
-                )
-
-                # Optionally filter by abstract quality
-                if quality_filters.get("filter_by_abstract_quality", False):
-                    df_clean = filter_by_abstract_quality(
-                        df_clean, min_quality_score=min_quality_score
-                    )
+    # Output performance statistics if requested
+    if args.profile:
+        logging.info("\n" + "=" * 70)
+        logging.info("PERFORMANCE STATISTICS")
+        logging.info("=" * 70)
+        for stage, stats in parallel_stats.items():
+            logging.info(f"\n{stage.upper()}:")
+            for key, value in stats.items():
+                if isinstance(value, float):
+                    logging.info(f"  {key}: {value:.2f}")
+                else:
                     logging.info(
-                        f"After abstract quality filtering: {len(df_clean)} papers remaining"
+                        f"  {key}: {value:,}"
+                        if isinstance(value, int)
+                        else f"  {key}: {value}"
                     )
+        logging.info("=" * 70 + "\n")
 
-                    # Track abstract quality filtering stage
-                    filtering_tracker.add_stage(
-                        "Abstract Quality Filter",
-                        len(df_clean),
-                        f"Abstracts meeting quality threshold (min score: {min_quality_score})",
-                    )
+    # Note: parallel_aggregate already includes simple deduplication
+    df_clean = df
 
-            # Duplicate source tracking (Phase 2)
-            if quality_filters.get("track_duplicate_sources", True):
-                logging.info("Analyzing duplicate sources and API overlap...")
-                analyzer, metadata_quality = analyze_and_report_duplicates(
-                    df_clean,
-                    generate_report=quality_filters.get(
-                        "generate_quality_report", True
-                    ),
-                )
+    # Calculate and save quality scores for all papers
+    logging.info("Calculating quality scores...")
+    from src.crawlers.aggregate import getquality
 
-            if get_citation and len(df_clean) > 0:
-                # Set up checkpoint path
-                checkpoint_path = os.path.join(dir_collect, "citation_checkpoint.json")
+    df_clean["quality_score"] = df_clean.apply(
+        lambda row: getquality(row, df_clean.columns.tolist()), axis=1
+    )
+    logging.info("Quality scores calculated and added to dataset")
 
-                # Fetch citations in parallel with checkpointing and caching
-                extras, nb_citeds, nb_citations, stats = _fetch_citations_parallel(
-                    df_clean,
-                    num_workers=args.workers,
-                    checkpoint_interval=args.checkpoint_interval,
-                    checkpoint_path=checkpoint_path,
-                    resume_from=args.resume,
-                    use_cache=not args.no_cache,  # Cache enabled by default
-                )
+    # Apply quality filters if configured
+    if quality_filters:
+        logging.info("Applying quality filters...")
+        generate_report = quality_filters.get("generate_quality_report", True)
+        df_clean, quality_report = apply_quality_filters(
+            df_clean, quality_filters, generate_report
+        )
+        logging.info(f"After quality filtering: {len(df_clean)} papers remaining")
 
-                # Assign results to DataFrame (efficient bulk assignment)
-                df_clean["extra"] = extras
-                df_clean["nb_cited"] = nb_citeds
-                df_clean["nb_citation"] = nb_citations
+        # Track quality filtering stage
+        filtering_tracker.add_stage(
+            "Quality Filter",
+            len(df_clean),
+            "Papers meeting quality requirements (DOI, abstract, year, author count, etc.)",
+        )
 
-                # Warn if high failure rate
-                total_with_doi = stats["success"] + stats["error"] + stats["timeout"]
-                if total_with_doi > 0:
-                    failure_rate = (
-                        (stats["error"] + stats["timeout"]) / total_with_doi * 100
-                    )
-                    if failure_rate > 10:
-                        logging.warning(
-                            f"High failure rate: {failure_rate:.1f}% of API calls failed"
-                        )
+    # Generate data completeness report
+    if quality_filters.get("generate_quality_report", True):
+        completeness_report = generate_data_completeness_report(df_clean)
+        logging.info(completeness_report)
 
-                # Use Semantic Scholar citations as fallback if enabled
-                if quality_filters.get("use_semantic_scholar_citations", True):
-                    logging.info(
-                        "Using Semantic Scholar citations as fallback for missing/zero OpenCitations data..."
-                    )
-                    df_clean = _use_semantic_scholar_citations_fallback(df_clean)
+    # Generate keyword validation report
+    keywords = main_config.get("keywords", [])
+    if keywords and quality_filters.get("generate_quality_report", True):
+        keyword_report = generate_keyword_validation_report(
+            df_clean,
+            keywords,
+        )
+        logging.info(keyword_report)
 
-                # Apply time-aware citation filtering if enabled in config
-                if quality_filters.get("apply_citation_filter", True):
-                    df_clean = _apply_time_aware_citation_filter(df_clean)
+    # Abstract quality validation (Phase 2)
+    if quality_filters.get("validate_abstracts", False):
+        logging.info("Validating abstract quality...")
+        min_quality_score = quality_filters.get("min_abstract_quality_score", 50)
+        df_clean, abstract_stats = validate_dataframe_abstracts(
+            df_clean,
+            min_quality_score=min_quality_score,
+            generate_report=quality_filters.get("generate_quality_report", True),
+        )
 
-                    # Track citation filtering stage
-                    filtering_tracker.add_stage(
-                        "Citation Filter",
-                        len(df_clean),
-                        "Papers meeting time-aware citation thresholds",
-                    )
-
-                # Clean up checkpoint file on success
-                if os.path.exists(checkpoint_path):
-                    try:
-                        os.remove(checkpoint_path)
-                        logging.info(
-                            "Checkpoint file removed after successful completion"
-                        )
-                    except OSError:
-                        pass
-            elif get_citation and len(df_clean) == 0:
-                logging.warning("Skipping citation fetching - no papers to process")
-
-            # Apply relevance ranking (final step before saving)
-            if quality_filters.get("apply_relevance_ranking", True):
-                top_n = quality_filters.get(
-                    "max_papers", None
-                )  # Optional: limit to top N
-                df_clean = _apply_relevance_ranking(
-                    df_clean,
-                    keyword_groups=keyword_groups,
-                    top_n=top_n,
-                    has_citations=get_citation and len(df_clean) > 0,
-                )
-
-                # Track relevance ranking stage
-                filtering_tracker.add_stage(
-                    "Relevance Ranking",
-                    len(df_clean),
-                    f"{'Top ' + str(top_n) + ' ' if top_n else ''}Papers ranked by composite relevance score",
-                )
-
-            # Display comprehensive filtering summary
-            filtering_summary = filtering_tracker.generate_report()
-            logging.info(filtering_summary)
-
-            # Save to CSV
-            output_path = os.path.join(dir_collect, output_filename)
-            logging.info(f"Saving {len(df_clean)} aggregated papers to {output_path}")
-            df_clean.to_csv(
-                output_path,
-                sep=";",
-                quotechar='"',
-                quoting=csv.QUOTE_NONNUMERIC,
+        # Optionally filter by abstract quality
+        if quality_filters.get("filter_by_abstract_quality", False):
+            df_clean = filter_by_abstract_quality(
+                df_clean, min_quality_score=min_quality_score
             )
-            logging.info(f"Aggregation complete! Results saved to {output_path}")
+            logging.info(
+                f"After abstract quality filtering: {len(df_clean)} papers remaining"
+            )
+
+            # Track abstract quality filtering stage
+            filtering_tracker.add_stage(
+                "Abstract Quality Filter",
+                len(df_clean),
+                f"Abstracts meeting quality threshold (min score: {min_quality_score})",
+            )
+
+    # Duplicate source tracking (Phase 2)
+    if quality_filters.get("track_duplicate_sources", True):
+        logging.info("Analyzing duplicate sources and API overlap...")
+        analyzer, metadata_quality = analyze_and_report_duplicates(
+            df_clean,
+            generate_report=quality_filters.get("generate_quality_report", True),
+        )
+
+    if get_citation and len(df_clean) > 0:
+        # Set up checkpoint path
+        checkpoint_path = os.path.join(dir_collect, "citation_checkpoint.json")
+
+        # Fetch citations in parallel with checkpointing and caching
+        extras, nb_citeds, nb_citations, stats = _fetch_citations_parallel(
+            df_clean,
+            num_workers=args.workers,
+            checkpoint_interval=args.checkpoint_interval,
+            checkpoint_path=checkpoint_path,
+            resume_from=args.resume,
+            use_cache=not args.no_cache,  # Cache enabled by default
+        )
+
+        # Assign results to DataFrame (efficient bulk assignment)
+        df_clean["extra"] = extras
+        df_clean["nb_cited"] = nb_citeds
+        df_clean["nb_citation"] = nb_citations
+
+        # Warn if high failure rate
+        total_with_doi = stats["success"] + stats["error"] + stats["timeout"]
+        if total_with_doi > 0:
+            failure_rate = (stats["error"] + stats["timeout"]) / total_with_doi * 100
+            if failure_rate > 10:
+                logging.warning(
+                    f"High failure rate: {failure_rate:.1f}% of API calls failed"
+                )
+
+        # Use Semantic Scholar citations as fallback if enabled
+        if quality_filters.get("use_semantic_scholar_citations", True):
+            logging.info(
+                "Using Semantic Scholar citations as fallback for missing/zero OpenCitations data..."
+            )
+            df_clean = _use_semantic_scholar_citations_fallback(df_clean)
+
+        # Apply time-aware citation filtering if enabled in config
+        if quality_filters.get("apply_citation_filter", True):
+            df_clean = _apply_time_aware_citation_filter(df_clean)
+
+            # Track citation filtering stage
+            filtering_tracker.add_stage(
+                "Citation Filter",
+                len(df_clean),
+                "Papers meeting time-aware citation thresholds",
+            )
+
+        # Clean up checkpoint file on success
+        if os.path.exists(checkpoint_path):
+            try:
+                os.remove(checkpoint_path)
+                logging.info("Checkpoint file removed after successful completion")
+            except OSError:
+                pass
+    elif get_citation and len(df_clean) == 0:
+        logging.warning("Skipping citation fetching - no papers to process")
+
+    # Apply relevance ranking (final step before saving)
+    if quality_filters.get("apply_relevance_ranking", True):
+        top_n = quality_filters.get("max_papers", None)  # Optional: limit to top N
+        df_clean = _apply_relevance_ranking(
+            df_clean,
+            keyword_groups=keyword_groups,
+            top_n=top_n,
+            has_citations=get_citation and len(df_clean) > 0,
+        )
+
+        # Track relevance ranking stage
+        filtering_tracker.add_stage(
+            "Relevance Ranking",
+            len(df_clean),
+            f"{'Top ' + str(top_n) + ' ' if top_n else ''}Papers ranked by composite relevance score",
+        )
+
+    # Display comprehensive filtering summary
+    filtering_summary = filtering_tracker.generate_report()
+    logging.info(filtering_summary)
+
+    # Save to CSV
+    output_path = os.path.join(dir_collect, output_filename)
+    logging.info(f"Saving {len(df_clean)} aggregated papers to {output_path}")
+    df_clean.to_csv(
+        output_path,
+        sep=";",
+        quotechar='"',
+        quoting=csv.QUOTE_NONNUMERIC,
+    )
+    logging.info(f"Aggregation complete! Results saved to {output_path}")

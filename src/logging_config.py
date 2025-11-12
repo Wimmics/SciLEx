@@ -93,15 +93,15 @@ def setup_logging(
 
     Args:
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-               Defaults to LOG_LEVEL env var or INFO
+               Defaults to LOG_LEVEL env var or WARNING
         use_colors: Enable colored output. Defaults to LOG_COLOR env var or auto-detect
         log_file: Optional file path to write logs to
     """
     # Determine log level
     if level is None:
-        level = os.environ.get("LOG_LEVEL", "INFO").upper()
+        level = os.environ.get("LOG_LEVEL", "WARNING").upper()
 
-    log_level = getattr(logging, level, logging.INFO)
+    log_level = getattr(logging, level, logging.WARNING)
 
     # Determine if colors should be used
     if use_colors is None:

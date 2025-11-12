@@ -36,6 +36,169 @@ from tqdm import tqdm
 from src.constants import is_valid
 
 # ============================================================================
+# HELPER FUNCTIONS: FILESYSTEM DISCOVERY & QUERY RECONSTRUCTION
+# ============================================================================
+
+
+def discover_api_directories(dir_collect: str) -> dict[str, list[str]]:
+    """
+    Discover API directories and query indices from filesystem.
+
+    Scans the collection directory to find:
+    - API subdirectories (e.g., SemanticScholar, OpenAlex)
+    - Query index subdirectories within each API (e.g., 0, 1, 2)
+
+    Args:
+        dir_collect: Base collection directory path
+
+    Returns:
+        Dictionary mapping API names to sorted query index lists
+        Example: {"SemanticScholar": ["0", "1", "2"], "OpenAlex": ["0", "1"]}
+    """
+    api_to_queries = {}
+
+    if not os.path.exists(dir_collect):
+        logging.warning(f"Collection directory not found: {dir_collect}")
+        return api_to_queries
+
+    # Scan for API directories
+    for api_dir in os.listdir(dir_collect):
+        api_path = os.path.join(dir_collect, api_dir)
+
+        # Skip files (only process directories)
+        if not os.path.isdir(api_path):
+            continue
+
+        # Skip special files/directories
+        if api_dir in ["config_used.yml", "state_details.json", "citation_cache.db"]:
+            continue
+
+        # Scan for query index directories
+        query_indices = []
+        try:
+            for query_idx in os.listdir(api_path):
+                query_path = os.path.join(api_path, query_idx)
+
+                if os.path.isdir(query_path):
+                    # Verify it's a numeric directory
+                    try:
+                        int(query_idx)  # Validate it's a number
+                        query_indices.append(query_idx)
+                    except ValueError:
+                        # Skip non-numeric directories
+                        continue
+
+        except PermissionError:
+            logging.warning(f"Permission denied accessing: {api_path}")
+            continue
+
+        if query_indices:
+            # Sort numerically (0, 1, 2, ... not 0, 1, 10, 2)
+            query_indices.sort(key=int)
+            api_to_queries[api_dir] = query_indices
+
+    logging.info(
+        f"Discovered {len(api_to_queries)} APIs with "
+        f"{sum(len(q) for q in api_to_queries.values())} total queries"
+    )
+
+    return api_to_queries
+
+
+def reconstruct_query_to_keywords_mapping(
+    config_used: dict,
+) -> dict[str, dict[str, list[str]]]:
+    """
+    Reconstruct query index → keywords mapping from config_used.yml.
+
+    Reproduces the same cartesian product used during collection to map
+    query indices to their corresponding keyword combinations.
+
+    Args:
+        config_used: Configuration dictionary from config_used.yml
+
+    Returns:
+        Nested dictionary mapping API → query_index → keywords
+        Example: {
+            "SemanticScholar": {
+                "0": ["LLM", "Knowledge Graph"],
+                "1": ["LLM", "knowledge graphs"],
+                ...
+            },
+            "OpenAlex": {...}
+        }
+    """
+    import itertools
+
+    # Extract configuration
+    keywords = config_used.get("keywords", [[]])
+    years = config_used.get("years", [])
+    apis = config_used.get("apis", [])
+
+    # Step 1: Generate keyword combinations (same logic as queryCompositor)
+    keyword_combinations = []
+    two_list_k = False
+
+    # Check for dual keyword group mode
+    if len(keywords) == 2 and len(keywords[0]) > 0 and len(keywords[1]) > 0:
+        # Dual keyword mode: cartesian product of both groups
+        two_list_k = True
+        keyword_combinations = [
+            list(pair) for pair in itertools.product(keywords[0], keywords[1])
+        ]
+    elif (len(keywords) == 2 and len(keywords[0]) > 0 and len(keywords[1]) == 0) or (
+        len(keywords) == 1 and len(keywords[0]) > 0
+    ):
+        # Single keyword mode
+        keyword_combinations = keywords[0]
+
+    logging.debug(f"Reconstructed {len(keyword_combinations)} keyword combinations")
+
+    # Step 2: Generate cartesian product (keywords × years × apis)
+    combinations = itertools.product(keyword_combinations, years, apis)
+
+    # Step 3: Group by API and create query lists
+    queries_by_api = {}
+
+    if two_list_k:
+        # Dual keyword mode: keyword_group is already a list [kw1, kw2]
+        for keyword_group, year, api in combinations:
+            if api not in queries_by_api:
+                queries_by_api[api] = []
+            queries_by_api[api].append(
+                {
+                    "keyword": keyword_group,  # Already a list
+                    "year": year,
+                }
+            )
+    else:
+        # Single keyword mode: wrap single keyword in list
+        for keyword_group, year, api in combinations:
+            if api not in queries_by_api:
+                queries_by_api[api] = []
+            queries_by_api[api].append(
+                {
+                    "keyword": [keyword_group],  # Wrap in list
+                    "year": year,
+                }
+            )
+
+    # Step 4: Create index → keywords mapping
+    mapping = {}
+    for api, queries in queries_by_api.items():
+        mapping[api] = {}
+        for idx, query in enumerate(queries):
+            mapping[api][str(idx)] = query["keyword"]
+
+    logging.debug(
+        f"Reconstructed mapping for {len(mapping)} APIs with "
+        f"{sum(len(q) for q in mapping.values())} total query indices"
+    )
+
+    return mapping
+
+
+# ============================================================================
 # PHASE 1: PARALLEL FILE LOADING
 # ============================================================================
 
@@ -71,20 +234,31 @@ def _load_json_file(
 
 
 def parallel_load_all_files(
-    state_details: dict, dir_collect: str, num_workers: int | None = None
+    dir_collect: str,
+    state_details: dict | None = None,
+    config_used: dict | None = None,
+    num_workers: int | None = None,
 ) -> tuple[list[tuple[dict, str, list[str]]], dict]:
     """
     Load all JSON files in parallel using threading.
 
+    Supports two modes (backward compatible):
+    1. NEW MODE: Use config_used.yml for keyword reconstruction
+    2. LEGACY MODE: Use state_details.json (deprecated)
+
     Args:
-        state_details: Collection state dictionary from state_details.json
         dir_collect: Base collection directory path
+        state_details: (DEPRECATED) Collection state dictionary from state_details.json
+        config_used: Configuration dictionary from config_used.yml (RECOMMENDED)
         num_workers: Number of parallel workers (default: cpu_count * 2 for I/O)
 
     Returns:
         Tuple of:
         - List of (paper_dict, api_name, keywords) tuples
         - Statistics dictionary
+
+    Raises:
+        ValueError: If neither state_details nor config_used provided
     """
     if num_workers is None:
         # For I/O-bound tasks, use more threads than CPU cores
@@ -95,25 +269,85 @@ def parallel_load_all_files(
     # Collect all file paths and metadata
     file_tasks = []
 
-    for api_name in state_details["details"]:
-        api_data = state_details["details"][api_name]
+    # ============================================================
+    # MODE DETECTION: config_used (NEW) vs state_details (LEGACY)
+    # ============================================================
 
-        for query_index in api_data["by_query"]:
-            query_data = api_data["by_query"][query_index]
-            keywords = query_data.get("keyword", [])
+    if config_used is not None:
+        # NEW MODE: Use config_used.yml for reconstruction
+        logging.info("Using config_used.yml for keyword mapping (NEW MODE)")
 
-            # Get directory for this API/query combination
-            query_dir = os.path.join(dir_collect, api_name, query_index)
+        # Step 1: Discover API directories and query indices from filesystem
+        api_to_queries = discover_api_directories(dir_collect)
 
-            if not os.path.exists(query_dir):
+        # Step 2: Reconstruct query → keywords mapping from config
+        query_to_keywords = reconstruct_query_to_keywords_mapping(config_used)
+
+        # Step 3: Collect file tasks using reconstructed mapping
+        for api_name in api_to_queries:
+            # Skip APIs not in reconstructed mapping (shouldn't happen, but defensive)
+            if api_name not in query_to_keywords:
+                logging.warning(
+                    f"API '{api_name}' found in filesystem but not in config reconstruction. Skipping."
+                )
                 continue
 
-            # Collect all files in this directory
-            for filename in os.listdir(query_dir):
-                file_path = os.path.join(query_dir, filename)
+            for query_index in api_to_queries[api_name]:
+                # Get keywords for this query index
+                keywords = query_to_keywords[api_name].get(query_index, [])
 
-                if os.path.isfile(file_path):
-                    file_tasks.append((file_path, api_name, keywords))
+                if not keywords:
+                    logging.warning(
+                        f"No keywords found for {api_name}/query_{query_index}. Using empty list."
+                    )
+
+                # Get directory for this API/query combination
+                query_dir = os.path.join(dir_collect, api_name, query_index)
+
+                if not os.path.exists(query_dir):
+                    continue
+
+                # Collect all files in this directory
+                for filename in os.listdir(query_dir):
+                    file_path = os.path.join(query_dir, filename)
+
+                    if os.path.isfile(file_path):
+                        file_tasks.append((file_path, api_name, keywords))
+
+    elif state_details is not None:
+        # LEGACY MODE: Use state_details.json (deprecated)
+        logging.warning(
+            "Using state_details.json for keyword mapping (LEGACY MODE - DEPRECATED)"
+        )
+        logging.warning(
+            "Please re-run collection to generate config_used.yml for better performance."
+        )
+
+        for api_name in state_details["details"]:
+            api_data = state_details["details"][api_name]
+
+            for query_index in api_data["by_query"]:
+                query_data = api_data["by_query"][query_index]
+                keywords = query_data.get("keyword", [])
+
+                # Get directory for this API/query combination
+                query_dir = os.path.join(dir_collect, api_name, query_index)
+
+                if not os.path.exists(query_dir):
+                    continue
+
+                # Collect all files in this directory
+                for filename in os.listdir(query_dir):
+                    file_path = os.path.join(query_dir, filename)
+
+                    if os.path.isfile(file_path):
+                        file_tasks.append((file_path, api_name, keywords))
+
+    else:
+        # ERROR: Neither provided
+        raise ValueError(
+            "Either 'state_details' or 'config_used' must be provided to parallel_load_all_files()"
+        )
 
     logging.info(f"Found {len(file_tasks)} JSON files to load")
 
@@ -449,8 +683,9 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
 
 def parallel_aggregate(
-    state_details: dict,
     dir_collect: str,
+    state_details: dict | None = None,
+    config_used: dict | None = None,
     txt_filters: bool = True,
     num_workers: int | None = None,
     batch_size: int = 5000,
@@ -459,9 +694,14 @@ def parallel_aggregate(
     """
     Main parallel aggregation function (orchestrates all phases).
 
+    Supports two modes (backward compatible):
+    1. NEW MODE: Use config_used.yml for keyword reconstruction
+    2. LEGACY MODE: Use state_details.json (deprecated)
+
     Args:
-        state_details: Collection state dictionary
         dir_collect: Base collection directory
+        state_details: (DEPRECATED) Collection state dictionary from state_details.json
+        config_used: Configuration dictionary from config_used.yml (RECOMMENDED)
         txt_filters: Enable text filtering
         num_workers: Number of parallel workers
         batch_size: Papers per batch
@@ -471,6 +711,9 @@ def parallel_aggregate(
         Tuple of:
         - Aggregated and deduplicated DataFrame
         - Combined statistics dictionary
+
+    Raises:
+        ValueError: If neither state_details nor config_used provided
     """
     logging.info("=" * 70)
     logging.info("PARALLEL AGGREGATION STARTED")
@@ -485,7 +728,10 @@ def parallel_aggregate(
 
     logging.info("\n--- Phase 1: Parallel File Loading ---")
     papers_by_api, load_stats = parallel_load_all_files(
-        state_details, dir_collect, num_workers
+        dir_collect,
+        state_details=state_details,
+        config_used=config_used,
+        num_workers=num_workers,
     )
     combined_stats["loading"] = load_stats
 

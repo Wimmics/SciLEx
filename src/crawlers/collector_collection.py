@@ -1,8 +1,6 @@
-import json
 import logging
 import multiprocessing
 import os
-from datetime import date
 from itertools import product
 
 import yaml
@@ -42,9 +40,6 @@ api_collectors = {
     "GoogleScholar": GoogleScholarCollector,
 }
 
-global lock
-lock = multiprocessing.Lock()
-
 
 # Global worker function for multiprocessing (must be at module level for pickling)
 def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name):
@@ -78,83 +73,15 @@ def _run_job_collects_worker(collect_list, api_config, output_dir, collect_name)
             # Run collection
             res = current_coll.runCollect()
 
-            # Update state
-            _update_state_worker(
-                repo, current_coll.api_name, str(current_coll.collectId), res
-            )
-
             logging.debug(
-                f"Completed collection for {coll['api']} query {data_query.get('id_collect', 'unknown')}"
+                f"Completed collection for {coll['api']} query {data_query.get('id_collect', 'unknown')}: {res.get('coll_art', 0)} articles"
             )
 
         except Exception as e:
             logging.error(f"Error during collection for {coll['api']}: {str(e)}")
-            # Mark as failed in state
-            error_state = {"state": -1, "error": str(e), "last_page": 0}
-            try:
-                _update_state_worker(
-                    repo, coll["api"], str(data_query.get("id_collect", 0)), error_state
-                )
-            except Exception as state_error:
-                logging.error(f"Failed to update state after error: {str(state_error)}")
 
         # Note: Removed fixed 2-second delay - rate limiting is now handled per-API
         # by individual collectors using configured rate limits from api.config.yml
-
-
-def _update_state_worker(repo, api, idx, state_data):
-    """Helper function to update state file in a thread-safe way"""
-    state_path = os.path.join(repo, "state_details.json")
-
-    with lock:
-        if os.path.isfile(state_path):
-            with open(state_path, encoding="utf-8") as read_file:
-                state_orig = json.load(read_file)
-
-            # Update query state
-            for k in state_data:
-                state_orig["details"][api]["by_query"][str(idx)][k] = state_data[k]
-
-            # Check if API is finished
-            finished_local = True
-            for k in state_orig["details"][api]["by_query"]:
-                q = state_orig["details"][api]["by_query"][k]
-                if q["state"] != 1:
-                    finished_local = False
-
-            if finished_local:
-                state_orig["details"][api]["state"] = 1
-            else:
-                state_orig["details"][api]["state"] = 0
-
-            # Check if all APIs are finished
-            finished_global = True
-            for api_ in state_orig["details"]:
-                if state_orig["details"][api_]["state"] != 1:
-                    finished_global = False
-
-            if finished_global:
-                state_orig["global"] = 1
-            else:
-                state_orig["global"] = 0
-
-            # Save state atomically to prevent corruption
-            temp_path = state_path + ".tmp"
-            try:
-                # Ensure directory exists (handles multiprocessing edge cases)
-                os.makedirs(os.path.dirname(state_path), exist_ok=True)
-
-                with open(temp_path, "w", encoding="utf-8") as f:
-                    json.dump(state_orig, f, ensure_ascii=False, indent=4)
-
-                # Atomic rename prevents partial writes and corruption
-                os.replace(temp_path, state_path)
-            except Exception as e:
-                logging.error(f"Failed to save state for {api}: {e}")
-                # Clean up temp file on failure
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise
 
 
 class Filter_param:
@@ -181,11 +108,9 @@ class Filter_param:
 
 class CollectCollection:
     def __init__(self, main_config, api_config):
-        logging.info("Initializing collection")
+        print("Initializing collection")
         self.main_config = main_config
         self.api_config = api_config
-        self.state_details = {}
-        self.state_details = {"global": -1, "details": {}}
         self.init_collection_collect()
 
     def validate_api_keys(self):
@@ -227,11 +152,12 @@ class CollectCollection:
         self.progress_lock = multiprocessing.Lock()
 
     def update_progress(self):
-        """Update progress counter (thread-safe)"""
+        """Update progress counter (thread-safe) - uses print() to bypass log level filtering"""
         with self.progress_lock:
             self.completed_jobs += 1
             progress_pct = (self.completed_jobs / self.total_jobs) * 100
-            logging.info(
+            # Use print() instead of logging to ensure visibility regardless of log level
+            print(
                 f"Progress: {self.completed_jobs}/{self.total_jobs} ({progress_pct:.1f}%) collections completed"
             )
 
@@ -389,175 +315,113 @@ class CollectCollection:
 
         return queries_by_api
 
-    def load_state_details(self):
-        repo = self.get_current_repo()
-        state_path = os.path.join(repo, "state_details.json")
-        if os.path.isfile(state_path):
-            with open(state_path, encoding="utf-8") as read_file:
-                self.state_details = json.load(read_file)
-        else:
-            logging.warning("Missing state details file")
-
-    def update_state_details(self, api, idx, state_data):
-        repo = self.get_current_repo()
-        state_path = os.path.join(repo, "state_details.json")
-
-        # Use lock for entire read-modify-write operation to prevent race conditions
-        with lock:
-            if os.path.isfile(state_path):
-                with open(state_path, encoding="utf-8") as read_file:
-                    state_orig = json.load(read_file)
-
-                for k in state_data:
-                    state_orig["details"][api]["by_query"][str(idx)][k] = state_data[k]
-
-                finished_local = True
-                for k in state_orig["details"][api]["by_query"]:
-                    q = state_orig["details"][api]["by_query"][k]
-                    if q["state"] != 1:
-                        finished_local = False
-
-                if finished_local:
-                    state_orig["details"][api]["state"] = 1
-                else:
-                    state_orig["details"][api]["state"] = 0
-
-                finished_global = True
-                for api_ in state_orig["details"]:
-                    if state_orig["details"][api_]["state"] != 1:
-                        finished_global = False
-
-                if finished_global:
-                    state_orig["global"] = 1
-                else:
-                    state_orig["global"] = 0
-
-                self.state_details = state_orig
-
-                # Write directly here to avoid nested lock acquisition
-                # (previously called save_state_details() which tried to acquire lock again)
-                temp_path = state_path + ".tmp"
-                try:
-                    with open(temp_path, "w", encoding="utf-8") as f:
-                        json.dump(state_orig, f, ensure_ascii=False, indent=4)
-                    os.replace(temp_path, state_path)
-                except Exception as e:
-                    logging.error(f"Failed to save state after update: {e}")
-                    if os.path.exists(temp_path):
-                        os.remove(temp_path)
-                    raise
-            else:
-                logging.warning("Missing state details file")
-
-    def init_state_details(self, queries_by_api):
-        """
-        Init. state details files used to follow the collect history
-        """
-        self.state_details["global"] = 0
-        self.state_details["details"] = {}
-        for api in queries_by_api:
-            if api not in self.state_details["details"]:
-                self.state_details["details"][api] = {}
-                self.state_details["details"][api]["state"] = -1
-                self.state_details["details"][api]["by_query"] = {}
-                queries = queries_by_api[api]
-                for idx in range(len(queries)):
-                    self.state_details["details"][api]["by_query"][idx] = {}
-                    self.state_details["details"][api]["by_query"][idx]["state"] = -1
-                    self.state_details["details"][api]["by_query"][idx][
-                        "id_collect"
-                    ] = idx
-                    self.state_details["details"][api]["by_query"][idx]["last_page"] = 0
-                    self.state_details["details"][api]["by_query"][idx]["total_art"] = 0
-                    self.state_details["details"][api]["by_query"][idx]["coll_art"] = 0
-                    self.state_details["details"][api]["by_query"][idx][
-                        "update_date"
-                    ] = str(date.today())
-                    for k in queries[idx]:
-                        if k not in self.state_details["details"][api]["by_query"][idx]:
-                            self.state_details["details"][api]["by_query"][idx][k] = (
-                                queries[idx][k]
-                            )
-
-    def save_state_details(self):
-        """
-        Save state details to JSON file with lock protection.
-        Uses lock to prevent race conditions during multiprocessing.
-        """
-        repo = self.get_current_repo()
-        state_path = os.path.join(repo, "state_details.json")
-
-        # Acquire lock to prevent concurrent writes that corrupt JSON
-        with lock:
-            # Write to temp file first, then atomic rename to prevent partial writes
-            temp_path = state_path + ".tmp"
-            try:
-                with open(temp_path, "w", encoding="utf-8") as f:
-                    json.dump(self.state_details, f, ensure_ascii=False, indent=4)
-
-                # Atomic rename (prevents file corruption if process crashes mid-write)
-                os.replace(temp_path, state_path)
-            except Exception as e:
-                logging.error(f"Failed to save state details: {e}")
-                # Clean up temp file on failure
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-                raise
-
     def init_collection_collect(self):
+        """
+        Initialize collection directory and save config snapshot.
+
+        Creates output directory if needed and saves a snapshot of the config
+        for use by aggregation later.
+        """
         repo = self.get_current_repo()
-        state_file = os.path.join(repo, "state_details.json")
 
-        # Reinitialize if:
-        # 1. Directory doesn't exist (first run), OR
-        # 2. State file doesn't exist (partial collection), OR
-        # 3. State is marked complete but force_restart is needed (handled by caller)
-        if not os.path.isdir(repo) or not os.path.isfile(state_file):
-            if not os.path.isdir(repo):
-                os.makedirs(repo)
-            with open(os.path.join(repo, "config_used.yml"), "w") as f:
-                yaml.dump(self.main_config, f)
-            logging.info("Building query composition")
-            queries_by_api = self.queryCompositor()
+        # Create directory and save config snapshot on first run
+        if not os.path.isdir(repo):
+            os.makedirs(repo)
+            logging.info(f"Created collection directory: {repo}")
 
-            self.init_state_details(queries_by_api)
+        # Always save/update config snapshot to ensure it's current
+        config_path = os.path.join(repo, "config_used.yml")
+        with open(config_path, "w") as f:
+            yaml.dump(self.main_config, f)
+        logging.debug(f"Saved config snapshot to: {config_path}")
 
-            self.save_state_details()
+    def _query_is_complete(self, repo, api, query_idx):
+        """
+        Check if a query is complete by checking for result files.
 
-        self.load_state_details()
+        Args:
+            repo: Collection directory path
+            api: API name (e.g., 'SemanticScholar')
+            query_idx: Query index (e.g., 0, 1, 2)
+
+        Returns:
+            bool: True if query has result files, False otherwise
+        """
+        query_dir = os.path.join(repo, api, str(query_idx))
+
+        # Query is complete if directory exists and has page files
+        if not os.path.isdir(query_dir):
+            return False
+
+        # Check for page files (e.g., page_1, page_2, etc.)
+        try:
+            files = os.listdir(query_dir)
+            # Consider complete if it has any files (page_* or other result files)
+            has_results = len(files) > 0
+            return has_results
+        except (PermissionError, OSError):
+            # If we can't read the directory, assume it's not complete
+            return False
 
     def create_collects_jobs(self):
-        """Validate API keys and create collection jobs"""
+        """
+        Create collection jobs and run them in parallel.
+
+        Uses file existence checks for idempotent collections:
+        - Skips queries that already have result files
+        - Allows safe re-runs without duplicating API calls
+        """
         logger = logging.getLogger(__name__)
 
         # Validate API keys before starting
         self.validate_api_keys()
 
-        # Create the collection of jobs depending of the history and run it in parallel
+        # Generate all queries from config
+        print("Building query composition")
+        queries_by_api = self.queryCompositor()
+
+        # Create jobs list, skipping already-completed queries
+        repo = self.get_current_repo()
         jobs_list = []
         n_coll = 0
-        if self.state_details["global"] == 0 or self.state_details["global"] == -1:
-            for api in self.state_details["details"]:
-                current_api_job = []
-                if (
-                    self.state_details["details"][api]["state"] == -1
-                    or self.state_details["details"][api]["state"] == 0
-                ):
-                    for k in self.state_details["details"][api]["by_query"]:
-                        query = self.state_details["details"][api]["by_query"][k]
-                        if query["state"] != 1:
-                            current_api_job.append({"query": query, "api": api})
-                            n_coll += 1
-                    if len(current_api_job) > 0:
-                        jobs_list.append(current_api_job)
+        n_skipped = 0
+
+        for api in queries_by_api:
+            current_api_job = []
+            queries = queries_by_api[api]
+
+            for idx, query in enumerate(queries):
+                # Check if this query is already complete (has result files)
+                if self._query_is_complete(repo, api, idx):
+                    n_skipped += 1
+                    logger.debug(f"Skipping {api} query {idx} (already has results)")
+                    continue
+
+                # Add query to job list
+                query["id_collect"] = idx
+                query["total_art"] = 0  # Unknown until first API response
+                query["last_page"] = 0  # Start from page 0
+                query["coll_art"] = 0  # No articles collected yet
+                query["state"] = 0  # Incomplete (0=incomplete, 1=complete, -1=error)
+                current_api_job.append({"query": query, "api": api})
+                n_coll += 1
+
+            if len(current_api_job) > 0:
+                jobs_list.append(current_api_job)
+
+        # Log summary
+        if n_skipped > 0:
+            logger.info(
+                f"Skipped {n_skipped} already-completed queries (idempotent re-run)"
+            )
 
         # Check if there are any jobs to process
         if len(jobs_list) == 0:
             logger.warning(
-                "No collections to conduct. Collection may already be complete."
+                "No collections to conduct. All queries already have results."
             )
             logger.warning(
-                "To restart collection, delete the output directory or reset state."
+                "To restart collection, delete the API directories in the output folder."
             )
             return
 
@@ -566,7 +430,7 @@ class CollectCollection:
         if num_cores < 1:
             num_cores = 1
 
-        logger.info(
+        print(
             f"Starting sync collection: {n_coll} queries using {num_cores} parallel processes"
         )
 

@@ -138,7 +138,7 @@ class API_collector:
                 ):
                     configured_limit = float(config["rate_limits"][self.api_name])
                     self.rate_limit = configured_limit
-                    logging.info(
+                    logging.debug(
                         f"{self.api_name}: Using configured rate limit of {configured_limit} req/sec"
                     )
                     return
@@ -151,12 +151,12 @@ class API_collector:
         if self.api_name in self.DEFAULT_RATE_LIMITS:
             default_limit = self.DEFAULT_RATE_LIMITS[self.api_name]
             self.rate_limit = default_limit
-            logging.info(
+            logging.debug(
                 f"{self.api_name}: Using default rate limit of {default_limit} req/sec"
             )
         else:
             # Keep the existing rate_limit value (usually set in subclass)
-            logging.info(
+            logging.debug(
                 f"{self.api_name}: Using hardcoded rate limit of {self.rate_limit} req/sec"
             )
 
@@ -199,7 +199,7 @@ class API_collector:
                 log_data[key] = response.headers[header]
 
         # Log as structured JSON for easy parsing
-        logging.info(f"API_USAGE: {json.dumps(log_data)}")
+        logging.debug(f"API_USAGE: {json.dumps(log_data)}")
 
         # Warn if approaching rate limits
         if "rate_limit_remaining" in log_data:
@@ -223,15 +223,6 @@ class API_collector:
 
     def set_collectId(self, collectId):
         self.collectId = collectId
-
-    def createCollectDir(self):
-        if not os.path.isdir(self.get_apiDir()):
-            os.makedirs(self.get_apiDir())
-        if not os.path.isdir(self.get_collectDir()):
-            os.makedirs(self.get_collectDir())
-
-    def get_collectDir(self):
-        return self.get_apiDir() + "/" + str(self.get_collectId())
 
     def set_state(self, complete):
         self.state = complete
@@ -499,9 +490,6 @@ class API_collector:
     def toZotero():
         pass
 
-    def get_lastpage(self):
-        return self.lastpage
-
     def runCollect(self):
         """
         Runs the collection process for DBLP and Springer publications.
@@ -584,7 +572,7 @@ class API_collector:
 
                     # Check if total results are within the limit
                     fewer_than_10k_results = page_data["total"] <= 10000
-                    logging.info(
+                    logging.debug(
                         f"Processed page {page}: {len(page_data['results'])} results. Total found: {page_data['total']}"
                     )
 
@@ -674,7 +662,7 @@ class API_collector:
                     # Check if the total number of results is within the limit
                     # fewer_than_10k_results = page_data["total"] <= 10000
 
-                    logging.info(
+                    logging.debug(
                         f"Processed page {page}: {len(page_data['results'])} results. Total found: {page_data['total']}"
                     )
 
@@ -810,7 +798,7 @@ class SemanticScholar_collector(API_collector):
                     }
                     page_data["results"].append(parsed_result)
 
-            logging.info(
+            logging.debug(
                 f"Page {page} parsed successfully with {len(page_data['results'])} results."
             )
         except Exception as e:
@@ -1151,7 +1139,7 @@ class DBLP_collector(API_collector):
         results = page_with_results["result"]
         total = results["hits"]["@total"]
         page_data["total"] = int(total)
-        logging.info(f"Total results found for page {page}: {page_data['total']}")
+        logging.debug(f"Total results found for page {page}: {page_data['total']}")
 
         if page_data["total"] > 0:
             # Loop through the hits and append them to the results list
@@ -1235,7 +1223,7 @@ class OpenAlex_collector(API_collector):
         # Extract the total number of hits from the results
         total = page_with_results.get("meta", {}).get("count", 0)
         page_data["total"] = int(total)
-        logging.info(f"Total results found for page {page}: {page_data['total']}")
+        logging.debug(f"Total results found for page {page}: {page_data['total']}")
 
         if page_data["total"] > 0:
             # Loop through the hits and append them to the results list
@@ -1335,7 +1323,7 @@ class HAL_collector(API_collector):
         results = page_with_results["response"]
         total = results["numFound"]
         page_data["total"] = int(total)
-        logging.info(f"Total results found for page {page}: {page_data['total']}")
+        logging.debug(f"Total results found for page {page}: {page_data['total']}")
 
         if total > 0:
             # Loop through the documents and append them to the results list
@@ -1519,7 +1507,7 @@ class Arxiv_collector(API_collector):
         """Constructs the API URL with the search query and date filters."""
         search_query = self.construct_search_query()  # Use the constructed search query
 
-        logging.info(
+        logging.debug(
             f"Configured URL: {self.api_url}?search_query={search_query}&sortBy=relevance&sortOrder=descending&start={{}}&max_results={self.max_by_page}"
         )
         return f"{self.api_url}?search_query={search_query}&sortBy=relevance&sortOrder=descending&start={{}}&max_results={self.max_by_page}"
@@ -1560,7 +1548,7 @@ class Istex_collector(API_collector):
         # Extract total number of hits
         total = page_with_results.get("total", 0)
         page_data["total"] = int(total)
-        logging.info(f"Total results found for page {page}: {page_data['total']}")
+        logging.debug(f"Total results found for page {page}: {page_data['total']}")
 
         # Loop through the hits and append them to the results list
         for result in page_with_results.get("hits", []):
@@ -1749,7 +1737,7 @@ class Springer_collector(API_collector):
                 paginated_url = (
                     f"{base_url}&p={page}"  # Use 'p' for Springer API pagination
                 )
-                logging.info(f"Fetching data from URL: {paginated_url}")
+                logging.debug(f"Fetching data from URL: {paginated_url}")
 
                 # Call the API
                 try:
@@ -1892,7 +1880,7 @@ class GoogleScholarCollector(API_collector):
                 )
                 continue
 
-        logging.info(f"Parsed page {page}: {len(page_data['results'])} results")
+        logging.debug(f"Parsed page {page}: {len(page_data['results'])} results")
         return page_data
 
     def get_configurated_url(self):
