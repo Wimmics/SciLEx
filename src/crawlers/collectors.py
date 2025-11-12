@@ -12,7 +12,7 @@ from lxml import etree
 from ratelimit import limits, sleep_and_retry
 from scholarly import ProxyGenerator, scholarly
 
-from src.constants import CircuitBreakerConfig
+from src.constants import CircuitBreakerConfig, RateLimitBackoffConfig
 from src.crawlers.circuit_breaker import CircuitBreakerOpenError, CircuitBreakerRegistry
 
 # # Set up logging configuration
@@ -358,14 +358,39 @@ class API_collector:
                     last_exception = e
 
                     if status_code == 429:  # Too Many Requests
-                        wait_time = 2**attempt  # Exponential backoff
+                        # Get API-specific backoff configuration
+                        base_wait, use_exponential = (
+                            RateLimitBackoffConfig.API_SPECIFIC.get(
+                                self.api_name,
+                                (
+                                    RateLimitBackoffConfig.DEFAULT_BASE_WAIT,
+                                    RateLimitBackoffConfig.DEFAULT_USE_EXPONENTIAL,
+                                ),
+                            )
+                        )
+
+                        # Calculate wait time based on strategy
+                        if use_exponential:
+                            wait_time = base_wait * (2**attempt)  # Exponential backoff
+                        else:
+                            wait_time = base_wait  # Fixed wait time
+
                         logging.warning(
-                            f"{self.api_name} API rate limit exceeded. "
-                            f"Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries})"
+                            f"{self.api_name} API rate limit exceeded (429). "
+                            f"Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries}). "
+                            f"Strategy: {'exponential' if use_exponential else 'fixed'} backoff"
                         )
                         if attempt < max_retries - 1:
                             time.sleep(wait_time)
                             continue
+                        else:
+                            # Final retry failed - don't record as circuit breaker failure
+                            # Rate limits are temporary and don't indicate endpoint failure
+                            logging.warning(
+                                f"{self.api_name} API: Rate limit persists after {max_retries} retries with {wait_time}s waits. "
+                                f"Consider reducing rate_limit in api.config.yml or increasing backoff time."
+                            )
+                            raise  # Re-raise to let caller handle
                     elif status_code in [401, 403]:  # Authentication errors
                         logging.error(
                             f"{self.api_name} API authentication failed: {status_code}. "
@@ -719,12 +744,23 @@ class SemanticScholar_collector(API_collector):
         super().__init__(filter_param, data_path, api_key)
         self.api_name = "SemanticScholar"
         self.api_url = "https://api.semanticscholar.org/graph/v1/paper/search"
-        self.max_by_page = 100  # Maximum number of results per page
 
         # Read semantic_scholar_mode from config (default: regular)
         # Options: "regular" (standard endpoint) or "bulk" (bulk endpoint, requires higher-tier access)
         mode = filter_param.get("semantic_scholar_mode", "regular")
         self.use_bulk_api = mode == "bulk"
+
+        # Set max results per page based on endpoint type
+        # Bulk endpoint supports up to 1000 results per page (10x more than regular)
+        # Regular endpoint limited to 100 results per page
+        if self.use_bulk_api:
+            self.max_by_page = 1000  # Bulk endpoint: 1000 results per page
+            logging.info(
+                "Semantic Scholar BULK mode: Using 1000 results/page (10x faster than regular)"
+            )
+        else:
+            self.max_by_page = 100  # Regular endpoint: 100 results per page
+            logging.info("Semantic Scholar REGULAR mode: Using 100 results/page")
 
         # Load rate limit from config (defaults to 1 req/sec with API key)
         self.load_rate_limit_from_config()
@@ -1159,19 +1195,22 @@ class DBLP_collector(API_collector):
         # Process keywords: Use hyphens for multi-word phrases, '+' for AND between keywords
         # DBLP uses hyphen (-) to enforce adjacency for phrase matching
         keywords = self.get_keywords()
-        keywords_query = ""
+        keywords_list = []
         for keyword in keywords:
             # Replace spaces with hyphens to keep multi-word phrases together
             # e.g., "knowledge graph" becomes "knowledge-graph"
             phrase = keyword.replace(" ", "-")
-            keywords_query = keywords_query + "+" + phrase
+            keywords_list.append(phrase)
+
+        # Join with '+' for AND logic (no leading '+')
+        keywords_query = "+".join(keywords_list)
 
         #### OR CONFIG (deprecated)
         # keywords_query ='|'.join(self.get_keywords())
 
         years_query = str(self.get_year())
-        # Combine keywords and years into the query string
-        query = f"{keywords_query} year:{years_query}:"
+        # Combine keywords and years into the query string (fixed trailing colon)
+        query = f"{keywords_query} year:{years_query}"
         logging.debug(f"Constructed query for API: {query}")
 
         # Return the final API URL

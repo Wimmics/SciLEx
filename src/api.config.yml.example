@@ -95,7 +95,7 @@ rate_limits:
     # DBLP Computer Science Bibliography
     # - No official rate limit documented
     # - Conservative limit to be respectful
-    DBLP: 10.0
+    DBLP: 1.0
 
     # Google Scholar (via scholarly package)
     # - Uses web scraping with proxy rotation

@@ -99,7 +99,7 @@ def setup_logging(
     """
     # Determine log level
     if level is None:
-        level = os.environ.get("LOG_LEVEL", "WARNING").upper()
+        level = os.environ.get("LOG_LEVEL", "INFO").upper()
 
     log_level = getattr(logging, level, logging.WARNING)
 

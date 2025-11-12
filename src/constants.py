@@ -50,6 +50,25 @@ class CircuitBreakerConfig:
     MAX_RETRIES = 3  # Maximum number of retry attempts per request
 
 
+# Rate limit backoff configuration
+class RateLimitBackoffConfig:
+    """Rate limit backoff strategies for different APIs."""
+
+    # Default exponential backoff: 2s, 4s, 8s
+    DEFAULT_BASE_WAIT = 2
+    DEFAULT_USE_EXPONENTIAL = True
+
+    # API-specific configurations
+    # Format: {api_name: (base_wait_seconds, use_exponential_backoff)}
+    API_SPECIFIC = {
+        "DBLP": (30, False),  # DBLP: Fixed 30s wait (no exponential)
+        "Springer": (15, True),  # Springer: 15s, 30s, 60s
+        "IEEE": (10, True),  # IEEE: 10s, 20s, 40s
+        "Elsevier": (20, True),  # Elsevier: 20s, 40s, 80s
+        # Others use default (2s exponential)
+    }
+
+
 # Citation filter configuration
 class CitationFilterConfig:
     """Time-aware citation filtering thresholds for paper quality assessment."""
