@@ -15,13 +15,6 @@ from scholarly import ProxyGenerator, scholarly
 from src.constants import CircuitBreakerConfig, RateLimitBackoffConfig
 from src.crawlers.circuit_breaker import CircuitBreakerOpenError, CircuitBreakerRegistry
 
-# # Set up logging configuration
-# logging.basicConfig(
-#     level=logging.INFO,
-#     format='%(asctime)s - %(levelname)s - %(message)s',
-#     datefmt='%Y-%m-%d %H:%M:%S'
-# )
-
 
 class Filter_param:
     def __init__(self, year, keywords, max_articles_per_query=-1):
@@ -31,7 +24,6 @@ class Filter_param:
         self.keywords = keywords
         # Maximum articles per query (-1 = unlimited)
         self.max_articles_per_query = max_articles_per_query
-        # self.focus = focus
 
     def get_dict_param(self):
         # Return the instance's dictionary representation
@@ -45,9 +37,6 @@ class Filter_param:
 
     def get_max_articles_per_query(self):
         return self.max_articles_per_query
-
-    def get_focus(self):
-        return self.focus
 
 
 class API_collector:
@@ -706,7 +695,7 @@ class API_collector:
         # Final log messages based on the collection status
 
         if not has_more_pages:
-            logging.info("No more pages to collect. Marking collection as complete.")
+            logging.debug("No more pages to collect. Marking collection as complete.")
             # self.flagAsComplete()
             state_data["state"] = 1
         else:
@@ -755,12 +744,12 @@ class SemanticScholar_collector(API_collector):
         # Regular endpoint limited to 100 results per page
         if self.use_bulk_api:
             self.max_by_page = 1000  # Bulk endpoint: 1000 results per page
-            logging.info(
+            logging.debug(
                 "Semantic Scholar BULK mode: Using 1000 results/page (10x faster than regular)"
             )
         else:
             self.max_by_page = 100  # Regular endpoint: 100 results per page
-            logging.info("Semantic Scholar REGULAR mode: Using 100 results/page")
+            logging.debug("Semantic Scholar REGULAR mode: Using 100 results/page")
 
         # Load rate limit from config (defaults to 1 req/sec with API key)
         self.load_rate_limit_from_config()

@@ -1109,10 +1109,8 @@ if __name__ == "__main__":
     # Get output filename from config, with fallback and handle leading slashes
     output_filename = main_config.get("aggregate_file", "FileAggreg.csv").lstrip("/")
 
-    # NEW: Path to config snapshot (preferred)
+    # Path to config snapshot
     config_used_path = os.path.join(dir_collect, "config_used.yml")
-    # LEGACY: Path to state file (deprecated)
-    state_path = os.path.join(dir_collect, "state_details.json")
 
     logger.info(f"Collection directory: {dir_collect}")
     logger.info(f"Text filtering: {'enabled' if txt_filters else 'disabled'}")
@@ -1140,57 +1138,10 @@ if __name__ == "__main__":
     # Load keyword groups from config for proper dual-group filtering
     keyword_groups = main_config.get("keywords", [])
 
-    # =========================================================================
-    # LOAD COLLECTION METADATA: config_used.yml (NEW) or state_details.json (LEGACY)
-    # =========================================================================
-
-    config_used = None
-    state_details = None
-
-    if os.path.isfile(config_used_path):
-        # NEW MODE: Use config snapshot (preferred)
-        logging.info("Found config_used.yml - using for aggregation (NEW MODE)")
-        import yaml
-
-        try:
-            with open(config_used_path, encoding="utf-8") as f:
-                config_used = yaml.safe_load(f)
-            logging.debug("Config snapshot loaded successfully")
-        except yaml.YAMLError as e:
-            logging.error(f"Failed to parse config_used.yml: {e}")
-            logging.error("Falling back to state_details.json if available...")
-            config_used = None
-        except Exception as e:
-            logging.error(f"Error loading config_used.yml: {e}")
-            logging.error("Falling back to state_details.json if available...")
-            config_used = None
-
-    if config_used is None and os.path.isfile(state_path):
-        # LEGACY MODE: Fall back to state file (deprecated)
-        logging.warning("Using state_details.json for aggregation (LEGACY MODE)")
-        logging.warning(
-            "Consider re-running collection to generate config_used.yml for better reliability."
-        )
-
-        try:
-            with open(state_path, encoding="utf-8") as read_file:
-                state_details = json.load(read_file)
-            logging.debug("State details file loaded successfully")
-        except json.JSONDecodeError as e:
-            logging.error(f"Failed to parse state_details.json: {e}")
-            logging.error(
-                "State file may be corrupted. Please re-run collection or delete corrupted state file."
-            )
-            sys.exit(1)
-        except Exception as e:
-            logging.error(f"Error loading state_details.json: {e}")
-            sys.exit(1)
-
-    if config_used is None and state_details is None:
-        # ERROR: Neither file found
+    # Load collection metadata from config snapshot
+    if not os.path.isfile(config_used_path):
         logging.error(f"No collection metadata found in: {dir_collect}")
         logging.error(f"  - config_used.yml not found at: {config_used_path}")
-        logging.error(f"  - state_details.json not found at: {state_path}")
         logging.error("")
         logging.error("Please run collection first:")
         logging.error("  python src/run_collecte.py")
@@ -1198,17 +1149,30 @@ if __name__ == "__main__":
         logging.error("Or check 'collect_name' in scilex.config.yml")
         sys.exit(1)
 
+    logging.info("Loading config_used.yml for aggregation")
+    import yaml
+
+    try:
+        with open(config_used_path, encoding="utf-8") as f:
+            config_used = yaml.safe_load(f)
+        logging.debug("Config snapshot loaded successfully")
+    except yaml.YAMLError as e:
+        logging.error(f"Failed to parse config_used.yml: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"Error loading config_used.yml: {e}")
+        sys.exit(1)
+
     # =========================================================================
-    # RUN PARALLEL AGGREGATION (with config_used or state_details)
+    # RUN PARALLEL AGGREGATION
     # =========================================================================
 
     logging.info("Using parallel aggregation mode")
     from src.crawlers.aggregate_parallel import parallel_aggregate
 
-    # Run parallel aggregation with appropriate parameters
+    # Run parallel aggregation with config_used
     df, parallel_stats = parallel_aggregate(
         dir_collect=dir_collect,
-        state_details=state_details,
         config_used=config_used,
         txt_filters=txt_filters,
         num_workers=args.parallel_workers,

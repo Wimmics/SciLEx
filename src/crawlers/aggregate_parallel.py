@@ -70,7 +70,7 @@ def discover_api_directories(dir_collect: str) -> dict[str, list[str]]:
             continue
 
         # Skip special files/directories
-        if api_dir in ["config_used.yml", "state_details.json", "citation_cache.db"]:
+        if api_dir in ["config_used.yml", "citation_cache.db"]:
             continue
 
         # Scan for query index directories
@@ -235,30 +235,21 @@ def _load_json_file(
 
 def parallel_load_all_files(
     dir_collect: str,
-    state_details: dict | None = None,
-    config_used: dict | None = None,
+    config_used: dict,
     num_workers: int | None = None,
 ) -> tuple[list[tuple[dict, str, list[str]]], dict]:
     """
     Load all JSON files in parallel using threading.
 
-    Supports two modes (backward compatible):
-    1. NEW MODE: Use config_used.yml for keyword reconstruction
-    2. LEGACY MODE: Use state_details.json (deprecated)
-
     Args:
         dir_collect: Base collection directory path
-        state_details: (DEPRECATED) Collection state dictionary from state_details.json
-        config_used: Configuration dictionary from config_used.yml (RECOMMENDED)
+        config_used: Configuration dictionary from config_used.yml
         num_workers: Number of parallel workers (default: cpu_count * 2 for I/O)
 
     Returns:
         Tuple of:
         - List of (paper_dict, api_name, keywords) tuples
         - Statistics dictionary
-
-    Raises:
-        ValueError: If neither state_details nor config_used provided
     """
     if num_workers is None:
         # For I/O-bound tasks, use more threads than CPU cores
@@ -269,85 +260,44 @@ def parallel_load_all_files(
     # Collect all file paths and metadata
     file_tasks = []
 
-    # ============================================================
-    # MODE DETECTION: config_used (NEW) vs state_details (LEGACY)
-    # ============================================================
+    logging.info("Using config_used.yml for keyword mapping")
 
-    if config_used is not None:
-        # NEW MODE: Use config_used.yml for reconstruction
-        logging.info("Using config_used.yml for keyword mapping (NEW MODE)")
+    # Step 1: Discover API directories and query indices from filesystem
+    api_to_queries = discover_api_directories(dir_collect)
 
-        # Step 1: Discover API directories and query indices from filesystem
-        api_to_queries = discover_api_directories(dir_collect)
+    # Step 2: Reconstruct query → keywords mapping from config
+    query_to_keywords = reconstruct_query_to_keywords_mapping(config_used)
 
-        # Step 2: Reconstruct query → keywords mapping from config
-        query_to_keywords = reconstruct_query_to_keywords_mapping(config_used)
+    # Step 3: Collect file tasks using reconstructed mapping
+    for api_name in api_to_queries:
+        # Skip APIs not in reconstructed mapping (shouldn't happen, but defensive)
+        if api_name not in query_to_keywords:
+            logging.warning(
+                f"API '{api_name}' found in filesystem but not in config reconstruction. Skipping."
+            )
+            continue
 
-        # Step 3: Collect file tasks using reconstructed mapping
-        for api_name in api_to_queries:
-            # Skip APIs not in reconstructed mapping (shouldn't happen, but defensive)
-            if api_name not in query_to_keywords:
+        for query_index in api_to_queries[api_name]:
+            # Get keywords for this query index
+            keywords = query_to_keywords[api_name].get(query_index, [])
+
+            if not keywords:
                 logging.warning(
-                    f"API '{api_name}' found in filesystem but not in config reconstruction. Skipping."
+                    f"No keywords found for {api_name}/query_{query_index}. Using empty list."
                 )
+
+            # Get directory for this API/query combination
+            query_dir = os.path.join(dir_collect, api_name, query_index)
+
+            if not os.path.exists(query_dir):
                 continue
 
-            for query_index in api_to_queries[api_name]:
-                # Get keywords for this query index
-                keywords = query_to_keywords[api_name].get(query_index, [])
+            # Collect all files in this directory
+            for filename in os.listdir(query_dir):
+                file_path = os.path.join(query_dir, filename)
 
-                if not keywords:
-                    logging.warning(
-                        f"No keywords found for {api_name}/query_{query_index}. Using empty list."
-                    )
-
-                # Get directory for this API/query combination
-                query_dir = os.path.join(dir_collect, api_name, query_index)
-
-                if not os.path.exists(query_dir):
-                    continue
-
-                # Collect all files in this directory
-                for filename in os.listdir(query_dir):
-                    file_path = os.path.join(query_dir, filename)
-
-                    if os.path.isfile(file_path):
-                        file_tasks.append((file_path, api_name, keywords))
-
-    elif state_details is not None:
-        # LEGACY MODE: Use state_details.json (deprecated)
-        logging.warning(
-            "Using state_details.json for keyword mapping (LEGACY MODE - DEPRECATED)"
-        )
-        logging.warning(
-            "Please re-run collection to generate config_used.yml for better performance."
-        )
-
-        for api_name in state_details["details"]:
-            api_data = state_details["details"][api_name]
-
-            for query_index in api_data["by_query"]:
-                query_data = api_data["by_query"][query_index]
-                keywords = query_data.get("keyword", [])
-
-                # Get directory for this API/query combination
-                query_dir = os.path.join(dir_collect, api_name, query_index)
-
-                if not os.path.exists(query_dir):
-                    continue
-
-                # Collect all files in this directory
-                for filename in os.listdir(query_dir):
-                    file_path = os.path.join(query_dir, filename)
-
-                    if os.path.isfile(file_path):
-                        file_tasks.append((file_path, api_name, keywords))
-
-    else:
-        # ERROR: Neither provided
-        raise ValueError(
-            "Either 'state_details' or 'config_used' must be provided to parallel_load_all_files()"
-        )
+                if os.path.isfile(file_path):
+                    file_tasks.append((file_path, api_name, keywords))
 
     logging.info(f"Found {len(file_tasks)} JSON files to load")
 
@@ -684,8 +634,7 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
 def parallel_aggregate(
     dir_collect: str,
-    state_details: dict | None = None,
-    config_used: dict | None = None,
+    config_used: dict,
     txt_filters: bool = True,
     num_workers: int | None = None,
     batch_size: int = 5000,
@@ -694,14 +643,9 @@ def parallel_aggregate(
     """
     Main parallel aggregation function (orchestrates all phases).
 
-    Supports two modes (backward compatible):
-    1. NEW MODE: Use config_used.yml for keyword reconstruction
-    2. LEGACY MODE: Use state_details.json (deprecated)
-
     Args:
         dir_collect: Base collection directory
-        state_details: (DEPRECATED) Collection state dictionary from state_details.json
-        config_used: Configuration dictionary from config_used.yml (RECOMMENDED)
+        config_used: Configuration dictionary from config_used.yml
         txt_filters: Enable text filtering
         num_workers: Number of parallel workers
         batch_size: Papers per batch
@@ -711,9 +655,6 @@ def parallel_aggregate(
         Tuple of:
         - Aggregated and deduplicated DataFrame
         - Combined statistics dictionary
-
-    Raises:
-        ValueError: If neither state_details nor config_used provided
     """
     logging.info("=" * 70)
     logging.info("PARALLEL AGGREGATION STARTED")
@@ -729,7 +670,6 @@ def parallel_aggregate(
     logging.info("\n--- Phase 1: Parallel File Loading ---")
     papers_by_api, load_stats = parallel_load_all_files(
         dir_collect,
-        state_details=state_details,
         config_used=config_used,
         num_workers=num_workers,
     )

@@ -74,7 +74,7 @@ years:
 Once the previous steps are complete, run the collection from the library source:
 
 ```bash
-python src/run_collect.py
+python src/run_collecte.py
 ```
 
 ---
@@ -102,7 +102,6 @@ output_dir/collect_name/
 │   ├── page.../   
 │   └── pagen/
 ├── configuration_used.yml # Local copy of the configuration 📝
-├── state_details.json     # Tracks the state of collection to resume if interrupted ⏯
 └── aggregation_file.csv   # Aggregated results 💾
 ```
 
@@ -113,7 +112,7 @@ output_dir/collect_name/
 If you have your Zotero API key, you can push the `aggregation_file.csv` content to a Zotero library. Note that free Zotero accounts have storage limits, so manual filtering is recommended.
 
 ```bash
-python push_to_Zotero_collect.py
+python src/push_to_zotero.py
 ```
 
 This will create a new library based on the `collect_name` defined in your configuration 🏁.

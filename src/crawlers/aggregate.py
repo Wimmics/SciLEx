@@ -38,16 +38,6 @@ def safe_has_key(obj, key):
 ############
 
 
-def isNaN(num):
-    """
-    DEPRECATED: Use is_valid() from src.constants instead.
-
-    This function is deprecated and should not be used in new code.
-    It has been replaced by the more comprehensive is_valid() function.
-    """
-    return num != num
-
-
 def getquality(df_row, column_names):
     """Calculate quality score based on weighted field importance.
 

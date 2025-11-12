@@ -121,28 +121,6 @@ def _run_job_collects_worker(
     # using configured rate limits from api.config.yml
 
 
-class Filter_param:
-    def __init__(self, year, keywords, focus):
-        # Initialize the parameters
-        self.year = year
-        # Keywords is now a list of lists to support multiple sets
-        self.keywords = keywords
-        self.focus = focus
-
-    def get_dict_param(self):
-        # Return the instance's dictionary representation
-        return self.__dict__
-
-    def get_year(self):
-        return self.year
-
-    def get_keywords(self):
-        return self.keywords
-
-    def get_focus(self):
-        return self.focus
-
-
 class CollectCollection:
     def __init__(self, main_config, api_config):
         print("Initializing collection")
@@ -207,10 +185,7 @@ class CollectCollection:
                 current_coll = collector(data_query, repo, api_key, inst_token)
             else:
                 current_coll = collector(data_query, repo, api_key)
-            res = current_coll.runCollect()
-            self.update_state_details(
-                current_coll.api_name, str(current_coll.collectId), res
-            )
+            current_coll.runCollect()
 
             # Note: Removed fixed 2-second delay - rate limiting is now handled per-API
             # by individual collectors using configured rate limits from api.config.yml
