@@ -504,7 +504,7 @@ class CollectCollection:
 
                         # Log at 25%, 50%, 75%, and 100% completion
                         if completed % max(1, total // 4) == 0 or completed == total:
-                            logging.info(
+                            logging.debug(
                                 f"[{api_name}] Progress: {completed}/{total} queries | {total_articles} papers collected"
                             )
 
