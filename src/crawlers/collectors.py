@@ -45,7 +45,7 @@ class API_collector:
         "SemanticScholar": 1.0,
         "OpenAlex": 10.0,
         "Arxiv": 3.0,
-        "IEEE": 10.0,
+        "IEEE": 2.0,  # Conservative default - increase if no 429 errors
         "Elsevier": 6.0,
         "Springer": 1.5,
         "HAL": 10.0,
@@ -902,12 +902,15 @@ class IEEE_collector(API_collector):
         """
         super().__init__(filter_param, data_path, api_key)
         self.api_name = "IEEE"
-        # Fixed: Official IEEE API rate limit is 10 requests/sec (not 200)
-        # See https://developer.ieee.org/docs for rate limit information
-        self.rate_limit = 10
-        self.max_by_page = 25  # IEEE API max records per page is 25
+        # Rate limit will be loaded from config or use DEFAULT_RATE_LIMITS (2.0 req/sec)
+        self.max_by_page = (
+            200  # IEEE API max records per page is 200 (not 25 as previously set)
+        )
         # self.api_key = ieee_api
         self.api_url = "https://ieeexploreapi.ieee.org/api/v1/search/articles"
+
+        # Load rate limit from config after api_name is set
+        self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
         """
@@ -950,7 +953,7 @@ class IEEE_collector(API_collector):
                     "rank": article.get("rank", 0),
                     "authors": [
                         {
-                            "name": author.get("full_name", ""),
+                            "full_name": author.get("full_name", ""),
                             "affiliation": author.get("affiliation", ""),
                         }
                         for author in article.get("authors", {}).get("authors", [])
@@ -960,6 +963,13 @@ class IEEE_collector(API_collector):
                     "abstract": article.get("abstract", ""),
                     "article_number": article.get("article_number", ""),
                     "pdf_url": article.get("pdf_url", ""),
+                    # Additional metadata fields for better citation formatting
+                    "start_page": article.get("start_page", ""),
+                    "end_page": article.get("end_page", ""),
+                    "publication_date": article.get("publication_date", ""),
+                    "publication_title": article.get("publication_title", ""),
+                    "volume": article.get("volume", ""),
+                    "issue": article.get("issue", ""),
                 }
                 page_data["results"].append(parsed_article)
 
@@ -1299,7 +1309,7 @@ class OpenAlex_collector(API_collector):
         # Combine all filters into the final URL
         api_url = (
             f"{self.api_url}?filter={formatted_keyword_filters},{year_filter}"
-            f"&per-page={self.max_by_page}&mailto={self.api_key}&page={{}}"
+            f"&per-page={self.max_by_page}&page={{}}"
         )
 
         logging.debug(f"Configured URL: {api_url}")

@@ -68,10 +68,12 @@ rate_limits:
     Arxiv: 3.0
 
     # IEEE Xplore API
-    # - Standard: 10 req/sec
-    # - Daily quota: 200 requests (may vary by account)
+    # - Rate limit: Varies by account type (not officially documented)
+    # - Daily quota: Varies by subscription (check your API dashboard)
+    # - Conservative default: 2.0 req/sec (increase if no 429 errors)
+    # - NOTE: Changed max_records from 25 to 200 for 8x efficiency improvement
     # - Source: https://developer.ieee.org/docs
-    IEEE: 10.0
+    IEEE: 2.0
 
     # Elsevier Scopus API
     # - Varies by subscription tier (6-25 req/sec typical)

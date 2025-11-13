@@ -19,11 +19,20 @@ from ratelimit import limits, sleep_and_retry
 ############
 
 
+# NOTE: This is a standalone utility script for DOI resolution using Crossref API
+# It is NOT part of the main SciLEx collection pipeline
+# Crossref API benefits from email for "polite pool" access (50 req/sec vs 1 req/sec)
+# See: https://github.com/CrossRef/rest-api-doc#good-manners--more-reliable-service
+
 with open("/user/cringwal/home/Desktop/Scilex-main/src/scilex.config.yml") as ymlfile:
     cfg = yaml.load(ymlfile)
     collect_dir = cfg["collect"]["dir"]
     api_key = cfg["zotero"]["api_key"]
-    email = cfg["email"]
+
+# Optional email for Crossref API polite pool access
+# Set this to your email if you want better Crossref rate limits
+# Otherwise, leave as empty string for standard access (1 req/sec)
+email = ""  # e.g., "your.email@example.com"
 
 
 @sleep_and_retry

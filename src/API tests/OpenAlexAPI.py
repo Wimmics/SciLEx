@@ -17,9 +17,11 @@ import yaml
 ############
 
 
+# Legacy test file - email parameter removed from main configuration
+# This is a standalone test script, not part of the main collection pipeline
 with open("/user/cringwal/home/Desktop/Scilex-main/src/scilex.config.yml") as ymlfile:
     cfg = yaml.load(ymlfile)
-    email = cfg["openalex"]["email"]
+    # email = cfg["openalex"]["email"]  # Email parameter removed
 
 
 def toZoteroFormat(row):
@@ -64,8 +66,6 @@ oa_url = (
     + keyword
     + "&per-page=200&filter=publication_year:"
     + str(year)
-    + "&mailto="
-    + email
     + "&page={}"
 )
 
