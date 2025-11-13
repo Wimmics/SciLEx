@@ -45,6 +45,28 @@ api_collectors = {
 
 
 # Thread worker function (processes all queries for one API)
+
+
+def _sanitize_error_message(error_msg):
+    """
+    Remove sensitive information (API keys, tokens) from error messages.
+
+    Args:
+        error_msg: Error message string that may contain sensitive parameters
+
+    Returns:
+        str: Sanitized error message with sensitive parameters masked
+    """
+    import re
+
+    # Replace API keys in URLs within error messages
+    error_msg = re.sub(r"([?&]api[Kk]ey=)[^&\s]+", r"\1***REDACTED***", error_msg)
+    error_msg = re.sub(r"([?&]apikey=)[^&\s]+", r"\1***REDACTED***", error_msg)
+    error_msg = re.sub(r"([?&]key=)[^&\s]+", r"\1***REDACTED***", error_msg)
+    error_msg = re.sub(r"([?&]token=)[^&\s]+", r"\1***REDACTED***", error_msg)
+    return error_msg
+
+
 def _run_job_collects_worker(
     api_name, collect_list, api_config, output_dir, collect_name, progress_queue
 ):
@@ -74,8 +96,14 @@ def _run_job_collects_worker(
         if api_name in api_config:
             api_key = api_config[api_name].get("api_key")
             if api_name == "Elsevier" and "inst_token" in api_config[api_name]:
-                inst_token = api_config[api_name]["inst_token"]
-                logging.debug("Using institutional token for Elsevier API")
+                token_value = api_config[api_name]["inst_token"]
+                # Reject placeholder/invalid tokens
+                INVALID_TOKENS = {"YOUR_INSTITUTIONAL_TOKEN", "NA", "TODO", "", None}
+                if token_value not in INVALID_TOKENS and not (
+                    isinstance(token_value, str) and token_value.startswith("YOUR_")
+                ):
+                    inst_token = token_value
+                    logging.debug("Using institutional token for Elsevier API")
 
         try:
             # Initialize collector
@@ -103,8 +131,10 @@ def _run_job_collects_worker(
             )
 
         except Exception as e:
+            # Sanitize error message to remove API keys
+            sanitized_error = _sanitize_error_message(str(e))
             logging.error(
-                f"Error during collection for {api_name} query {query_id}: {str(e)}"
+                f"Error during collection for {api_name} query {query_id}: {sanitized_error}"
             )
             # Send error progress update
             progress_queue.put(
@@ -113,7 +143,7 @@ def _run_job_collects_worker(
                     "query_id": query_id,
                     "articles_collected": 0,
                     "success": False,
-                    "error": str(e),
+                    "error": sanitized_error,
                 }
             )
 

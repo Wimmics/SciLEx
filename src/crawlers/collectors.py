@@ -281,6 +281,77 @@ class API_collector:
     def get_ratelimit(self):
         return self.rate_limit
 
+    def _get_auth_recovery_actions(self, status_code):
+        """
+        Get specific recovery actions for authentication errors based on API and status code.
+
+        Args:
+            status_code: HTTP status code (401 or 403)
+
+        Returns:
+            str: Formatted recovery actions for the user
+        """
+        actions = []
+
+        if status_code == 401:
+            actions.append(
+                "1. Check that your API key is correctly configured in api.config.yml"
+            )
+            actions.append(
+                f"2. Verify the API key for {self.api_name} is valid and not expired"
+            )
+        elif status_code == 403:
+            actions.append("1. Verify your API key has the necessary permissions")
+            actions.append("2. Check if your IP address needs to be whitelisted")
+
+            # API-specific guidance
+            if self.api_name == "Elsevier":
+                actions.append(
+                    "3. Elsevier-specific: Verify both 'api_key' and 'inst_token' in api.config.yml"
+                )
+                actions.append(
+                    "4. Elsevier-specific: Check if you need institutional access (inst_token)"
+                )
+                actions.append(
+                    "5. Elsevier-specific: Verify your API key tier allows Scopus access"
+                )
+            elif self.api_name == "IEEE":
+                actions.append(
+                    "3. IEEE-specific: Check your API key quota (200 requests/day limit)"
+                )
+                actions.append(
+                    "4. IEEE-specific: Visit https://developer.ieee.org/ to verify key status"
+                )
+            elif self.api_name == "Springer":
+                actions.append(
+                    "3. Springer-specific: Check your subscription tier and rate limits"
+                )
+
+        actions.append(
+            f"\nFor help, check: src/api.config.yml.example for {self.api_name} configuration"
+        )
+        return "\n   ".join(actions)
+
+    @staticmethod
+    def _sanitize_url(url):
+        """
+        Remove sensitive information (API keys, tokens) from URLs for logging.
+
+        Args:
+            url: URL string that may contain sensitive parameters
+
+        Returns:
+            str: Sanitized URL with sensitive parameters masked
+        """
+        import re
+
+        # Replace API keys in query parameters
+        url = re.sub(r"([?&]api[Kk]ey=)[^&]+", r"\1***REDACTED***", url)
+        url = re.sub(r"([?&]apikey=)[^&]+", r"\1***REDACTED***", url)
+        url = re.sub(r"([?&]key=)[^&]+", r"\1***REDACTED***", url)
+        url = re.sub(r"([?&]token=)[^&]+", r"\1***REDACTED***", url)
+        return url
+
     def api_call_decorator(
         self,
         configurated_url,
@@ -380,9 +451,12 @@ class API_collector:
                             )
                             raise  # Re-raise to let caller handle
                     elif status_code in [401, 403]:  # Authentication errors
+                        # Build specific recovery guidance based on API
+                        recovery_actions = self._get_auth_recovery_actions(status_code)
+
                         logging.error(
                             f"{self.api_name} API authentication failed: {status_code}. "
-                            "Check your API key and credentials."
+                            f"Recovery actions:\n{recovery_actions}"
                         )
                         # Record failure for circuit breaker
                         breaker.record_failure()
@@ -1050,9 +1124,14 @@ class Elsevier_collector(API_collector):
         self.api_name = "Elsevier"
         self.api_url = "https://api.elsevier.com/content/search/scopus"
         self.inst_token = inst_token
-        logging.info(
-            f"Initialized Elsevier collector with institutional token: {inst_token is not None}"
-        )
+        if self.inst_token:
+            logging.debug(
+                "Initialized Elsevier collector WITH institutional token (enhanced access)"
+            )
+        else:
+            logging.debug(
+                "Initialized Elsevier collector WITHOUT institutional token (standard access)"
+            )
 
     def api_call_decorator(
         self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES
@@ -1569,7 +1648,7 @@ class Istex_collector(API_collector):
         super().__init__(filter_param, data_path, api_key)
         self.rate_limit = 3
         self.max_by_page = 500  # Maximum number of results to retrieve per page
-        self.api_name = "Istex"
+        self.api_name = "ISTEX"
         self.api_url = "https://api.istex.fr/document/"
 
     def parsePageResults(self, response, page):

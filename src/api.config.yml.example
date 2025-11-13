@@ -22,7 +22,7 @@ SemanticScholar:
 
 Elsevier:
     api_key: "YOUR_ELSEVIER_API_KEY"  # REQUIRED for Elsevier/Scopus collection
-    inst_token: "YOUR_INSTITUTIONAL_TOKEN"  # Optional but recommended for better access
+    inst_token: null  # Set to your institutional token if you have one, or leave as null
 
 IEEE:
     api_key: "YOUR_IEEE_API_KEY"  # REQUIRED for IEEE Xplore collection
