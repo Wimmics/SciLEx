@@ -681,7 +681,7 @@ def parallel_aggregate(
     else:
         # No filtering - just convert formats
         logging.info("\n--- Phase 2: Format Conversion (no filtering) ---")
-        # TODO: Implement if needed
+        # TODO: Implement format-only conversion without filtering (currently unsupported - use filter_enabled=True)
         df = pd.DataFrame()
 
     if df.empty:

@@ -124,13 +124,13 @@
 
 ### Phase 5: Composite Relevance Ranking
 - **Purpose:** Multi-signal scoring to identify most relevant papers
-- **Components:**
-  1. **Keyword frequency (3x weight):** Total mentions in title/abstract
-  2. **Citation score (2x weight):** `log(1+citations)` to normalize outliers
-  3. **Quality score (1x weight):** Metadata completeness (normalized ~1-5 range)
-  4. **Journal bonus (0.5 points):** Prefer journal articles over conferences
+- **Normalized Components (all 0-10 scale):**
+  1. **Keyword frequency (45% weight):** Content relevance to search terms
+  2. **Metadata quality (25% weight):** Completeness and richness of metadata
+  3. **Publication type (20% weight):** Scholarly venues (journal, conference, book, bookSection)
+  4. **Citation impact (10% weight):** Research impact (minimized to avoid recency bias)
 - **Output:**
-  - `relevance_score` column added to CSV
+  - `relevance_score` column added to CSV (0-10 scale)
   - Papers sorted by score (descending)
   - Optional `max_papers` config limits to top N
 
@@ -370,6 +370,8 @@
   - `filter_by_abstract_quality`: Apply abstract quality filter
   - `apply_citation_filter`: Enable time-aware citation filtering
   - `apply_relevance_ranking`: Enable composite relevance scoring
+  - `relevance_weights`: Component weights (keywords, quality, itemtype, citations)
+  - `itemtype_relevance_weights`: ItemTypes that receive full weight
   - `max_papers`: Limit output to top N papers by relevance
 
 #### `api.config.yml.example`

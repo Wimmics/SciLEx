@@ -55,7 +55,6 @@ class API_collector:
     }
 
     def __init__(self, data_query, data_path, api_key):
-        # In second
         self.api_key = api_key
         self.api_name = "None"
         self.filter_param = Filter_param(
@@ -76,7 +75,7 @@ class API_collector:
         self.api_url = ""
         self.state = data_query["state"]
 
-        # Connection pooling: Create persistent session (Phase 1 optimization)
+        # Connection pooling: Create persistent session for better performance
         self.session = requests.Session()
         # Configure keep-alive and connection pooling
         adapter = requests.adapters.HTTPAdapter(
@@ -88,12 +87,12 @@ class API_collector:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
-        # Batch file I/O: Buffer results before writing (Phase 1 optimization)
+        # Batch file I/O: Buffer results before writing to reduce disk I/O
         self._result_buffer = []
         self._buffer_size = 10  # Write every 10 pages
 
     def close_session(self):
-        """Close the HTTP session and release connections (Phase 1 optimization)."""
+        """Close the HTTP session and release connections."""
         # Flush any remaining buffered results
         if hasattr(self, "_result_buffer") and self._result_buffer:
             self._flush_buffer()
@@ -218,7 +217,7 @@ class API_collector:
 
     def savePageResults(self, global_data, page):
         """
-        Save page results with buffering (Phase 1 optimization).
+        Save page results with buffering.
         Results are buffered and written in batches to reduce I/O overhead.
         """
         # Add to buffer
@@ -229,7 +228,7 @@ class API_collector:
             self._flush_buffer()
 
     def _flush_buffer(self):
-        """Write buffered results to disk (Phase 1 optimization)."""
+        """Write buffered results to disk."""
         if not self._result_buffer:
             return
 
@@ -704,7 +703,7 @@ class API_collector:
                 f"Total extraction will need approximately {time_needed:.2f} hours."
             )
 
-        # Flush any remaining buffered results (Phase 1 optimization)
+        # Flush any remaining buffered results
         self._flush_buffer()
 
         return state_data

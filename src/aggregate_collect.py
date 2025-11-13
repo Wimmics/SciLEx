@@ -467,53 +467,88 @@ def _count_keyword_matches(row, keyword_groups):
     return match_count
 
 
-def _calculate_relevance_score(row, keyword_groups, has_citations=False):
-    """Calculate composite relevance score for a paper.
+def _calculate_relevance_score(row, keyword_groups, has_citations=False, config=None):
+    """Calculate composite relevance score for a paper using normalized components.
 
-    Combines multiple signals:
-    - Keyword frequency (3x weight): More keyword matches = more relevant
-    - Citation score (2x weight): Normalized by age
-    - Quality score (1x weight): Metadata completeness
-    - Journal bonus (0.5 points): Prefer journals over conferences
+    Components (all normalized to 0-10 scale):
+    1. Keyword relevance: Content relevance to search terms
+    2. Metadata quality: Completeness and richness of metadata
+    3. Publication type: Scholarly publication venue
+    4. Citation impact: Research impact (minimal weight to avoid recency bias)
 
     Args:
         row: DataFrame row (paper record)
         keyword_groups: List of keyword groups from config
         has_citations: Whether citation data is available
+        config: Configuration dict containing quality_filters
 
     Returns:
-        float: Relevance score (higher = more relevant)
+        float: Relevance score (0-10 scale, higher = more relevant)
     """
-    score = 0.0
+    import math
 
-    # 1. Keyword frequency (3x weight)
+    # Get configuration or use defaults
+    if config is None:
+        config = {}
+
+    quality_filters = config.get("quality_filters", {})
+
+    # Get component weights (must sum to 1.0)
+    weights = quality_filters.get(
+        "relevance_weights",
+        {
+            "keywords": 0.45,  # 45% - Primary factor: content relevance
+            "quality": 0.25,  # 25% - Secondary: metadata quality
+            "itemtype": 0.20,  # 20% - Tertiary: publication venue
+            "citations": 0.10,  # 10% - Minimal: avoid recency bias
+        },
+    )
+
+    # 1. Keyword relevance (normalize to 0-10)
     keyword_matches = _count_keyword_matches(row, keyword_groups)
-    score += keyword_matches * 3
+    # Cap at 10 matches for normalization (can be adjusted based on data)
+    keyword_score = min(keyword_matches, 10)
 
-    # 2. Citation score (2x weight) - only if citation data available
+    # 2. Metadata quality (normalize to 0-10)
+    quality = row.get("quality_score", 0)
+    if quality != MISSING_VALUE and quality != "":
+        try:
+            # Quality typically 0-50, so divide by 5
+            quality_score = min(float(quality) / 5, 10)
+        except (ValueError, TypeError):
+            quality_score = 0
+    else:
+        quality_score = 0
+
+    # 3. Publication type (0 or 10 based on config)
+    item_type = str(row.get("itemType", "")).strip()
+    itemtype_weights = quality_filters.get("itemtype_relevance_weights", {})
+    # Check if this itemType is in the list of valued types
+    itemtype_score = 10 if itemtype_weights.get(item_type, False) else 0
+
+    # 4. Citation impact (minimal weight to avoid recency bias)
+    citation_score = 0
     if has_citations:
         citation_count = pd.to_numeric(row.get("nb_citation", 0), errors="coerce")
-        if pd.notna(citation_count):
-            # Normalize: log scale to prevent citation-heavy papers dominating
-            # log(1+x) to handle 0 citations gracefully
-            import math
+        if pd.notna(citation_count) and citation_count > 0:
+            # log-scaled but with minimal influence
+            # log(1+100) ≈ 4.6, so multiply by 2.17 to reach 10
+            citation_score = min(math.log(1 + float(citation_count)) * 2.17, 10)
 
-            citation_score = math.log(1 + citation_count)
-            score += citation_score * 2
+    # Apply percentage weights
+    final_score = (
+        keyword_score * weights.get("keywords", 0.45)
+        + quality_score * weights.get("quality", 0.25)
+        + itemtype_score * weights.get("itemtype", 0.20)
+        + citation_score * weights.get("citations", 0.10)
+    )
 
-    # 3. Quality score (1x weight)
-    quality = row.get("quality_score", 0)
-    score += quality / 10  # Normalize to ~1-5 range
-
-    # 4. Journal bonus (0.5 points)
-    item_type = str(row.get("itemType", "")).lower()
-    if "journal" in item_type:
-        score += 0.5
-
-    return round(score, 2)
+    return round(final_score, 2)
 
 
-def _apply_relevance_ranking(df, keyword_groups, top_n=None, has_citations=False):
+def _apply_relevance_ranking(
+    df, keyword_groups, top_n=None, has_citations=False, config=None
+):
     """Apply composite relevance ranking to DataFrame.
 
     Calculates relevance score for each paper and optionally filters to top N.
@@ -523,22 +558,25 @@ def _apply_relevance_ranking(df, keyword_groups, top_n=None, has_citations=False
         keyword_groups: List of keyword groups from config
         top_n: Optional - keep only top N most relevant papers
         has_citations: Whether citation data is available
+        config: Configuration dict containing quality_filters
 
     Returns:
         pd.DataFrame: Ranked DataFrame with relevance_score column
     """
-    logging.info("Calculating relevance scores...")
+    logging.info("Calculating normalized relevance scores (0-10 scale)...")
 
     # Calculate scores
     df["relevance_score"] = df.apply(
-        lambda row: _calculate_relevance_score(row, keyword_groups, has_citations),
+        lambda row: _calculate_relevance_score(
+            row, keyword_groups, has_citations, config
+        ),
         axis=1,
     )
 
     # Sort by relevance (descending)
     df_ranked = df.sort_values("relevance_score", ascending=False).copy()
 
-    logging.info("Relevance scoring complete")
+    logging.info("Relevance scoring complete (normalized 0-10 scale)")
     logging.info(
         f"  Score range: {df_ranked['relevance_score'].min():.2f} - {df_ranked['relevance_score'].max():.2f}"
     )
@@ -1538,13 +1576,14 @@ if __name__ == "__main__":
             keyword_groups=keyword_groups,
             top_n=top_n,
             has_citations=get_citation and len(df_clean) > 0,
+            config=main_config,  # Pass the main config for access to quality_filters
         )
 
         # Track relevance ranking stage
         filtering_tracker.add_stage(
             "Relevance Ranking",
             len(df_clean),
-            f"{'Top ' + str(top_n) + ' ' if top_n else ''}Papers ranked by composite relevance score",
+            f"{'Top ' + str(top_n) + ' ' if top_n else ''}Papers ranked by normalized relevance score (0-10 scale)",
         )
 
     # Display comprehensive filtering summary

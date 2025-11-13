@@ -63,9 +63,8 @@ def PaperWithCodetoZoteroFormat(row):
         "issue": MISSING_VALUE,
     }
     zotero_temp["archive"] = row["paper_url"]
-    #### publicationTypes is a list Zotero only take one value
-    ###################"""
-    ######## TODO
+    # NOTE: publicationTypes is a list, but Zotero only accepts one value
+    # TODO: Handle multiple publicationTypes - currently using first value only
 
     zotero_temp["itemType"] = "journalArticle"
     if row["proceeding"] != "" and row["proceeding"] is not None:

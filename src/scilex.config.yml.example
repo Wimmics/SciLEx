@@ -30,7 +30,7 @@ aggregate_file: '/aggregated_results.csv'
 # Configure quality thresholds for filtering collected papers
 # These filters are applied during aggregation to ensure data quality
 quality_filters:
-  # === NEW: ItemType Bypass Filter (Phase 1) ===
+  # === ItemType Bypass Filter (speeds up trusted publications) ===
   # Fast-track high-quality publication types that bypass subsequent filters
   # These papers are automatically included without validation (trusted sources)
   # Reduces processing time by ~50% while maintaining quality
@@ -135,14 +135,14 @@ quality_filters:
   # Essential for temporal analysis and citation tracking
   require_year: true
 
-  # === NEW: Year Range Validation (Phase 3) ===
+  # === Year Range Validation ===
   # Validate papers fall within configured year range
   # Uses the years from main config by default (auto-populated if empty)
   # Removes papers outside the target timeframe
   validate_year_range: true
   year_range: []  # Leave empty to use years from main config
 
-  # === NEW: Open Access Filter (Phase 4) ===
+  # === Open Access Filter ===
   # Require papers to be open access (free to read)
   # Checks 'rights' field for: 'open', True, 'True'
   # Recommended: false (optional filter, reduces collection size significantly)
@@ -156,7 +156,7 @@ quality_filters:
   # Reports show: papers filtered, reasons for filtering, data completeness stats
   generate_quality_report: true
 
-  # === Phase 2 Features (Advanced Quality Control) ===
+  # === Advanced Quality Control Features ===
 
   # Validate abstract quality (detect truncation, boilerplate, encoding issues)
   # Set to true to get detailed abstract quality reports
@@ -170,7 +170,7 @@ quality_filters:
   # Only applies if validate_abstracts is true
   filter_by_abstract_quality: false
 
-  # === Phase 3 Features (Citation-Based Filtering) ===
+  # === Citation-Based Filtering Features ===
 
   # Apply time-aware citation filtering (requires aggregate_get_citations: true)
   # Filters papers based on citation count relative to their age:
@@ -189,13 +189,30 @@ quality_filters:
   # Recommended: true (significantly improves citation data completeness)
   use_semantic_scholar_citations: true
 
-  # === Phase 4 Features (Relevance Ranking) ===
+  # === Relevance Ranking Features ===
 
   # Apply composite relevance scoring to rank papers by importance
-  # Combines: keyword frequency (3x), citations (2x), quality score (1x), journal bonus (0.5)
   # Papers are sorted by relevance score (higher = more relevant)
   # Recommended: true (helps prioritize most relevant papers)
   apply_relevance_ranking: true
+
+  # Relevance scoring component weights (must sum to 1.0)
+  # Each component is normalized to 0-10 scale before weighting
+  # Prioritizes content relevance and quality over citations to avoid recency bias
+  relevance_weights:
+    keywords: 0.45    # 45% - Content relevance to search terms (primary factor)
+    quality: 0.25     # 25% - Metadata completeness and richness
+    itemtype: 0.20    # 20% - Publication venue quality (scholarly types)
+    citations: 0.10   # 10% - Research impact (minimized to avoid recency penalty)
+
+  # ItemTypes that receive full weight (10 points before percentage weighting)
+  # Papers with these types are considered high-quality scholarly publications
+  # Papers with missing or unlisted itemTypes receive 0 points for this component
+  itemtype_relevance_weights:
+    journalArticle: true     # Peer-reviewed journal articles
+    conferencePaper: true    # Conference proceedings papers
+    bookSection: true        # Book chapters
+    book: true               # Complete books and monographs
 
   # Maximum number of papers to keep after all filtering (optional)
   # Set to a number (e.g., 500, 1000) to keep only top N most relevant papers

@@ -91,7 +91,8 @@ quality_filters:
   enable_itemtype_bypass: true           # Fast-track trusted publications (~50% speedup)
   bypass_item_types: [journalArticle, conferencePaper]
   apply_citation_filter: true            # Time-aware citation filtering
-  apply_relevance_ranking: true          # Composite scoring
+  apply_relevance_ranking: true          # Normalized composite scoring (0-10 scale)
+  # Default weights: keywords 45%, quality 25%, itemtype 20%, citations 10%
   max_papers: 1000                       # Keep top N most relevant (null = keep all)
 ```
 
@@ -151,7 +152,7 @@ output/collect_name_YYYYMMDD_HHMMSS/
 └── citation_cache.db     # Citation cache for faster re-runs
 ```
 
-**CSV Output:** Contains `title`, `authors`, `abstract`, `DOI`, `URL`, `year`, `itemType`, and enrichment fields like `citation_count`, `quality_score`, `relevance_score`.
+**CSV Output:** Contains `title`, `authors`, `abstract`, `DOI`, `URL`, `year`, `itemType`, and enrichment fields like `citation_count`, `quality_score`, `relevance_score` (0-10 normalized).
 
 ---
 

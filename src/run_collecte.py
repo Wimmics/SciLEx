@@ -43,7 +43,6 @@ api_config = configs["api_config"]
 # Extract values from the main configuration
 output_dir = main_config["output_dir"]
 collect = main_config["collect"]
-# aggregate = main_config['aggregate']
 years = main_config["years"]
 keywords = main_config["keywords"]
 apis = main_config["apis"]
@@ -64,7 +63,6 @@ if collect:
 # Print to check the loaded values
 print(f"Output Directory: {output_dir}")
 print(f"Collect: {collect}")
-# print(f"Aggregate: {aggregate}")
 print(f"Years: {years}")
 print(f"Keywords: {keywords}")
 print(f"APIS: {apis}")
