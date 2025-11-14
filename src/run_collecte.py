@@ -18,6 +18,7 @@ from datetime import datetime
 
 import yaml
 
+from src.config_defaults import DEFAULT_COLLECT_ENABLED, DEFAULT_OUTPUT_DIR
 from src.crawlers.collector_collection import CollectCollection
 from src.crawlers.utils import load_all_configs
 from src.logging_config import log_section, setup_logging
@@ -40,9 +41,26 @@ configs = load_all_configs(config_files)
 main_config = configs["main_config"]
 api_config = configs["api_config"]
 
+# Load optional advanced config if it exists (from src/ directory)
+src_dir = os.path.dirname(os.path.abspath(__file__))
+advanced_config_path = os.path.join(src_dir, "scilex.advanced.yml")
+if os.path.isfile(advanced_config_path):
+    with open(advanced_config_path) as f:
+        advanced_config = yaml.safe_load(f) or {}
+        # Merge advanced settings
+        for key, value in advanced_config.items():
+            if key not in main_config:
+                main_config[key] = value
+            elif key == "quality_filters" and isinstance(value, dict):
+                # Merge quality_filters specifically
+                if "quality_filters" not in main_config:
+                    main_config["quality_filters"] = {}
+                main_config["quality_filters"].update(value)
+        logging.info(f"Loaded advanced config from {advanced_config_path}")
+
 # Extract values from the main configuration
-output_dir = main_config["output_dir"]
-collect = main_config["collect"]
+output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
+collect = main_config.get("collect", DEFAULT_COLLECT_ENABLED)
 years = main_config["years"]
 keywords = main_config["keywords"]
 apis = main_config["apis"]

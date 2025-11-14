@@ -20,6 +20,14 @@ from src.abstract_validation import (
     filter_by_abstract_quality,
     validate_dataframe_abstracts,
 )
+from src.config_defaults import (
+    DEFAULT_AGGREGATED_FILENAME,
+    DEFAULT_ENABLE_TEXT_FILTER,
+    DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
+    DEFAULT_OUTPUT_DIR,
+    DEFAULT_RELEVANCE_WEIGHTS,
+    MIN_ABSTRACT_QUALITY_SCORE,
+)
 from src.constants import MISSING_VALUE, CitationFilterConfig, is_valid
 from src.crawlers.aggregate import (
     ArxivtoZoteroFormat,
@@ -494,15 +502,7 @@ def _calculate_relevance_score(row, keyword_groups, has_citations=False, config=
     quality_filters = config.get("quality_filters", {})
 
     # Get component weights (must sum to 1.0)
-    weights = quality_filters.get(
-        "relevance_weights",
-        {
-            "keywords": 0.45,  # 45% - Primary factor: content relevance
-            "quality": 0.25,  # 25% - Secondary: metadata quality
-            "itemtype": 0.20,  # 20% - Tertiary: publication venue
-            "citations": 0.10,  # 10% - Minimal: avoid recency bias
-        },
-    )
+    weights = quality_filters.get("relevance_weights", DEFAULT_RELEVANCE_WEIGHTS)
 
     # 1. Keyword relevance (normalize to 0-10)
     keyword_matches = _count_keyword_matches(row, keyword_groups)
@@ -522,7 +522,9 @@ def _calculate_relevance_score(row, keyword_groups, has_citations=False, config=
 
     # 3. Publication type (0 or 10 based on config)
     item_type = str(row.get("itemType", "")).strip()
-    itemtype_weights = quality_filters.get("itemtype_relevance_weights", {})
+    itemtype_weights = quality_filters.get(
+        "itemtype_relevance_weights", DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS
+    )
     # Check if this itemType is in the list of valued types
     itemtype_score = 10 if itemtype_weights.get(item_type, False) else 0
 
@@ -1258,11 +1260,17 @@ if __name__ == "__main__":
     # Log aggregation start
     log_section(logger, "SciLEx Data Aggregation")
 
-    txt_filters = main_config["aggregate_txt_filter"]
-    get_citation = main_config["aggregate_get_citations"] and not args.skip_citations
-    dir_collect = os.path.join(main_config["output_dir"], main_config["collect_name"])
+    txt_filters = main_config.get("aggregate_txt_filter", DEFAULT_ENABLE_TEXT_FILTER)
+    get_citation = (
+        main_config.get("aggregate_get_citations", True) and not args.skip_citations
+    )
+    output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
+    collect_name = main_config.get("collect_name")
+    dir_collect = os.path.join(output_dir, collect_name)
     # Get output filename from config, with fallback and handle leading slashes
-    output_filename = main_config.get("aggregate_file", "FileAggreg.csv").lstrip("/")
+    output_filename = main_config.get(
+        "aggregate_file", DEFAULT_AGGREGATED_FILENAME
+    ).lstrip("/")
 
     # Path to config snapshot
     config_used_path = os.path.join(dir_collect, "config_used.yml")
@@ -1280,6 +1288,23 @@ if __name__ == "__main__":
 
     # Load configuration
     quality_filters = main_config.get("quality_filters", {})
+
+    # Load optional advanced config if it exists (from src/ directory)
+    src_dir = os.path.dirname(os.path.abspath(__file__))
+    advanced_config_path = os.path.join(src_dir, "scilex.advanced.yml")
+    if os.path.isfile(advanced_config_path):
+        import yaml
+
+        with open(advanced_config_path) as f:
+            advanced_config = yaml.safe_load(f) or {}
+            # Merge advanced quality filters with main quality filters
+            if "quality_filters" in advanced_config:
+                quality_filters.update(advanced_config["quality_filters"])
+                logger.info(f"Loaded advanced filters from {advanced_config_path}")
+            # Merge any other advanced settings
+            for key, value in advanced_config.items():
+                if key != "quality_filters" and key not in main_config:
+                    main_config[key] = value
 
     # Auto-populate year_range from main config if empty
     if quality_filters.get("validate_year_range", False):
@@ -1489,7 +1514,9 @@ if __name__ == "__main__":
     # Abstract quality validation (Phase 2)
     if quality_filters.get("validate_abstracts", False):
         logging.info("Validating abstract quality...")
-        min_quality_score = quality_filters.get("min_abstract_quality_score", 50)
+        min_quality_score = quality_filters.get(
+            "min_abstract_quality_score", MIN_ABSTRACT_QUALITY_SCORE
+        )
         df_clean, abstract_stats = validate_dataframe_abstracts(
             df_clean,
             min_quality_score=min_quality_score,

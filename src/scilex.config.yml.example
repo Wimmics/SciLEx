@@ -1,364 +1,119 @@
 # ============================================================================
-# SciLEx Main Configuration File - Template
+# SciLEx Main Configuration - Quick Start
 # ============================================================================
-# Copy this file to 'scilex.config.yml' and customize for your research project
-# Each collection run uses these parameters to search academic databases
-
-# ============================================================================
-
-# ============================================================================
-# AGGREGATION SETTINGS
-# ============================================================================
-
-# Apply text filters during aggregation (filters papers based on abstract content)
-# Set to 'true' to enable filtering, 'false' to keep all collected papers
-aggregate_txt_filter: true
-
-# Automatically fetch citation data for collected papers after aggregation
-# Uses OpenCitations API to build citation networks
-# Set to 'true' to get citations, 'false' to skip (faster but less complete)
-aggregate_get_citations: true
-
-# Output filename for aggregated results (relative to output_dir/collect_name/)
-# The aggregated CSV will be saved as: output_dir/collect_name/aggregate_file
-aggregate_file: '/aggregated_results.csv'
-
-# ============================================================================
-# QUALITY FILTERS
-# ============================================================================
-
-# Configure quality thresholds for filtering collected papers
-# These filters are applied during aggregation to ensure data quality
-quality_filters:
-  # === ItemType Bypass Filter (speeds up trusted publications) ===
-  # Fast-track high-quality publication types that bypass subsequent filters
-  # These papers are automatically included without validation (trusted sources)
-  # Reduces processing time by ~50% while maintaining quality
-  #
-  # Valid Zotero itemTypes (from most to least common in SciLEx):
-  #   journalArticle    - Journal/magazine articles (most common)
-  #   conferencePaper   - Conference proceedings papers
-  #   preprint          - Preprints (Arxiv, bioRxiv, etc.)
-  #   bookSection       - Book chapters
-  #   book              - Books
-  #   thesis            - PhD dissertations, Master's theses
-  #   report            - Technical reports, white papers
-  #   manuscript        - Unpublished manuscripts, working papers
-  #   presentation      - Conference presentations, posters
-  #   dataset           - Research datasets
-  #   computerProgram   - Software, code repositories
-  #   patent            - Patents
-  #   webpage           - Web pages, blog posts
-  #   blogPost          - Blog posts specifically
-  #   magazineArticle   - Popular magazine articles
-  #   newspaperArticle  - Newspaper articles
-  #   forumPost         - Forum/discussion posts
-  #   podcast           - Podcast episodes
-  #   videoRecording    - Videos, lectures
-  #   audioRecording    - Audio files
-  #   artwork           - Artwork, images
-  #   map               - Maps, geographic data
-  #   document          - Generic documents (catch-all)
-  #
-  # Recommended bypass types for academic research:
-  #   - journalArticle, conferencePaper (peer-reviewed, high quality)
-  #   - bookSection, book (established knowledge)
-  #   - thesis (original research, well-documented)
-  #
-  # NOT recommended for bypass:
-  #   - preprint (not peer-reviewed, should validate)
-  #   - manuscript (draft quality varies)
-  #   - report (quality varies by source)
-  #
-  enable_itemtype_bypass: true
-  bypass_item_types:
-    - journalArticle
-    - conferencePaper
-    # - bookSection
-    # - book
-
-  # === ItemType Filtering (Whitelist Mode) ===
-  # If enabled, ONLY papers with itemTypes in the allowed list will be kept
-  # All other papers will be removed from the aggregated results
-  # This filtering happens EARLY in the pipeline (after deduplication, before quality filters)
-  # Papers with missing/NA itemType will be removed (strict mode)
-  #
-  # Use cases:
-  #   - Focus on peer-reviewed work only (journalArticle, conferencePaper)
-  #   - Exclude grey literature (preprints, reports, theses)
-  #   - Ensure consistent publication quality
-  #
-  # Common itemType combinations:
-  #   Peer-reviewed only: [journalArticle, conferencePaper]
-  #   Academic + Books: [journalArticle, conferencePaper, bookSection, book]
-  #   All scholarly: [journalArticle, conferencePaper, bookSection, book, thesis]
-  #
-  # NOTE: This is INDEPENDENT of bypass_item_types
-  #   - ItemType filtering runs FIRST (removes unwanted types)
-  #   - Bypass mechanism runs SECOND (on papers that passed itemType filter)
-  #
-  enable_itemtype_filter: false  # Set to true to enable whitelist filtering
-  allowed_item_types:
-    - journalArticle      # Peer-reviewed journal articles
-    - conferencePaper     # Conference proceedings
-    - bookSection         # Book chapters
-    - book                # Books and monographs
-    # Other valid types you can add:
-    # - preprint          # arXiv, bioRxiv, etc.
-    # - thesis            # PhD dissertations, master's theses
-    # - report            # Technical reports, white papers
-    # - patent            # Patent documents
-    # - manuscript        # Unpublished manuscripts
-    # - webpage           # Web pages, blog posts
-    # - presentation      # Conference presentations
-    # - dataset           # Research datasets
-    # - computerProgram   # Software, code repositories
-
-  # Require papers to have a DOI (improves citation tracking and prevents duplicates)
-  # Google Scholar often lacks DOIs - set to false if using primarily GScholar
-  # Enhanced: Now validates DOI is non-empty after stripping whitespace
-  require_doi: false
-
-  # Require papers to have an abstract
-  # Set to true for thorough literature reviews, false for bibliometric studies
-  require_abstract: true
-
-  # Minimum abstract length in words (detects truncated or stub abstracts)
-  # Typical values: 50-100 words. Set to 0 to disable.
-  min_abstract_words: 50
-
-  # Maximum abstract length in words (detects copy-paste errors or non-abstracts)
-  # Typical values: 500-1000 words. Set to 0 to disable.
-  max_abstract_words: 1000
-
-  # Require publication year to be present
-  # Essential for temporal analysis and citation tracking
-  require_year: true
-
-  # === Year Range Validation ===
-  # Validate papers fall within configured year range
-  # Uses the years from main config by default (auto-populated if empty)
-  # Removes papers outside the target timeframe
-  validate_year_range: true
-  year_range: []  # Leave empty to use years from main config
-
-  # === Open Access Filter ===
-  # Require papers to be open access (free to read)
-  # Checks 'rights' field for: 'open', True, 'True'
-  # Recommended: false (optional filter, reduces collection size significantly)
-  require_open_access: false
-
-  # Minimum number of authors (detects incomplete records)
-  # Set to 0 to disable, 1 for at least one author
-  min_author_count: 1
-
-  # Generate quality validation report during aggregation
-  # Reports show: papers filtered, reasons for filtering, data completeness stats
-  generate_quality_report: true
-
-  # === Advanced Quality Control Features ===
-
-  # Validate abstract quality (detect truncation, boilerplate, encoding issues)
-  # Set to true to get detailed abstract quality reports
-  validate_abstracts: false
-
-  # Minimum abstract quality score (0-100) if validate_abstracts is true
-  # Papers below this score are flagged but not removed unless filter_by_abstract_quality is true
-  min_abstract_quality_score: 50
-
-  # Filter out papers with poor abstract quality
-  # Only applies if validate_abstracts is true
-  filter_by_abstract_quality: false
-
-  # === Citation-Based Filtering Features ===
-
-  # Apply time-aware citation filtering (requires aggregate_get_citations: true)
-  # Filters papers based on citation count relative to their age:
-  # - 0-3 months: 0 citations required (grace period for new papers)
-  # - 3-6 months: 1+ citations
-  # - 6-12 months: 3+ citations
-  # - 12-24 months: 5-8+ citations (gradual increase)
-  # - 24+ months: 10+ citations (established papers should have impact)
-  # Recommended: true (focuses on impactful papers while keeping recent work)
-  apply_citation_filter: true
-
-  # Use Semantic Scholar citation data as fallback for OpenCitations
-  # When OpenCitations returns 0 or no data, use citation counts from Semantic Scholar API
-  # Helps with recent papers and preprints where OpenCitations has poor coverage
-  # Only applies to papers collected from Semantic Scholar API
-  # Recommended: true (significantly improves citation data completeness)
-  use_semantic_scholar_citations: true
-
-  # === Relevance Ranking Features ===
-
-  # Apply composite relevance scoring to rank papers by importance
-  # Papers are sorted by relevance score (higher = more relevant)
-  # Recommended: true (helps prioritize most relevant papers)
-  apply_relevance_ranking: true
-
-  # Relevance scoring component weights (must sum to 1.0)
-  # Each component is normalized to 0-10 scale before weighting
-  # Prioritizes content relevance and quality over citations to avoid recency bias
-  relevance_weights:
-    keywords: 0.45    # 45% - Content relevance to search terms (primary factor)
-    quality: 0.25     # 25% - Metadata completeness and richness
-    itemtype: 0.20    # 20% - Publication venue quality (scholarly types)
-    citations: 0.10   # 10% - Research impact (minimized to avoid recency penalty)
-
-  # ItemTypes that receive full weight (10 points before percentage weighting)
-  # Papers with these types are considered high-quality scholarly publications
-  # Papers with missing or unlisted itemTypes receive 0 points for this component
-  itemtype_relevance_weights:
-    journalArticle: true     # Peer-reviewed journal articles
-    conferencePaper: true    # Conference proceedings papers
-    bookSection: true        # Book chapters
-    book: true               # Complete books and monographs
-
-  # Maximum number of papers to keep after all filtering (optional)
-  # Set to a number (e.g., 500, 1000) to keep only top N most relevant papers
-  # Set to null or remove to keep all papers that pass filters
-  # Recommended: 500-1000 for focused reviews, null for comprehensive studies
-  max_papers: 1000
-
-  # Track which APIs found which papers and analyze overlap
-  # Generates reports showing API value, overlap, and optimization recommendations
-  # Recommended: true (helps optimize future API selection)
-  track_duplicate_sources: true
-
-# ============================================================================
-# API SELECTION
-# ============================================================================
-
-# List of APIs to query for papers
-# Available options:
-#   - SemanticScholar: Best for AI/CS papers, excellent metadata, citations (API key optional)
-#   - OpenAlex: Comprehensive open database, all disciplines, free
-#   - IEEE: Engineering/tech papers (requires API key)
-#   - Elsevier: Broad coverage via ScienceDirect (requires API key + institutional token)
-#   - Springer: Scientific papers (requires API key)
-#   - HAL: French open archive, multidisciplinary, free
-#   - DBLP: Computer science bibliography, free
-#   - Arxiv: Preprints, mostly physics/CS/math, free
-#   - GoogleScholar: Broadest coverage but slower (free, uses web scraping)
-apis:
-  - SemanticScholar
-  - OpenAlex
-  - HAL
-  - Arxiv
-  # - GoogleScholar  # Disabled by default - scholarly unfortunately get detected
-  # - IEEE # Disabled by default - need api key
-
-# ============================================================================
-# API-SPECIFIC SETTINGS
-# ============================================================================
-
-# Semantic Scholar API endpoint mode
-# Controls which Semantic Scholar endpoint to use for searches
-# Options:
-#   - "regular" (default):
-#     * Uses standard search endpoint: /paper/search
-#     * Works with standard API keys
-#     * More reliable, better for most use cases
-#     * Lower rate limits but sufficient for typical research
-#     * 100 papers/query limitation (through pagination)
-#   - "bulk":
-#     * Uses bulk search endpoint: /paper/search/bulk
-#     * Designed for large-scale data retrieval 
-#     * Requires higher-tier API access or special approval
-#     * 1000 papers/query limitation 
-#     * Apply at: https://www.semanticscholar.org/product/api#api-key-form
 #
+# Copy this file to 'scilex.config.yml' and customize for your research
 #
-semantic_scholar_mode: regular
+# Essential variables below (keywords, years, APIs, mode, quality filters).
+# Advanced settings? See scilex.advanced.yml.example
+# API credentials? See src/api.config.yml.example
+#
+# ============================================================================
 
 # ============================================================================
-# COLLECTION CONTROL
-# ============================================================================
-
-# Enable/disable the collection phase
-# Set to 'true' to run collection, 'false' to skip (useful when only aggregating existing data)
-collect: true
-
-# Name for this collection run
-# Creates a timestamped directory: output_dir/collect_name_YYYYMMDD_HHMMSS/
-# Use descriptive names like: 'rag_survey', 'knowledge_graphs_2024', 'llm_agents'
-collect_name: my_research_project
-
-# Maximum number of articles to collect per query per API
-# Set to a positive number (e.g., 500, 1000, 2000) to limit articles per query
-# Set to -1 for unlimited (collect all available papers)
-# Recommended: 1000 (balanced), 500 (faster), 2000 (comprehensive)
-# Impact: With 126 queries (6×7×3) and 5 APIs, max_articles=1000 yields ~630,000 papers total
-# Note: This ensures consistent collection sizes across APIs regardless of their page sizes
-max_articles_per_query: 1000
-
-# ============================================================================
-# SEARCH KEYWORDS
+# RESEARCH QUESTION - Customize these for your project
 # ============================================================================
 
 # Keywords for paper search - supports two modes:
 #
-# MODE 1: Single keyword group (papers matching ANY keyword)
-# keywords:
-#   - ["machine learning", "deep learning", "neural networks"]
+# Single group (papers matching ANY keyword):
+#   keywords:
+#     - ["machine learning", "deep learning", "neural networks"]
 #
-# MODE 2: Two keyword groups (papers matching ANY from group 1 AND ANY from group 2)
-# This creates a Cartesian product: (keyword1_group1 AND keyword2_group2) OR ...
-# Example below searches for papers about RAG/LLMs AND knowledge graphs
+# Dual groups (papers matching ANY from group1 AND ANY from group2):
+#   keywords:
+#     - ["group1_term1", "group1_term2"]
+#     - ["group2_term1", "group2_term2"]
+#
 keywords:
-  - ["RAG", "Retrieval Augmented Generation", "LLM", "Large Language Model", "GPT"]
-  - ["Knowledge Graph", "knowledge graphs", "semantic network", "ontology"]
+  - ["RAG", "Retrieval Augmented Generation", "LLM", "Large Language Model"]
+  - ["Knowledge Graph", "knowledge graphs", "semantic network"]
 
-# Note: Keywords are case-insensitive on most APIs
-# Use variations and synonyms for better coverage
-# For single-concept searches, just use one group:
-# keywords:
-#   - ["quantum computing", "quantum computer", "qubits"]
-#   - []  # Empty second group
-
-# ============================================================================
-# OUTPUT DIRECTORY
-# ============================================================================
-
-# Base directory for all output files
-# Results will be saved in: output_dir/collect_name_YYYYMMDD_HHMMSS/
-# Each API creates its own subdirectory: SemanticScholar/, IEEE/, etc.
-output_dir: output
-
-# ============================================================================
-# YEAR RANGE
-# ============================================================================
-
-# List of years to search
-# Creates separate queries for each year (allows resuming if interrupted)
-# For range 2020-2024, list: [2020, 2021, 2022, 2023, 2024]
-# Or for recent papers only: [2023, 2024, 2025]
+# Years to search (creates separate queries for each year)
 years:
   - 2023
   - 2024
   - 2025
 
+# Data sources to query
+# Free APIs: OpenAlex, HAL, DBLP, Arxiv, GoogleScholar
+# Paid APIs: SemanticScholar (free tier OK), IEEE, Elsevier, Springer
+apis:
+  - SemanticScholar
+  - OpenAlex
+  - Arxiv
+
+# Semantic Scholar API mode - IMPORTANT for collection speed
+# Choose wisely based on your API tier:
+#
+#   "regular" (RECOMMENDED for most users):
+#     * Standard search endpoint (/paper/search)
+#     * Results per page: 100 papers
+#     * Rate limit: 1 request/second (with API key)
+#     * Works with standard API keys and free tier
+#     * Best for: Small to medium collections (up to 10,000 papers)
+#
+#   "bulk" (POWER USERS ONLY):
+#     * Bulk search endpoint (/paper/search/bulk)
+#     * Results per page: 1000 papers (10x larger batches)
+#     * Rate limit: 1 request/second
+#     * 10x FASTER collection (fewer API calls needed)
+#     * Requires: Higher-tier API access or special approval
+#     * Apply at: https://www.semanticscholar.org/product/api#api-key-form
+#     * Best for: Large collections (50,000+ papers)
+#
+# Example: 5000 papers search
+#   - regular mode: 50 requests (5000 / 100) = ~50 seconds
+#   - bulk mode:    5 requests  (5000 / 1000) = ~5 seconds
+#
+semantic_scholar_mode: regular
+
+# Project identification
+collect_name: my_research_project
+
 # ============================================================================
-# EXAMPLE CONFIGURATIONS
+# QUALITY FILTERS - Core filtering decisions
 # ============================================================================
 
-# Example 1: Broad survey across multiple databases
-# apis: [SemanticScholar, OpenAlex, IEEE, Springer, GoogleScholar]
-# keywords:
-#   - ["machine learning", "deep learning"]
-#   - []
-# years: [2020, 2021, 2022, 2023, 2024]
+quality_filters:
+  # Paper type restrictions (whitelist specific types)
+  enable_itemtype_filter: false
+  allowed_item_types:
+    - journalArticle    # Peer-reviewed journals
+    - conferencePaper   # Conference proceedings
 
-# Example 2: Focused search with two concept groups
-# apis: [SemanticScholar, OpenAlex]
-# keywords:
-#   - ["federated learning", "distributed learning"]
-#   - ["privacy", "differential privacy", "secure computation"]
-# years: [2022, 2023, 2024]
+  # Content requirements
+  require_abstract: true        # Literature review? → true | Bibliometrics? → false
+  require_doi: false            # Google Scholar users? → false
 
-# Example 3: Quick test with free APIs only
-# apis: [OpenAlex, Arxiv, HAL, DBLP]
-# keywords:
-#   - ["quantum computing"]
-#   - []
-# years: [2024]
+  # Focus on impactful papers
+  aggregate_get_citations: true
+  apply_citation_filter: true
+
+  # Output size (null for unlimited, 500-1000 for focused reviews)
+  max_papers: 1000
+
+# ============================================================================
+# NOTES
+# ============================================================================
+#
+# Default values (automatically used, no need to specify):
+#   - Abstract length validation: 50-1000 words
+#   - Minimum authors: 1
+#   - Generate quality report: true
+#   - Apply relevance ranking: true
+#   - Abstract quality filter: disabled (enable in scilex.advanced.yml)
+#   - Open access requirement: false
+#   - Output directory: output/
+#   - Aggregated filename: aggregated_results.csv
+#
+# For advanced customization (rarely needed):
+#   - Copy scilex.advanced.yml.example to scilex.advanced.yml
+#   - Uncomment settings you want to override
+#   - See advanced file for all available options
+#
+# API Configuration (required for paid APIs):
+#   - See src/api.config.yml.example
+#   - Copy to src/api.config.yml and add your credentials
+#
+# ============================================================================

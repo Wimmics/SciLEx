@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 import urllib
 from datetime import date
@@ -12,6 +13,7 @@ from lxml import etree
 from ratelimit import limits, sleep_and_retry
 from scholarly import ProxyGenerator, scholarly
 
+from src.config_defaults import DEFAULT_RATE_LIMITS
 from src.constants import CircuitBreakerConfig, RateLimitBackoffConfig
 from src.crawlers.circuit_breaker import CircuitBreakerOpenError, CircuitBreakerRegistry
 
@@ -41,18 +43,6 @@ class Filter_param:
 
 class API_collector:
     # Default rate limits (fallback if config not available)
-    DEFAULT_RATE_LIMITS = {
-        "SemanticScholar": 1.0,
-        "OpenAlex": 10.0,
-        "Arxiv": 3.0,
-        "IEEE": 2.0,  # Conservative default - increase if no 429 errors
-        "Elsevier": 6.0,
-        "Springer": 1.5,
-        "HAL": 10.0,
-        "DBLP": 10.0,
-        "GoogleScholar": 2.0,
-        "Crossref": 3.0,
-    }
 
     def __init__(self, data_query, data_path, api_key):
         self.api_key = api_key
@@ -136,8 +126,8 @@ class API_collector:
             )
 
         # Fall back to default rate limits
-        if self.api_name in self.DEFAULT_RATE_LIMITS:
-            default_limit = self.DEFAULT_RATE_LIMITS[self.api_name]
+        if self.api_name in DEFAULT_RATE_LIMITS:
+            default_limit = DEFAULT_RATE_LIMITS[self.api_name]
             self.rate_limit = default_limit
             logging.debug(
                 f"{self.api_name}: Using default rate limit of {default_limit} req/sec"
@@ -1919,52 +1909,119 @@ class GoogleScholarCollector(API_collector):
 
     # Class-level proxy initialization flag
     _proxy_initialized = False
-    _proxy_lock = None
+    _proxy_lock = threading.Lock()
 
-    def __init__(self, filter_param, data_path, api_key=None):
+    def __init__(self, data_query, data_path, api_key=None):
         """
         Initializes the Google Scholar collector with the given parameters.
 
         Args:
-            filter_param (Filter_param): The parameters for filtering results (years, keywords, etc.).
+            data_query (dict): Query parameters containing year, keywords, etc.
             data_path (str): Path to save the collected data.
             api_key (str, optional): Not used for scholarly (kept for API compatibility).
         """
-        super().__init__(filter_param, data_path, api_key)
-        self.rate_limit = 2  # Conservative rate limit for free proxies
+        super().__init__(data_query, data_path, api_key)
+        self.rate_limit = 2  # Conservative rate limit for Tor
         self.max_by_page = 20  # scholarly returns ~10-20 results per "page" iteration
         self.api_name = "GoogleScholar"
         self.api_url = ""  # Not used for scholarly
+        self.load_rate_limit_from_config()
 
         # Initialize proxy if not already done (class-level to avoid multiple setups)
         if not GoogleScholarCollector._proxy_initialized:
-            self._setup_proxy()
+            with GoogleScholarCollector._proxy_lock:
+                if not GoogleScholarCollector._proxy_initialized:
+                    self._setup_proxy()
 
     def _setup_proxy(self):
         """
-        Sets up the proxy for scholarly to avoid Google Scholar blocking.
-        Uses free proxies with automatic rotation.
+        Sets up proxy for Google Scholar.
+        Priority: Existing Tor service → Spawn Tor → FreeProxies → No proxy
+
+        For faster startup, start Tor service beforehand:
+        - macOS: brew services start tor
+        - Ubuntu/Debian: sudo service tor start
+
+        Otherwise, Tor will spawn automatically on first run (2-3 minute bootstrap).
         """
+        # DISABLED: Tor_External has a bug in scholarly package
+        # Uses "socks5://" instead of "socks5h://", causing DNS to resolve locally
+        # instead of through Tor. Result: "[Errno 8] nodename nor servname provided"
+        # See: https://github.com/scholarly-python-package/scholarly/issues/...
+        # Fallback: Use FreeProxies below instead
+        # if self._is_tor_running(host="127.0.0.1", port=9050):
+        #     logging.info("✅ Found existing Tor service on port 9050")
+        #     try:
+        #         pg = ProxyGenerator()
+        #         success = pg.Tor_External(
+        #             tor_sock_port=9050, tor_control_port=9051, tor_password=""
+        #         )
+        #         if success:
+        #             scholarly.use_proxy(pg)
+        #             GoogleScholarCollector._proxy_initialized = True
+        #             logging.info("✅ Connected to existing Tor service (port 9050)")
+        #             return
+        #     except Exception as e:
+        #         logging.debug(f"Failed to connect to Tor service: {str(e)}")
+
+        # DISABLED: Tor_Internal has the same socks5:// bug as Tor_External
+        # scholarly's Tor methods are deprecated since v1.5 and unmaintained
+        # Falling back to FreeProxies instead
+        # logging.info("Initializing Google Scholar with Tor (will spawn if needed)...")
+        # logging.info("⏳ First run may take 2-3 minutes while Tor bootstraps...")
+        # try:
+        #     pg = ProxyGenerator()
+        #     success = pg.Tor_Internal(tor_cmd="tor")
+        #
+        #     if success:
+        #         scholarly.use_proxy(pg)
+        #         GoogleScholarCollector._proxy_initialized = True
+        #         logging.info("✅ Tor proxy initialized successfully")
+        #         logging.info("💡 For faster startup next time: brew services start tor")
+        #         return
+        # except Exception as e:
+        #     logging.debug(f"Tor initialization failed: {str(e)}")
+
+        # Fallback to FreeProxies if Tor not available
+        logging.info(
+            "Tor not available, falling back to FreeProxies (less reliable)..."
+        )
         try:
-            logging.info("Initializing Google Scholar proxy with FreeProxies...")
             pg = ProxyGenerator()
             success = pg.FreeProxies()
 
             if success:
                 scholarly.use_proxy(pg)
                 GoogleScholarCollector._proxy_initialized = True
+                logging.warning(
+                    "⚠️ Using FreeProxies - may be blocked by Google Scholar"
+                )
                 logging.info(
-                    "Google Scholar proxy initialized successfully with FreeProxies"
+                    "For better reliability, start Tor: brew services start tor"
                 )
             else:
                 logging.warning(
-                    "Failed to initialize FreeProxies, proceeding without proxy (may be blocked)"
+                    "Failed to initialize both Tor and FreeProxies, proceeding without proxy"
                 )
         except Exception as e:
             logging.error(f"Error setting up Google Scholar proxy: {str(e)}")
             logging.warning(
                 "Proceeding without proxy - requests may be blocked by Google Scholar"
             )
+
+    @staticmethod
+    def _is_tor_running(host: str = "127.0.0.1", port: int = 9050) -> bool:
+        """Check if Tor SOCKS proxy is accessible on the specified port."""
+        import socket
+
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex((host, port))
+            sock.close()
+            return result == 0
+        except Exception:
+            return False
 
     def parsePageResults(self, results_batch, page):
         """
@@ -2043,7 +2100,11 @@ class GoogleScholarCollector(API_collector):
 
         # Build search query
         keywords = self.get_keywords()
-        query = " ".join(keywords)  # Join keywords for search
+        if len(keywords) == 2:  # Dual keyword mode
+            # Enforce AND: papers must match keywords from BOTH groups
+            query = f'("{keywords[0]}") AND ("{keywords[1]}")'
+        else:  # Single keyword mode
+            query = " ".join(keywords)  # Space-separated OR logic
         year = self.get_year()
 
         # Add year to query if specified

@@ -8,6 +8,7 @@ from queue import Queue
 import yaml
 from tqdm import tqdm
 
+from src.config_defaults import DEFAULT_OUTPUT_DIR
 from .collectors import (
     Arxiv_collector,
     DBLP_collector,
@@ -221,9 +222,8 @@ class CollectCollection:
             # by individual collectors using configured rate limits from api.config.yml
 
     def get_current_repo(self):
-        return os.path.join(
-            self.main_config["output_dir"], self.main_config["collect_name"]
-        )
+        output_dir = self.main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
+        return os.path.join(output_dir, self.main_config["collect_name"])
 
     def queryCompositor(self):
         """
@@ -457,6 +457,9 @@ class CollectCollection:
         # Create shared progress queue
         progress_queue = Queue()
 
+        # Extract output_dir with default
+        output_dir = self.main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
+
         # Create one thread per API
         threads = []
         for api_name, api_jobs in jobs_by_api.items():
@@ -466,7 +469,7 @@ class CollectCollection:
                     api_name,
                     api_jobs,
                     self.api_config,
-                    self.main_config["output_dir"],
+                    output_dir,
                     self.main_config["collect_name"],
                     progress_queue,
                 ),
