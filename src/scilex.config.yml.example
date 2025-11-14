@@ -243,8 +243,10 @@ quality_filters:
 apis:
   - SemanticScholar
   - OpenAlex
-  - GoogleScholar
-  - IEEE
+  - HAL
+  - Arxiv
+  # - GoogleScholar  # Disabled by default - scholarly unfortunately get detected
+  # - IEEE # Disabled by default - need api key
 
 # ============================================================================
 # API-SPECIFIC SETTINGS
