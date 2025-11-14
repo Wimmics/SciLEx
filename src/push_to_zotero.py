@@ -16,6 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 from tqdm import tqdm
 
+from src.config_defaults import DEFAULT_OUTPUT_DIR, DEFAULT_AGGREGATED_FILENAME
 from src.constants import is_valid
 from src.crawlers.utils import load_all_configs
 from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
@@ -34,13 +35,15 @@ def load_aggregated_data(config: dict) -> pd.DataFrame:
 
     Args:
         config: Main configuration dictionary with output_dir, collect_name, aggregate_file
+                (uses defaults from config_defaults.py if not specified)
 
     Returns:
         DataFrame containing aggregated paper data
     """
-    dir_collect = os.path.join(config["output_dir"], config["collect_name"])
-    aggr_file = config["aggregate_file"]
-    file_path = dir_collect + aggr_file
+    output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
+    aggregate_file = config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
+    dir_collect = os.path.join(output_dir, config["collect_name"])
+    file_path = dir_collect + aggregate_file
 
     logging.info(f"Loading data from: {file_path}")
 
