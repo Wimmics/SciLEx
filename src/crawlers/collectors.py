@@ -1936,55 +1936,49 @@ class GoogleScholarCollector(API_collector):
     def _setup_proxy(self):
         """
         Sets up proxy for Google Scholar.
-        Priority: Existing Tor service → Spawn Tor → FreeProxies → No proxy
+        Priority: Existing Tor service (External) → Spawn Tor (Internal) → FreeProxies → No proxy
 
-        For faster startup, start Tor service beforehand:
+        For fastest startup, ensure Tor service is running:
         - macOS: brew services start tor
         - Ubuntu/Debian: sudo service tor start
-
-        Otherwise, Tor will spawn automatically on first run (2-3 minute bootstrap).
         """
-        # DISABLED: Tor_External has a bug in scholarly package
-        # Uses "socks5://" instead of "socks5h://", causing DNS to resolve locally
-        # instead of through Tor. Result: "[Errno 8] nodename nor servname provided"
-        # See: https://github.com/scholarly-python-package/scholarly/issues/...
-        # Fallback: Use FreeProxies below instead
-        # if self._is_tor_running(host="127.0.0.1", port=9050):
-        #     logging.info("✅ Found existing Tor service on port 9050")
-        #     try:
-        #         pg = ProxyGenerator()
-        #         success = pg.Tor_External(
-        #             tor_sock_port=9050, tor_control_port=9051, tor_password=""
-        #         )
-        #         if success:
-        #             scholarly.use_proxy(pg)
-        #             GoogleScholarCollector._proxy_initialized = True
-        #             logging.info("✅ Connected to existing Tor service (port 9050)")
-        #             return
-        #     except Exception as e:
-        #         logging.debug(f"Failed to connect to Tor service: {str(e)}")
+        # Step 1: Try to connect to existing Tor service (instant startup)
+        logging.info("Initializing Google Scholar with Tor...")
+        if self._is_tor_running():
+            logging.info("✅ Found running Tor service on port 9050")
+            try:
+                pg = ProxyGenerator()
+                # Use Tor_External to connect to system Tor service
+                # CookieAuthentication in torrc means no password needed
+                success = pg.Tor_External(tor_sock_port=9050, tor_control_port=9051)
 
-        # DISABLED: Tor_Internal has the same socks5:// bug as Tor_External
-        # scholarly's Tor methods are deprecated since v1.5 and unmaintained
-        # Falling back to FreeProxies instead
-        # logging.info("Initializing Google Scholar with Tor (will spawn if needed)...")
-        # logging.info("⏳ First run may take 2-3 minutes while Tor bootstraps...")
-        # try:
-        #     pg = ProxyGenerator()
-        #     success = pg.Tor_Internal(tor_cmd="tor")
-        #
-        #     if success:
-        #         scholarly.use_proxy(pg)
-        #         GoogleScholarCollector._proxy_initialized = True
-        #         logging.info("✅ Tor proxy initialized successfully")
-        #         logging.info("💡 For faster startup next time: brew services start tor")
-        #         return
-        # except Exception as e:
-        #     logging.debug(f"Tor initialization failed: {str(e)}")
+                if success:
+                    scholarly.use_proxy(pg)
+                    GoogleScholarCollector._proxy_initialized = True
+                    logging.info("✅ Connected to Tor service successfully (instant)")
+                    return
+            except Exception as e:
+                logging.debug(f"Tor_External failed: {str(e)}")
 
-        # Fallback to FreeProxies if Tor not available
-        logging.info(
-            "Tor not available, falling back to FreeProxies (less reliable)..."
+        # Step 2: Fall back to spawning our own Tor (slower, but works offline)
+        logging.info("System Tor service not found, spawning own Tor instance...")
+        logging.info("⏳ First run may take 2-3 minutes while Tor bootstraps...")
+        try:
+            pg = ProxyGenerator()
+            success = pg.Tor_Internal(tor_cmd="tor")
+
+            if success:
+                scholarly.use_proxy(pg)
+                GoogleScholarCollector._proxy_initialized = True
+                logging.info("✅ Spawned Tor proxy successfully")
+                logging.info("💡 For faster startup next time: brew services start tor")
+                return
+        except Exception as e:
+            logging.debug(f"Tor_Internal failed: {str(e)}")
+
+        # Step 3: Fall back to FreeProxies (unreliable but free)
+        logging.warning(
+            "Tor initialization failed, trying FreeProxies (less reliable)..."
         )
         try:
             pg = ProxyGenerator()
@@ -1999,15 +1993,14 @@ class GoogleScholarCollector(API_collector):
                 logging.info(
                     "For better reliability, start Tor: brew services start tor"
                 )
-            else:
-                logging.warning(
-                    "Failed to initialize both Tor and FreeProxies, proceeding without proxy"
-                )
+                return
         except Exception as e:
-            logging.error(f"Error setting up Google Scholar proxy: {str(e)}")
-            logging.warning(
-                "Proceeding without proxy - requests may be blocked by Google Scholar"
-            )
+            logging.debug(f"FreeProxies failed: {str(e)}")
+
+        # Step 4: Last resort - proceed without proxy (likely to be blocked)
+        logging.warning(
+            "All proxy methods failed, proceeding without proxy - requests may be blocked"
+        )
 
     @staticmethod
     def _is_tor_running(host: str = "127.0.0.1", port: int = 9050) -> bool:

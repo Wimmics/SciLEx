@@ -29,6 +29,28 @@ keywords:
   - ["RAG", "Retrieval Augmented Generation", "LLM", "Large Language Model"]
   - ["Knowledge Graph", "knowledge graphs", "semantic network"]
 
+# Optional bonus keywords - boost relevance scores without filtering
+#
+# Papers are COLLECTED and FILTERED using mandatory keywords only.
+# Papers that match bonus keywords get higher relevance scores, helping them
+# rise to the top when using max_papers limit, but they are not excluded if
+# they don't match bonus keywords.
+#
+# Use bonus keywords for "nice-to-have" terms that should enhance relevance
+# but aren't essential for the research focus.
+#
+# Example:
+#   bonus_keywords:
+#     - "temporal reasoning"
+#     - "multi-hop"
+#     - "context windows"
+#
+# Bonus keyword matches are weighted at 0.5x compared to mandatory keywords.
+#
+# Leave empty or remove this section if not using bonus keywords.
+#
+bonus_keywords: []  # Empty by default - add your bonus keywords here
+
 # Years to search (creates separate queries for each year)
 years:
   - 2023
@@ -70,6 +92,22 @@ semantic_scholar_mode: regular
 
 # Project identification
 collect_name: my_research_project
+
+# Maximum articles per query (optional, advanced setting)
+# Default: -1 (unlimited - collect all available papers)
+# Set to a number to limit papers collected per API query (keyword/year/API combo)
+#
+# Examples:
+#   max_articles_per_query: 100   # Testing: quick run (1-2 sec per query)
+#   max_articles_per_query: 1000  # Balanced: good sample (controls quota)
+#   max_articles_per_query: 2000  # Coverage: larger collection
+#   max_articles_per_query: -1    # Unlimited (default, collect all)
+#
+# How it works: Collectors stop making API requests when total >= limit
+# Per-query: Total papers = number_of_queries * max_articles_per_query
+# For details, see scilex.advanced.yml.example
+#
+# max_articles_per_query: -1
 
 # ============================================================================
 # QUALITY FILTERS - Core filtering decisions

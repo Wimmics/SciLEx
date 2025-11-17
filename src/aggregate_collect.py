@@ -442,20 +442,21 @@ def _apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="
     return df_filtered
 
 
-def _count_keyword_matches(row, keyword_groups):
+def _count_keyword_matches(row, keyword_groups, bonus_keywords=None):
     """Count total keyword matches in title and abstract.
 
     Args:
         row: DataFrame row (paper record)
-        keyword_groups: List of keyword groups from config
+        keyword_groups: List of mandatory keyword groups from config
+        bonus_keywords: Optional list of bonus keywords (counted at 0.5 weight)
 
     Returns:
-        int: Total number of keyword matches found
+        float: Total number of keyword matches found (bonus keywords weighted at 0.5)
     """
-    if not keyword_groups:
+    if not keyword_groups and not bonus_keywords:
         return 0
 
-    # Flatten keyword groups
+    # Flatten mandatory keyword groups
     all_keywords = []
     for group in keyword_groups:
         if isinstance(group, list):
@@ -466,16 +467,27 @@ def _count_keyword_matches(row, keyword_groups):
     abstract = str(row.get("abstract", "")).lower()
     combined_text = f"{title} {abstract}"
 
-    # Count matches (a keyword can appear multiple times)
+    # Count matches for mandatory keywords (full weight)
     match_count = 0
     for keyword in all_keywords:
         keyword_lower = keyword.lower()
         match_count += combined_text.count(keyword_lower)
 
+    # Count matches for bonus keywords (half weight = 0.5 per match)
+    if bonus_keywords:
+        bonus_match_count = 0
+        for keyword in bonus_keywords:
+            keyword_lower = keyword.lower()
+            bonus_match_count += combined_text.count(keyword_lower)
+        # Add bonus matches at 0.5 weight each
+        match_count += bonus_match_count * 0.5
+
     return match_count
 
 
-def _calculate_relevance_score(row, keyword_groups, has_citations=False, config=None):
+def _calculate_relevance_score(
+    row, keyword_groups, has_citations=False, config=None, bonus_keywords=None
+):
     """Calculate composite relevance score for a paper using normalized components.
 
     Components (all normalized to 0-10 scale):
@@ -486,9 +498,10 @@ def _calculate_relevance_score(row, keyword_groups, has_citations=False, config=
 
     Args:
         row: DataFrame row (paper record)
-        keyword_groups: List of keyword groups from config
+        keyword_groups: List of mandatory keyword groups from config
         has_citations: Whether citation data is available
         config: Configuration dict containing quality_filters
+        bonus_keywords: Optional list of bonus keywords (weighted at 0.5)
 
     Returns:
         float: Relevance score (0-10 scale, higher = more relevant)
@@ -505,7 +518,7 @@ def _calculate_relevance_score(row, keyword_groups, has_citations=False, config=
     weights = quality_filters.get("relevance_weights", DEFAULT_RELEVANCE_WEIGHTS)
 
     # 1. Keyword relevance (normalize to 0-10)
-    keyword_matches = _count_keyword_matches(row, keyword_groups)
+    keyword_matches = _count_keyword_matches(row, keyword_groups, bonus_keywords)
     # Cap at 10 matches for normalization (can be adjusted based on data)
     keyword_score = min(keyword_matches, 10)
 
@@ -549,7 +562,12 @@ def _calculate_relevance_score(row, keyword_groups, has_citations=False, config=
 
 
 def _apply_relevance_ranking(
-    df, keyword_groups, top_n=None, has_citations=False, config=None
+    df,
+    keyword_groups,
+    top_n=None,
+    has_citations=False,
+    config=None,
+    bonus_keywords=None,
 ):
     """Apply composite relevance ranking to DataFrame.
 
@@ -557,10 +575,11 @@ def _apply_relevance_ranking(
 
     Args:
         df: DataFrame with papers
-        keyword_groups: List of keyword groups from config
+        keyword_groups: List of mandatory keyword groups from config
         top_n: Optional - keep only top N most relevant papers
         has_citations: Whether citation data is available
         config: Configuration dict containing quality_filters
+        bonus_keywords: Optional list of bonus keywords (weighted at 0.5)
 
     Returns:
         pd.DataFrame: Ranked DataFrame with relevance_score column
@@ -570,7 +589,7 @@ def _apply_relevance_ranking(
     # Calculate scores
     df["relevance_score"] = df.apply(
         lambda row: _calculate_relevance_score(
-            row, keyword_groups, has_citations, config
+            row, keyword_groups, has_citations, config, bonus_keywords
         ),
         axis=1,
     )
@@ -1318,6 +1337,9 @@ if __name__ == "__main__":
     # Load keyword groups from config for proper dual-group filtering
     keyword_groups = main_config.get("keywords", [])
 
+    # Load optional bonus keywords (used for relevance scoring only)
+    bonus_keywords = main_config.get("bonus_keywords", None)
+
     # Load collection metadata from config snapshot
     if not os.path.isfile(config_used_path):
         logging.error(f"No collection metadata found in: {dir_collect}")
@@ -1604,6 +1626,7 @@ if __name__ == "__main__":
             top_n=top_n,
             has_citations=get_citation and len(df_clean) > 0,
             config=main_config,  # Pass the main config for access to quality_filters
+            bonus_keywords=bonus_keywords,
         )
 
         # Track relevance ranking stage
