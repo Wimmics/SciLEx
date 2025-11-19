@@ -1,0 +1,80 @@
+# ============================================================================
+# SciLEx API Configuration - Quick Start
+# ============================================================================
+#
+# Copy this file to 'src/api.config.yml' and add your API credentials
+#
+# Only include APIs you actually use. Leave others commented out.
+# For more details, see CLAUDE.md in the project root.
+#
+# ============================================================================
+
+# ============================================================================
+# REQUIRED API KEYS (add credentials for APIs you want to use)
+# ============================================================================
+
+Zotero:
+  api_key: "YOUR_ZOTERO_API_KEY"
+  user_id: "YOUR_ZOTERO_USER_ID"  # Find at https://www.zotero.org/settings/keys
+  user_mode: "user"  # or "group" for group libraries
+
+# Uncomment and fill in for IEEE Xplore
+# IEEE:
+#   api_key: "YOUR_IEEE_API_KEY"
+
+# Uncomment and fill in for Elsevier/ScienceDirect
+# Elsevier:
+#   api_key: "YOUR_ELSEVIER_API_KEY"
+#   inst_token: null  # Optional institutional token, or leave null
+
+# Uncomment and fill in for Springer
+# Springer:
+#   api_key: "YOUR_SPRINGER_API_KEY"
+
+# Semantic Scholar (optional but recommended for better rate limits)
+SemanticScholar:
+  api_key: "YOUR_SEMANTIC_SCHOLAR_API_KEY"  # Free tier OK, get at https://www.semanticscholar.org/product/api
+
+# Google Scholar (no API key needed, uses scholarly package with Tor/proxies)
+GoogleScholar:
+  enabled: false  # Set to true to enable web scraping of Google Scholar
+
+# ORCID integration (optional)
+# ORCID:
+#   client_id: "YOUR_ORCID_CLIENT_ID"
+#   client_secret: "YOUR_ORCID_CLIENT_SECRET"
+#   dir: "YOUR_WORK_DIRECTORY"
+
+# ============================================================================
+# FREE APIs (no configuration needed, just enable in scilex.config.yml)
+# ============================================================================
+#
+# These APIs are free to use - no API keys required:
+#   - OpenAlex: Comprehensive open database (https://docs.openalex.org)
+#   - Arxiv: Preprints (https://info.arxiv.org/help/api)
+#   - HAL: French open archive (https://api.archives-ouvertes.fr/docs)
+#   - DBLP: Computer science bibliography (https://dblp.org)
+#   - Istex: French academic archive (https://api.istex.fr/documentation)
+#
+# To enable: Add to 'apis' list in scilex.config.yml
+# Example: apis: [OpenAlex, Arxiv, HAL, DBLP]
+#
+
+# ============================================================================
+# RATE LIMITS (Optional - uses sensible defaults if not specified)
+# ============================================================================
+#
+# Uncomment below to override default rate limits (requests per second)
+# Most users do NOT need to customize these - defaults are conservative and safe.
+# Only increase if you have premium/institutional access and confirmed higher limits.
+#
+# rate_limits:
+#   SemanticScholar: 1.0      # Default with API key
+#   OpenAlex: 10.0            # Free tier default
+#   Arxiv: 3.0
+#   IEEE: 2.0
+#   Elsevier: 6.0
+#   Springer: 1.5
+#   HAL: 10.0
+#   DBLP: 1.0
+#   GoogleScholar: 2.0

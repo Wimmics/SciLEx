@@ -7,8 +7,8 @@ The SciLEx (Science Literature Exploration) project is a basic python scriptbox 
 * Consolidate and Enrich a benchmark  
 * Exploring the citations links and expanding a network of sci. papers
 
-I developed ScilEx scripts in the context of a systematic review conducted during my Phd, and introduced in :  
-> Celian Ringwald. Learning Pattern-Based Extractors from Natural Language and Knowledge Graphs: Applying Large Language Models to Wikipedia and Linked Open Data. AAAI-24 - 38th AAAI Conference on Artificial Intelligence, Feb 2024, Vancouver, France. pp.23411-23412, ⟨10.1609/aaai.v38i21.30406⟩. ⟨hal-04526050⟩
+I developed SciLEx scripts in the context of a systematic review conducted during my Phd, and introduced in :  
+> Celian Ringwald. Learning Pattern-Based Extractors from Natural Language and Knowledge Graphs: Applying Large Language Models to Wikipedia and Linked Open Data. AAAI-24 - 38th AAAI Conference on Artificial Intelligence, Feb 2024, Vancouver, Canada. pp.23411-23412, ⟨10.1609/aaai.v38i21.30406⟩. ⟨hal-04526050⟩
 ---
 ## SciLEx Framework
 
@@ -19,22 +19,14 @@ I developed ScilEx scripts in the context of a systematic review conducted durin
 ![Framework](img/Framework.png)
 ---
 
-## :electric_plug: First steps
-:heavy_plus_sign: [Install Zotero and Zotero Connector](https://www.zotero.org/download/)
+## :electric_plug: Deploy and use SciLEx for the first time
 
-:heavy_plus_sign: [Create a Zotero API key](https://www.zotero.org/support/dev/web_api/v3/start)
-
-:heavy_plus_sign: Create an account for following APIs:
-* [SemanticScholar](https://www.semanticscholar.org/product/api/tutorial)
-* [Springer](https://dev.springernature.com/)
-* [IEEE](https://developer.ieee.org/)
-* [Elsevier](https://dev.elsevier.com/)
-
- 
- :heavy_plus_sign: :bangbang: **ADD ALL OF YOUR CREDITS** IN [scilex.config.yml](https://github.com/datalogism/SciLEx/blob/main/src/scilex.config.yml)  :clipboard:
+ 👉 Please read our quick tutorial [here](https://github.com/datalogism/SciLEx/blob/main/Tuto_firstContact.md) 🏃‍♂️🏃
 
 -----
 ##  :open_file_folder: ScriptBox Content:
+
+Many scripts where developed and not yet integrated, if you are intested please take a look in the following directories:
 
 *  :clipboard: [Testing APIs scripts](https://github.com/datalogism/SciLEx/blob/main/src/API_tests/) : test and check API services
 *  :clipboard: [Collect scripts]( 
@@ -50,9 +42,9 @@ https://github.com/datalogism/SciLEx/tree/main/src/citations) : extract or push 
 * :wrench:[Textmining scripts]( 
 https://github.com/datalogism/SciLEx/tree/main/src/text) : extract or push papers data in the lib 
 
-## 🤓 How to contribute to SciLEX ? 
+## 🤓 How to contribute to SciLEx ? 
 
-- By extending the API integrated to SciLex
+- By extending the API integrated to SciLEx
 - By Improving the metainformation integration
 - By extending it to analytics and vizualisation tools 
 
