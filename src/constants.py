@@ -74,17 +74,17 @@ class CitationFilterConfig:
     """Time-aware citation filtering thresholds for paper quality assessment."""
 
     # Age thresholds (in months)
-    GRACE_PERIOD_MONTHS = 3  # Very recent papers (0-3 months) - no filtering
-    EARLY_THRESHOLD_MONTHS = 6  # Early stage papers (3-6 months)
-    MEDIUM_THRESHOLD_MONTHS = 12  # Medium age papers (6-12 months)
-    MATURE_THRESHOLD_MONTHS = 24  # Mature papers (12-24 months)
+    GRACE_PERIOD_MONTHS = 18  # Very recent papers (0-18 months) - no filtering
+    EARLY_THRESHOLD_MONTHS = 21  # Early stage papers (18-21 months)
+    MEDIUM_THRESHOLD_MONTHS = 24  # Medium age papers (21-24 months)
+    MATURE_THRESHOLD_MONTHS = 36  # Mature papers (24-36 months)
 
     # Citation count requirements by age group
-    GRACE_PERIOD_CITATIONS = 0  # 0-3 months: 0 citations required
-    EARLY_CITATIONS = 1  # 3-6 months: 1+ citations required
-    MEDIUM_CITATIONS = 3  # 6-12 months: 3+ citations required
-    MATURE_BASE_CITATIONS = 5  # 12-24 months: starts at 5, increases to 8
-    ESTABLISHED_BASE_CITATIONS = 10  # 24+ months: starts at 10, increases gradually
+    GRACE_PERIOD_CITATIONS = 0  # 0-18 months: 0 citations required
+    EARLY_CITATIONS = 1  # 18-21 months: 1+ citations required
+    MEDIUM_CITATIONS = 3  # 21-24 months: 3+ citations required
+    MATURE_BASE_CITATIONS = 5  # 24-36 months: starts at 5, increases to 8
+    ESTABLISHED_BASE_CITATIONS = 10  # 36+ months: starts at 10, increases gradually
 
     # Warning threshold for zero-citation rate
     HIGH_ZERO_CITATION_RATE = 80  # Warn if >80% of papers have 0 citations

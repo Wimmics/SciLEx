@@ -339,7 +339,7 @@ def _calculate_required_citations(months_since_pub):
             (months_since_pub - CitationFilterConfig.MEDIUM_THRESHOLD_MONTHS) / 4
         )
     else:
-        # 24+ months: ESTABLISHED_BASE_CITATIONS+ (incremental for older papers)
+        # 36+ months: ESTABLISHED_BASE_CITATIONS+ (incremental for older papers)
         return CitationFilterConfig.ESTABLISHED_BASE_CITATIONS + int(
             (months_since_pub - CitationFilterConfig.MATURE_THRESHOLD_MONTHS) / 12
         )
@@ -349,7 +349,7 @@ def _apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="
     """Apply time-aware citation filtering to DataFrame.
 
     Papers are filtered based on citation count relative to their age:
-    - Recent papers (0-3 months): No filtering (0 citations OK)
+    - Recent papers (0-18 months): No filtering (0 citations OK)
     - Older papers: Increasing citation requirements
 
     Args:
@@ -397,11 +397,11 @@ def _apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="
 
     # Breakdown by age group
     age_groups = [
-        (0, 3, "0-3 months (grace period)"),
-        (3, 6, "3-6 months (≥1 citation)"),
-        (6, 12, "6-12 months (≥3 citations)"),
-        (12, 24, "12-24 months (≥5-8 citations)"),
-        (24, 999, "24+ months (≥10 citations)"),
+        (0, 18, "0-18 months (grace period)"),
+        (18, 21, "18-21 months (≥1 citation)"),
+        (21, 24, "21-24 months (≥3 citations)"),
+        (24, 36, "24-36 months (≥5-8 citations)"),
+        (36, 999, "36+ months (≥10 citations)"),
     ]
 
     logging.info("Breakdown by age group:")
@@ -426,7 +426,7 @@ def _apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="
         )
         logging.warning("This may indicate:")
         logging.warning(
-            "  • Very recent dataset (expected for preprints < 3 months old)"
+            "  • Very recent dataset (expected for preprints < 18 months old)"
         )
         logging.warning(
             "  • OpenCitations coverage gaps (limited for preprints/recent papers)"
