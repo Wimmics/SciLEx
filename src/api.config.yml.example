@@ -27,9 +27,15 @@ Zotero:
 #   api_key: "YOUR_ELSEVIER_API_KEY"
 #   inst_token: null  # Optional institutional token, or leave null
 
-# Uncomment and fill in for Springer
+# Uncomment and fill in for Springer if you have the same api key for the open access endpoint and for the meta endpoint
 # Springer:
 #   api_key: "YOUR_SPRINGER_API_KEY"
+# Springer:
+#   api_key: 
+#     meta_api_key: "YOUR_SPRINGER_OPEN_ACCESS_API_KEY"
+#     openaccess_api_key: "YOUR_SPRINGER_META_API_KEY"
+
+# Uncomment and fill in for Springer if you have api keys for the open access endpoint and for the meta endpoint
 
 # Semantic Scholar (optional but recommended for better rate limits)
 SemanticScholar:
