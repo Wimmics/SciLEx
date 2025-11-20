@@ -20,6 +20,14 @@ class Springer_collector(API_collector):
         self.api_name = "Springer"
         self.max_by_page = 100
         #     self.api_key = springer_api
+        ## manage both meta and openaccess endpoints
+        if isinstance(self.api_key, dict):
+            self.meta_api_key = self.api_key.get("meta_api_key")
+            self.openaccess_api_key = self.api_key.get("openaccess_api_key")
+        else:
+            self.meta_api_key = self.api_key
+            self.openaccess_api_key = self.api_key
+        
 
         # Define both API URLs
         self.meta_url = "http://api.springernature.com/meta/v2/json"
@@ -113,9 +121,9 @@ class Springer_collector(API_collector):
         keywords_query = self.construct_search_query()
 
         # Construct the URLs for both endpoints
-        meta_url = f"{self.meta_url}?q={keywords_query}&api_key={self.api_key}"
+        meta_url = f"{self.meta_url}?q={keywords_query}&api_key={self.meta_api_key}"
         openaccess_url = (
-            f"{self.openaccess_url}?q={keywords_query}&api_key={self.api_key}"
+            f"{self.openaccess_url}?q={keywords_query}&api_key={self.openaccess_api_key}"
         )
 
         logging.debug(f"Constructed query for meta: {meta_url}")
