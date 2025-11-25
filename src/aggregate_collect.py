@@ -767,6 +767,62 @@ def _apply_itemtype_filter(df, allowed_types, enabled):
     return filtered_df, stats
 
 
+def _fill_missing_urls_from_doi(df):
+    """Fill missing URLs using DOI resolver (https://doi.org/).
+
+    Papers without URLs but with valid DOIs get a URL generated from their DOI.
+    The DOI resolver (doi.org) permanently redirects to the actual paper URL.
+
+    Args:
+        df: DataFrame with 'url' and 'DOI' columns
+
+    Returns:
+        pd.DataFrame: DataFrame with missing URLs filled from DOIs
+        dict: Statistics about the URL filling operation
+    """
+    if "url" not in df.columns or "DOI" not in df.columns:
+        logging.warning("Cannot fill URLs: missing 'url' or 'DOI' column")
+        return df, {"filled": 0, "already_valid": 0, "no_doi": 0}
+
+    stats = {"filled": 0, "already_valid": 0, "no_doi": 0}
+
+    def generate_url_from_doi(row):
+        url = row.get("url")
+        doi = row.get("DOI")
+
+        # URL already valid
+        if is_valid(url):
+            stats["already_valid"] += 1
+            return url
+
+        # No DOI to generate URL from
+        if not is_valid(doi):
+            stats["no_doi"] += 1
+            return url  # Keep original (MISSING_VALUE)
+
+        # Generate URL from DOI
+        doi_str = str(doi).strip()
+        # Remove existing prefix if present
+        if doi_str.lower().startswith("https://doi.org/"):
+            doi_str = doi_str[16:]
+        elif doi_str.lower().startswith("http://doi.org/"):
+            doi_str = doi_str[15:]
+
+        stats["filled"] += 1
+        return f"https://doi.org/{doi_str}"
+
+    df = df.copy()
+    df["url"] = df.apply(generate_url_from_doi, axis=1)
+
+    logging.info(
+        f"URL fallback: {stats['filled']} URLs generated from DOIs, "
+        f"{stats['already_valid']} already valid, "
+        f"{stats['no_doi']} papers without DOI"
+    )
+
+    return df, stats
+
+
 def _use_semantic_scholar_citations_fallback(df):
     """Use Semantic Scholar citation data as fallback when OpenCitations data is missing or zero.
 
@@ -1405,6 +1461,14 @@ if __name__ == "__main__":
 
     # Initialize filtering tracker with post-deduplication count
     filtering_tracker.set_initial(len(df_clean), "Papers after deduplication")
+
+    # =========================================================================
+    # STEP 0: Fill Missing URLs from DOIs
+    # =========================================================================
+    # Generate URLs from DOIs for papers that have DOI but no URL
+    # This uses the DOI resolver (https://doi.org/) which redirects to the paper
+    logging.info("\n=== URL Fallback from DOI ===")
+    df_clean, url_stats = _fill_missing_urls_from_doi(df_clean)
 
     # =========================================================================
     # STEP 1: ItemType Filtering (Whitelist Mode)
