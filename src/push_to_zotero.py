@@ -112,6 +112,7 @@ def push_new_items_to_zotero(
     collection_key: str,
     existing_urls: set,
     templates_cache: dict[str, dict],
+    config: dict,
 ) -> dict[str, int]:
     """
     Push new items to Zotero collection using bulk upload.
@@ -124,9 +125,12 @@ def push_new_items_to_zotero(
         templates_cache: Pre-fetched item type templates
 
     Returns:
-        Dictionary with counts: {"success": n, "failed": m, "skipped": k}
+        Dictionary with counts: {"success": n, "failed": m, "skipped": k, "skipped_for_incompatibility": j}
     """
-    results = {"success": 0, "failed": 0, "skipped": 0}
+    output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
+    dir_collect = os.path.join(output_dir, config["collect_name"])
+    results = {"success": 0, "failed": 0, "skipped": 0, "skipped_for_incompatibility": 0,}
+    invalid_items = []
     items_to_upload = []
 
     logging.info("Processing papers for upload...")
@@ -139,7 +143,8 @@ def push_new_items_to_zotero(
         item = prepare_zotero_item(row, collection_key, templates_cache)
 
         if item is None:
-            results["skipped"] += 1
+            results["skipped_for_incompatibility"] += 1
+            invalid_items.append(row)
             continue
 
         # Check for duplicate URL
@@ -149,7 +154,8 @@ def push_new_items_to_zotero(
                 getattr(row, "title", "Unknown") if hasattr(row, "title") else "Unknown"
             )
             logging.warning(f"Skipping paper without valid URL: {title}")
-            results["skipped"] += 1
+            invalid_items.append(row)
+            results["skipped_for_incompatibility"] += 1
             continue
 
         if item_url in existing_urls:  # O(1) set lookup
@@ -159,7 +165,12 @@ def push_new_items_to_zotero(
 
         # Add to batch for bulk upload
         items_to_upload.append(item)
-
+    if invalid_items:
+        invalid_data = pd.DataFrame(invalid_items)
+        invalid_data_path = os.path.join(dir_collect, "invalid_items_no_url.csv")
+        invalid_data.to_csv(invalid_data_path, index=False)
+        logging.info(
+            f"Found {len(invalid_items)} invalid items without valid URLs, saving them into {invalid_data_path}...")
     # Upload all items in bulk (automatically batched into groups of 50)
     if items_to_upload:
         logging.info(f"Uploading {len(items_to_upload)} new papers in bulk...")
@@ -244,7 +255,7 @@ def main():
     logging.info("=" * 60)
     logging.info("Starting upload of new papers...")
     results = push_new_items_to_zotero(
-        data, zotero_api, collection_key, existing_urls, templates_cache
+        data, zotero_api, collection_key, existing_urls, templates_cache, main_config
     )
 
     # Log summary
@@ -252,7 +263,8 @@ def main():
     logging.info("Upload complete!")
     logging.info(f"✅ Successfully uploaded: {results['success']} papers")
     logging.info(f"❌ Failed to upload: {results['failed']} papers")
-    logging.info(f"⏭️  Skipped (duplicates/invalid): {results['skipped']} papers")
+    logging.info(f"⏭️  Skipped (duplicates/none): {results['skipped']} papers")
+    logging.info(f"⏭️  Skipped (non URL): {results['skipped_for_incompatibility']} papers")
     logging.info(f"Process completed at {datetime.now()}")
 
 
