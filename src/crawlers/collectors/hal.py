@@ -88,9 +88,16 @@ class HAL_collector(API_collector):
         # Wrap the keyword query in parentheses
         keyword_query = f"({keyword_query})"
 
-        # Construct the final URL
+        # Construct the final URL with all available fields
+        # Added: volume_s, issue_s, page_s, publisher_s, language_s for better metadata extraction
+        fields = (
+            "title_s,abstract_s,label_s,arxivId_s,audience_s,authFullNameIdHal_fs,"
+            "bookTitle_s,classification_s,conferenceTitle_s,docType_s,doiId_id,"
+            "files_s,halId_s,jel_t,journalDoiRoot_s,journalTitle_t,keyword_s,"
+            "type_s,submittedDateY_i,volume_s,issue_s,page_s,publisher_s,language_s"
+        )
         configured_url = (
-            f"{self.api_url}?q={keyword_query}&fl=title_s,abstract_s,label_s,arxivId_s,audience_s,authFullNameIdHal_fs,bookTitle_s,classification_s,conferenceTitle_s,docType_s,doiId_id,files_s,halId_s,jel_t,journalDoiRoot_s,journalTitle_t,keyword_s,type_s,submittedDateY_i&"
+            f"{self.api_url}?q={keyword_query}&fl={fields}&"
             f"{year_filter}&wt=json&rows={self.max_by_page}&start={{}}"
         )
 
