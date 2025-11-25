@@ -349,6 +349,7 @@ def _apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="
     """Apply time-aware citation filtering to DataFrame.
 
     Papers are filtered based on citation count relative to their age:
+    - Papers without DOI: Bypass filter (citations couldn't be looked up)
     - Recent papers (0-18 months): No filtering (0 citations OK)
     - Older papers: Increasing citation requirements
 
@@ -362,36 +363,86 @@ def _apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="
     """
     logging.info("Applying time-aware citation filtering...")
 
+    # ========================================================================
+    # STEP 1: Separate papers without DOI (they bypass citation filtering)
+    # ========================================================================
+    # Papers without DOI couldn't have their citations looked up, so it's unfair
+    # to filter them based on citation count. They bypass the filter entirely.
+    has_valid_doi = df["DOI"].apply(is_valid)
+    df_no_doi = df[~has_valid_doi].copy()
+    df_with_doi = df[has_valid_doi].copy()
+
+    no_doi_count = len(df_no_doi)
+    if no_doi_count > 0:
+        logging.info(
+            f"  Papers without DOI: {no_doi_count:,} (bypassing citation filter)"
+        )
+
+    # If no papers have DOI, return all papers unchanged
+    if len(df_with_doi) == 0:
+        logging.info("  No papers with DOI - skipping citation filtering")
+        df["paper_age_months"] = df[date_col].apply(_calculate_paper_age_months)
+        df["citation_threshold"] = 0  # No threshold for papers without DOI
+        return df
+
+    # ========================================================================
+    # STEP 2: Apply citation filter only to papers WITH DOI
+    # ========================================================================
+
     # Calculate age and required citations
-    df["paper_age_months"] = df[date_col].apply(_calculate_paper_age_months)
-    df["citation_threshold"] = df["paper_age_months"].apply(
+    df_with_doi["paper_age_months"] = df_with_doi[date_col].apply(
+        _calculate_paper_age_months
+    )
+    df_with_doi["citation_threshold"] = df_with_doi["paper_age_months"].apply(
         _calculate_required_citations
     )
 
     # Convert citation count to numeric (handle empty/invalid values)
-    df[citation_col] = (
-        pd.to_numeric(df[citation_col], errors="coerce").fillna(0).astype(int)
+    df_with_doi[citation_col] = (
+        pd.to_numeric(df_with_doi[citation_col], errors="coerce").fillna(0).astype(int)
     )
 
-    # Apply filtering
+    # Apply filtering to papers with DOI only
+    initial_with_doi = len(df_with_doi)
+    df_filtered = df_with_doi[
+        df_with_doi[citation_col] >= df_with_doi["citation_threshold"]
+    ].copy()
+    removed_count = initial_with_doi - len(df_filtered)
+
+    # ========================================================================
+    # STEP 3: Merge filtered papers with DOI-less papers (which bypassed filter)
+    # ========================================================================
+    if no_doi_count > 0:
+        # Add placeholder columns to DOI-less papers for consistency
+        df_no_doi["paper_age_months"] = df_no_doi[date_col].apply(
+            _calculate_paper_age_months
+        )
+        df_no_doi["citation_threshold"] = 0  # No threshold (bypassed)
+        df_no_doi[citation_col] = 0  # Unknown citations
+
+        # Combine: filtered papers with DOI + all papers without DOI
+        df_filtered = pd.concat([df_filtered, df_no_doi], ignore_index=True)
+
     initial_count = len(df)
-    df_filtered = df[df[citation_col] >= df["citation_threshold"]].copy()
-    removed_count = initial_count - len(df_filtered)
 
-    # Calculate zero-citation statistics
-    zero_citation_count = (df[citation_col] == 0).sum()
+    # Calculate zero-citation statistics (only for papers with DOI)
+    zero_citation_count = (
+        df_filtered[df_filtered["DOI"].apply(is_valid)][citation_col] == 0
+    ).sum()
     zero_citation_rate = (
-        (zero_citation_count / initial_count * 100) if initial_count > 0 else 0.0
+        (zero_citation_count / initial_with_doi * 100) if initial_with_doi > 0 else 0.0
     )
 
-    # Log statistics by age group
+    # Log statistics
     logging.info("Time-aware citation filter applied:")
     logging.info(f"  Initial papers: {initial_count:,}")
+    logging.info(f"  Papers with DOI (filtered): {initial_with_doi:,}")
+    logging.info(f"  Papers without DOI (bypassed): {no_doi_count:,}")
     logging.info(
-        f"  Papers with 0 citations: {zero_citation_count:,} ({zero_citation_rate:.1f}%)"
+        f"  Papers with 0 citations (with DOI): {zero_citation_count:,} ({zero_citation_rate:.1f}%)"
     )
     logging.info(
-        f"  Removed: {removed_count:,} ({removed_count / initial_count * 100:.1f}%)"
+        f"  Removed (from DOI papers): {removed_count:,} ({removed_count / initial_with_doi * 100:.1f}% of DOI papers)"
     )
     logging.info(f"  Remaining: {len(df_filtered):,}")
 
