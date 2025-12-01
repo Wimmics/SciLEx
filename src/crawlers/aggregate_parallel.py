@@ -487,6 +487,20 @@ def parallel_process_papers(
 # ============================================================================
 
 
+def _merge_archives_for_duplicates(archives: list[str], winner_archive: str) -> str:
+    """Merge archive list with winner marked by asterisk.
+
+    Args:
+        archives: List of archive names (e.g., ["SemanticScholar", "OpenAlex"])
+        winner_archive: The archive that was kept after dedup
+
+    Returns:
+        Merged string like "SemanticScholar*;OpenAlex" where * marks the winner
+    """
+    unique_archives = list(dict.fromkeys(archives))  # Preserve order, remove dupes
+    return ";".join([a + "*" if a == winner_archive else a for a in unique_archives])
+
+
 def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """
     Simple, fast deduplication using hash-based exact matching.
@@ -529,10 +543,24 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     valid_dois = len(papers_with_doi)
 
+    # Create DOI → archives mapping BEFORE dedup (to track which APIs found each paper)
+    doi_to_archives = papers_with_doi.groupby("DOI")["archive"].apply(list).to_dict()
+
     # Drop duplicates ONLY among papers with valid DOIs
     doi_before = len(papers_with_doi)
     papers_with_doi = papers_with_doi.drop_duplicates(subset=["DOI"], keep="first")
     doi_removed = doi_before - len(papers_with_doi)
+
+    # Merge archives for DOI duplicates (preserves info about which APIs found the paper)
+    def merge_doi_archives(row):
+        doi = row["DOI"]
+        if doi in doi_to_archives:
+            archives = doi_to_archives[doi]
+            if len(archives) > 1:
+                return _merge_archives_for_duplicates(archives, row["archive"])
+        return row["archive"]
+
+    papers_with_doi["archive"] = papers_with_doi.apply(merge_doi_archives, axis=1)
 
     # Recombine: deduplicated papers with DOI + all papers without DOI
     df_output = pd.concat([papers_with_doi, papers_without_doi], ignore_index=True)
@@ -562,6 +590,11 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     valid_titles = len(papers_with_title)
 
+    # Create title → archives mapping BEFORE dedup (to track which APIs found each paper)
+    title_to_archives = (
+        papers_with_title.groupby("title_normalized")["archive"].apply(list).to_dict()
+    )
+
     # Drop duplicates ONLY among papers with valid titles
     title_before = len(papers_with_title)
     papers_with_title = papers_with_title.drop_duplicates(
@@ -569,11 +602,34 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     )
     title_removed = title_before - len(papers_with_title)
 
-    # Recombine: deduplicated papers with title + all papers without title
-    df_output = pd.concat([papers_with_title, papers_without_title], ignore_index=True)
+    # Merge archives for title duplicates (combines with existing DOI-merged archives)
+    def merge_title_archives(row):
+        title = row["title_normalized"]
+        if title in title_to_archives:
+            archives_from_title = title_to_archives[title]
+            # Parse existing archive field (may already be merged from DOI dedup)
+            existing = row["archive"].split(";")
+            existing = [
+                a.replace("*", "") for a in existing
+            ]  # Remove existing asterisks
+            # Combine: existing + new archives not already present
+            all_archives = existing + [
+                a for a in archives_from_title if a not in existing
+            ]
+            if len(all_archives) > 1:
+                # Re-mark the winner (first in existing list, i.e., the kept record)
+                winner = existing[0] if existing else archives_from_title[0]
+                return _merge_archives_for_duplicates(all_archives, winner)
+        return row["archive"]
 
-    # Drop the temporary normalized column
-    df_output = df_output.drop(columns=["title_normalized"])
+    papers_with_title["archive"] = papers_with_title.apply(merge_title_archives, axis=1)
+
+    # Recombine: deduplicated papers with title + all papers without title
+    # Drop the temporary normalized column before concat
+    papers_with_title = papers_with_title.drop(columns=["title_normalized"])
+    if "title_normalized" in papers_without_title.columns:
+        papers_without_title = papers_without_title.drop(columns=["title_normalized"])
+    df_output = pd.concat([papers_with_title, papers_without_title], ignore_index=True)
 
     logging.info(
         f"Title deduplication: {valid_titles:,} valid titles, removed {title_removed:,} duplicates"

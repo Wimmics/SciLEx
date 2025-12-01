@@ -297,6 +297,14 @@ def SemanticScholartoZoteroFormat(row):
         venue_type = safe_get(pub_venue, "type")
         venue_name = safe_get(pub_venue, "name")
 
+        # Extract publisher from publicationVenue if available
+        if safe_get(pub_venue, "publisher"):
+            zotero_temp["publisher"] = pub_venue["publisher"]
+
+        # Extract ISSN as series if available
+        if safe_get(pub_venue, "issn"):
+            zotero_temp["serie"] = pub_venue["issn"]
+
         if venue_type:
             if venue_type == "journal":
                 zotero_temp["itemType"] = "journalArticle"
@@ -438,10 +446,19 @@ def IstextoZoteroFormat(row):
             list_doi.append(doi)
         zotero_temp["DOI"] = ";".join(list_doi)
 
-    if ("language" in row) and (len(row["language"]) == 1):
-        zotero_temp["language"] = row["language"][0]
-    if "series" in row and len(row["series"].keys()) > 0:
-        zotero_temp["series"] = row["series"]["title"]
+    # Extract language - allow multiple languages, take first one
+    if "language" in row and row["language"]:
+        if isinstance(row["language"], list) and len(row["language"]) > 0:
+            zotero_temp["language"] = row["language"][0]
+        elif isinstance(row["language"], str):
+            zotero_temp["language"] = row["language"]
+
+    if (
+        "series" in row
+        and isinstance(row["series"], dict)
+        and row["series"].get("title")
+    ):
+        zotero_temp["serie"] = row["series"]["title"]
     if "host" in row:
         if "volume" in row["host"]:
             zotero_temp["volume"] = row["host"]["volume"]
@@ -452,18 +469,24 @@ def IstextoZoteroFormat(row):
         if "title" in row["host"]:
             zotero_temp["journalAbbreviation"] = row["host"]["title"]
 
-        if "pages" in row["host"]:
-            if (
-                len(row["host"]["pages"].keys()) > 0
-                and "fist" in row["host"]["pages"]
-                and "last" in row["host"]["pages"]
-                and row["host"]["pages"]["first"] != ""
-                and row["host"]["pages"]["last"] != ""
-            ):
-                p = row["host"]["pages"]["first"] + "-" + row["host"]["pages"]["last"]
-                zotero_temp["pages"] = p
-        if "publisherId" in row["host"] and len(row["host"]["publisherId"]) == 1:
-            zotero_temp["publisher"] = row["host"]["publisherId"][0]
+        if "pages" in row["host"] and isinstance(row["host"]["pages"], dict):
+            pages_obj = row["host"]["pages"]
+            # Fix typo: was checking "fist" but accessing "first"
+            if pages_obj.get("first") and pages_obj.get("last"):
+                zotero_temp["pages"] = f"{pages_obj['first']}-{pages_obj['last']}"
+
+        # Extract publisher - allow multiple publisherIds, take first one
+        if "publisherId" in row["host"] and row["host"]["publisherId"]:
+            publisher_ids = row["host"]["publisherId"]
+            if isinstance(publisher_ids, list) and len(publisher_ids) > 0:
+                zotero_temp["publisher"] = publisher_ids[0]
+            elif isinstance(publisher_ids, str):
+                zotero_temp["publisher"] = publisher_ids
+
+        # Also try to get publisher from host.publisher if publisherId is missing
+        if not is_valid(zotero_temp.get("publisher")) and "publisher" in row["host"]:
+            if is_valid(row["host"]["publisher"]):
+                zotero_temp["publisher"] = row["host"]["publisher"]
     # NO URL ?
     if "url" in row and row["url"] != "" and row["url"] is not None:
         zotero_temp["url"] = row["url"]
@@ -503,9 +526,11 @@ def ArxivtoZoteroFormat(row):
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
     }
-    # Genre pas clair
     zotero_temp["archive"] = "Arxiv"
-    zotero_temp["rights"] = "True"
+    # arXiv is always open access
+    zotero_temp["rights"] = "open_access"
+    # Set publisher for arXiv preprints
+    zotero_temp["publisher"] = "arXiv"
 
     if row["abstract"] != "" and row["abstract"] is not None:
         zotero_temp["abstract"] = row["abstract"]
@@ -517,8 +542,26 @@ def ArxivtoZoteroFormat(row):
         zotero_temp["title"] = row["title"]
     if row["id"] != "" and row["id"] is not None:
         zotero_temp["archiveID"] = row["id"]
+        # Construct URL from arXiv ID (e.g., "2301.12345" -> "https://arxiv.org/abs/2301.12345")
+        arxiv_id = row["id"]
+        # Handle full URLs or just IDs
+        if arxiv_id.startswith("http"):
+            zotero_temp["url"] = arxiv_id
+        else:
+            # Clean the ID if it contains the full path
+            if "/" in arxiv_id:
+                arxiv_id = arxiv_id.split("/")[-1]
+            zotero_temp["url"] = f"https://arxiv.org/abs/{arxiv_id}"
+
     if row["published"] != "" and row["published"] is not None:
         zotero_temp["date"] = row["published"]
+
+    # Extract categories for journalAbbreviation (e.g., "cs.AI, cs.CL")
+    if "categories" in row and row["categories"]:
+        if isinstance(row["categories"], list):
+            zotero_temp["journalAbbreviation"] = ", ".join(row["categories"])
+        elif isinstance(row["categories"], str):
+            zotero_temp["journalAbbreviation"] = row["categories"]
 
     # Determine itemType based on journal field
     # If journal metadata exists, paper was published (journal article)
@@ -575,9 +618,24 @@ def DBLPtoZoteroFormat(row):
     if "pages" in row:
         zotero_temp["pages"] = row["pages"]
 
+    # Extract volume if available
+    if "volume" in row and is_valid(row["volume"]):
+        zotero_temp["volume"] = row["volume"]
+
+    # Extract number/issue if available
+    if "number" in row and is_valid(row["number"]):
+        zotero_temp["issue"] = row["number"]
+
+    # Extract publisher if available
+    if "publisher" in row and is_valid(row["publisher"]):
+        zotero_temp["publisher"] = row["publisher"]
+
     if ("access" in row) and (row["access"] != "" and row["access"] is not None):
         zotero_temp["rights"] = row["access"]
-    zotero_temp["url"] = row["url"]
+
+    # Safely extract URL
+    if "url" in row and is_valid(row["url"]):
+        zotero_temp["url"] = row["url"]
 
     if row["type"] == "Journal Articles":
         zotero_temp["itemType"] = "journalArticle"
@@ -623,13 +681,23 @@ def HALtoZoteroFormat(row):
     }
     zotero_temp["archiveID"] = row["halId_s"]
     zotero_temp["archive"] = "HAL"
-    zotero_temp["title"] = row["title_s"][0]
-    if "abstract_s" in row:
-        if row["abstract_s"] != "" and row["abstract_s"] is not None:
+
+    # Extract title (array field)
+    if "title_s" in row and row["title_s"]:
+        if isinstance(row["title_s"], list) and len(row["title_s"]) > 0:
+            zotero_temp["title"] = row["title_s"][0]
+        elif isinstance(row["title_s"], str):
+            zotero_temp["title"] = row["title_s"]
+
+    # Extract abstract (array field)
+    if "abstract_s" in row and row["abstract_s"]:
+        if isinstance(row["abstract_s"], list) and len(row["abstract_s"]) > 0:
             zotero_temp["abstract"] = row["abstract_s"][0]
+        elif isinstance(row["abstract_s"], str):
+            zotero_temp["abstract"] = row["abstract_s"]
 
     if "bookTitle_s" in row:
-        zotero_temp["series"] = row["bookTitle_s"]
+        zotero_temp["serie"] = row["bookTitle_s"]
 
     if "doiId_id" in row:
         zotero_temp["DOI"] = row["doiId_id"]
@@ -639,7 +707,42 @@ def HALtoZoteroFormat(row):
     if "journalTitle_t" in row:
         zotero_temp["journalAbbreviation"] = row["journalTitle_t"]
 
-    zotero_temp["date"] = row["submittedDateY_i"]
+    # Extract date
+    if "submittedDateY_i" in row:
+        zotero_temp["date"] = str(row["submittedDateY_i"])
+
+    # Extract volume
+    if "volume_s" in row and is_valid(row["volume_s"]):
+        zotero_temp["volume"] = row["volume_s"]
+
+    # Extract issue
+    if "issue_s" in row and is_valid(row["issue_s"]):
+        zotero_temp["issue"] = row["issue_s"]
+
+    # Extract pages
+    if "page_s" in row and is_valid(row["page_s"]):
+        zotero_temp["pages"] = row["page_s"]
+
+    # Extract publisher
+    if "publisher_s" in row and is_valid(row["publisher_s"]):
+        if isinstance(row["publisher_s"], list) and len(row["publisher_s"]) > 0:
+            zotero_temp["publisher"] = row["publisher_s"][0]
+        elif isinstance(row["publisher_s"], str):
+            zotero_temp["publisher"] = row["publisher_s"]
+
+    # Construct URL from HAL ID
+    if "halId_s" in row and row["halId_s"]:
+        zotero_temp["url"] = f"https://hal.science/{row['halId_s']}"
+
+    # Extract language
+    if "language_s" in row and is_valid(row["language_s"]):
+        if isinstance(row["language_s"], list) and len(row["language_s"]) > 0:
+            zotero_temp["language"] = row["language_s"][0]
+        elif isinstance(row["language_s"], str):
+            zotero_temp["language"] = row["language_s"]
+
+    # HAL is open access by default
+    zotero_temp["rights"] = "open_access"
 
     # Extract authors from authFullNameIdHal_fs field
     if "authFullNameIdHal_fs" in row:
@@ -730,6 +833,30 @@ def OpenAlextoZoteroFormat(row):
     zotero_temp["title"] = row["title"]
     zotero_temp["date"] = row["publication_date"]
 
+    # Extract language if available
+    if "language" in row and is_valid(row["language"]):
+        zotero_temp["language"] = row["language"]
+
+    # Extract URL - prefer best_oa_location, then primary_location, then construct from DOI
+    if "best_oa_location" in row and row["best_oa_location"]:
+        oa_location = row["best_oa_location"]
+        if "landing_page_url" in oa_location and oa_location["landing_page_url"]:
+            zotero_temp["url"] = oa_location["landing_page_url"]
+        elif "pdf_url" in oa_location and oa_location["pdf_url"]:
+            zotero_temp["url"] = oa_location["pdf_url"]
+    elif "primary_location" in row and row["primary_location"]:
+        primary = row["primary_location"]
+        if "landing_page_url" in primary and primary["landing_page_url"]:
+            zotero_temp["url"] = primary["landing_page_url"]
+    # Fallback: construct URL from DOI if available
+    elif is_valid(row.get("doi")):
+        doi = row["doi"]
+        # Handle both full DOI URLs and just DOI identifiers
+        if doi.startswith("http"):
+            zotero_temp["url"] = doi
+        elif doi.startswith("10."):
+            zotero_temp["url"] = f"https://doi.org/{doi}"
+
     # Extract abstract from inverted index
     if "abstract_inverted_index" in row and row["abstract_inverted_index"]:
         reconstructed = reconstruct_abstract_from_inverted_index(
@@ -738,24 +865,26 @@ def OpenAlextoZoteroFormat(row):
         if reconstructed:
             zotero_temp["abstract"] = reconstructed
 
+    # Standardize rights field to "open_access" or "restricted"
     if (
         row["open_access"] != ""
         and row["open_access"] is not None
         and "is_oa" in row["open_access"]
     ):
-        zotero_temp["rights"] = row["open_access"]["is_oa"]
+        zotero_temp["rights"] = (
+            "open_access" if row["open_access"]["is_oa"] else "restricted"
+        )
 
+    # Extract authors - fix inefficient loop (was setting inside loop)
     auth_list = []
-    for auth in row["authorships"]:
-        # Maybe not null !
-        if "display_name" in auth["author"]:
-            if (
-                auth["author"]["display_name"] != ""
-                and auth["author"]["display_name"] is not None
-            ):
-                auth_list.append(auth["author"]["display_name"])
-        if len(auth_list) > 0:
-            zotero_temp["authors"] = ";".join(auth_list)
+    if "authorships" in row and row["authorships"]:
+        for auth in row["authorships"]:
+            if auth.get("author") and auth["author"].get("display_name"):
+                display_name = auth["author"]["display_name"]
+                if display_name and display_name != "":
+                    auth_list.append(display_name)
+    if auth_list:
+        zotero_temp["authors"] = ";".join(auth_list)
 
     if row["type"] == "journal-article":
         zotero_temp["itemType"] = "journalArticle"
@@ -787,8 +916,8 @@ def OpenAlextoZoteroFormat(row):
             )
 
     if "host_venue" in row:
-        if "publisher" in row["host_venue"]:
-            row["publisher"] = row["host_venue"]["publisher"]
+        if "publisher" in row["host_venue"] and row["host_venue"]["publisher"]:
+            zotero_temp["publisher"] = row["host_venue"]["publisher"]
 
         if "display_name" in row["host_venue"] and "type" in row["host_venue"]:
             if row["host_venue"]["type"] == "conference":
@@ -866,19 +995,18 @@ def IEEEtoZoteroFormat(row):
     if "publication_title" in row:
         if row["publication_title"] != "" and row["publication_title"] is not None:
             zotero_temp["journalAbbreviation"] = row["publication_title"]
+    # Extract authors - fix inefficient loop (was setting inside loop)
     auth_list = []
     if isinstance(row["authors"], list):
         for auth in row["authors"]:
-            if auth["full_name"] != "" and auth["full_name"] is not None:
+            if auth.get("full_name") and auth["full_name"] != "":
                 auth_list.append(auth["full_name"])
-            if len(auth_list) > 0:
-                zotero_temp["authors"] = ";".join(auth_list)
-    elif is_dict_like(row["authors"]):
+    elif is_dict_like(row["authors"]) and "authors" in row["authors"]:
         for auth in row["authors"]["authors"]:
-            if auth["full_name"] != "" and auth["full_name"] is not None:
+            if auth.get("full_name") and auth["full_name"] != "":
                 auth_list.append(auth["full_name"])
-            if len(auth_list) > 0:
-                zotero_temp["authors"] = ";".join(auth_list)
+    if auth_list:
+        zotero_temp["authors"] = ";".join(auth_list)
     if "start_page" in row:
         if (
             row["start_page"]
@@ -935,8 +1063,23 @@ def SpringertoZoteroFormat(row):
         zotero_temp["title"] = row["title"]
     if row["abstract"] != "" and row["abstract"] is not None:
         zotero_temp["abstract"] = row["abstract"]
-    # if(row["url"][""]!="" and row["html_url"] is not None):
-    #   zotero_temp["url"]=row["html_url"]
+
+    # Extract URL from Springer API - try multiple possible field names
+    if "url" in row and is_valid(row["url"]):
+        # url can be a list of URL objects in Springer API
+        if isinstance(row["url"], list) and len(row["url"]) > 0:
+            # Get the first URL or look for HTML format
+            for url_obj in row["url"]:
+                if isinstance(url_obj, dict):
+                    if url_obj.get("format") == "html" or "value" in url_obj:
+                        zotero_temp["url"] = url_obj.get("value", "")
+                        break
+                elif isinstance(url_obj, str):
+                    zotero_temp["url"] = url_obj
+                    break
+        elif isinstance(row["url"], str):
+            zotero_temp["url"] = row["url"]
+
     if "openaccess" in row:
         if row["openaccess"] != "" and row["openaccess"] is not None:
             zotero_temp["rights"] = row["openaccess"]
@@ -944,20 +1087,28 @@ def SpringertoZoteroFormat(row):
         zotero_temp["DOI"] = row["doi"]
     if "publisher" in row:
         zotero_temp["publisher"] = row["publisher"]
-    # if("volume" in row.keys()):
-    #   if(row["volume"]!="" and row["volume"] is not None):
-    #      zotero_temp["volume"]=row["volume"]
-    # if("issue" in row.keys() and row["issue"]!="" and row["issue"] is not None):
-    #   zotero_temp["issue"]=row["issue"]
+
+    # Extract volume from Springer API
+    if "volume" in row and is_valid(row["volume"]):
+        zotero_temp["volume"] = row["volume"]
+
+    # Extract issue from Springer API (field name is "number" in Springer API)
+    if "number" in row and is_valid(row["number"]):
+        zotero_temp["issue"] = row["number"]
+    elif "issue" in row and is_valid(row["issue"]):
+        zotero_temp["issue"] = row["issue"]
 
     if row["publicationName"] != "" and row["publicationName"] is not None:
         zotero_temp["journalAbbreviation"] = row["publicationName"]
+
+    # Extract authors - fix inefficient loop (was setting inside loop)
     auth_list = []
-    for auth in row["creators"]:
-        if auth["creator"] != "" and auth["creator"] is not None:
-            auth_list.append(auth["creator"])
-        if len(auth_list) > 0:
-            zotero_temp["authors"] = ";".join(auth_list)
+    if "creators" in row and row["creators"]:
+        for auth in row["creators"]:
+            if auth.get("creator") and auth["creator"] != "":
+                auth_list.append(auth["creator"])
+    if auth_list:
+        zotero_temp["authors"] = ";".join(auth_list)
 
     if "startingPage" in row and "endingPage" in row:
         if row["startingPage"] != "" and row["endingPage"] != "":
@@ -1020,8 +1171,11 @@ def ElseviertoZoteroFormat(row):
         zotero_temp["date"] = row["prism:coverDate"]
     if "dc:title" in row and row["dc:title"] != "" and row["dc:title"] is not None:
         zotero_temp["title"] = row["dc:title"]
-    #  if(row["abstract"]!="" and row["abstract"] is not None):
-    #     zotero_temp["abstract"]=row["abstract"]
+
+    # Extract abstract from Scopus API (dc:description field)
+    if "dc:description" in row and is_valid(row["dc:description"]):
+        zotero_temp["abstract"] = row["dc:description"]
+
     if row["prism:url"] != "" and row["prism:url"] is not None:
         zotero_temp["url"] = row["prism:url"]
     if row["openaccess"] != "" and row["openaccess"] is not None:
@@ -1156,13 +1310,14 @@ def GoogleScholartoZoteroFormat(row):
     if safe_get(row, "year"):
         zotero_temp["date"] = str(row["year"])
 
-    # URL
-    if safe_get(row, "url"):
-        zotero_temp["url"] = row["url"]
-
-    # eprint URL (open access)
+    # URL - prefer eprint_url (full text) over regular url
     if safe_get(row, "eprint_url"):
-        zotero_temp["rights"] = row["eprint_url"]
+        zotero_temp["url"] = row["eprint_url"]
+        # If eprint_url exists, it means the paper has open access
+        zotero_temp["rights"] = "open_access"
+    elif safe_get(row, "url"):
+        zotero_temp["url"] = row["url"]
+        zotero_temp["rights"] = "restricted"
 
     # Scholar ID (use as archive ID)
     if safe_get(row, "scholar_id"):
