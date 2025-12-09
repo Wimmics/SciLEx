@@ -1,79 +1,184 @@
 ![Scilex](img/projectLogoScilex.png)
 # SciLEx
 
-The SciLEx (Science Literature Exploration) project is a basic python scriptbox made for :
-* Request and run API crawler related to a research field
-* Managing / Parsing / Deduplicating the collected papers
-* Consolidate and Enrich a benchmark  
-* Exploring the citations links and expanding a network of sci. papers
+**SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 9+ academic APIs, deduplicate papers, analyze citation networks, and push to Zotero with advanced quality filtering.
 
-I developed SciLEx scripts in the context of a systematic review conducted during my Phd, and introduced in :  
+I developed SciLEx scripts in the context of a systematic review conducted during my PhD, introduced in:
 > Celian Ringwald. Learning Pattern-Based Extractors from Natural Language and Knowledge Graphs: Applying Large Language Models to Wikipedia and Linked Open Data. AAAI-24 - 38th AAAI Conference on Artificial Intelligence, Feb 2024, Vancouver, Canada. pp.23411-23412, ⟨10.1609/aaai.v38i21.30406⟩. ⟨hal-04526050⟩
----
-## SciLEx Framework
 
-1. Crawl of already existing *surveys* on topic and push it on Zotero
-2. Extract *models*, *dataset* from PaperWithCode and push it on Zotero
-3. Get DOIs and obtain the citation network
-4. Distill it with Zotero API / Annotate it on Zotero and distill your annotations
-![Framework](img/Framework.png)
 ---
 
-## :electric_plug: Deploy and use SciLEx for the first time
+## Key Features
 
- 👉 Please read our quick tutorial [here](https://github.com/datalogism/SciLEx/blob/main/Tuto_firstContact.md) 🏃‍♂️🏃
+- Multi-API collection with parallel processing (SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, HAL, DBLP, Istex, GoogleScholar)
+- Smart deduplication using DOI, URL, and fuzzy title matching
+- Parallel aggregation with configurable workers (default mode)
+- Citation network extraction via OpenCitations + Semantic Scholar with SQLite caching
+- Quality filtering pipeline with time-aware citation thresholds, relevance ranking, and itemType filtering
+- HuggingFace enrichment (NEW): Extract ML models, datasets, GitHub stats, and AI keywords
+- Bulk Zotero upload in batches of 50 items
+- Idempotent collections for safe re-runs (automatically skips completed queries)
 
------
-##  :open_file_folder: ScriptBox Content:
+---
 
-Many scripts where developed and not yet integrated, if you are intested please take a look in the following directories:
+## Quick Start
 
-*  :clipboard: [Testing APIs scripts](https://github.com/datalogism/SciLEx/blob/main/src/API_tests/) : test and check API services
-*  :clipboard: [Collect scripts]( 
-https://github.com/datalogism/SciLEx/tree/main/src/crawlers) : run a collect > aggregate it and define new collectors 
-*  :clipboard: [Zotero scripts]( 
-https://github.com/datalogism/SciLEx/tree/main/src/Zotero) : extract or push papers data in the lib 
-*  :wrench: [Paper With Code scripts]( 
-https://github.com/datalogism/SciLEx/tree/main/src/PWC) : extract or push papers data in the lib 
-*  :wrench: [Citations scripts]( 
-https://github.com/datalogism/SciLEx/tree/main/src/citations) : extract or push papers data in the lib 
-* :wrench: [DOI and ORCID scripts]( 
-https://github.com/datalogism/SciLEx/tree/main/src/citations) : extract or push papers data in the lib 
-* :wrench:[Textmining scripts]( 
-https://github.com/datalogism/SciLEx/tree/main/src/text) : extract or push papers data in the lib 
+```bash
+# 1. Install dependencies
+uv sync
 
-## 🤓 How to contribute to SciLEx ? 
+# 2. Configure APIs and search parameters
+cp src/api.config.yml.example src/api.config.yml
+cp src/scilex.config.yml.example src/scilex.config.yml
+# Edit with your API keys and keywords
 
-- By extending the API integrated to SciLEx
-- By Improving the metainformation integration
-- By extending it to analytics and vizualisation tools 
+# 3. Main workflow
+python src/run_collecte.py           # Collect papers from APIs
+python src/aggregate_collect.py      # Deduplicate & filter (parallel by default)
+python src/push_to_zotero.py         # Push to Zotero (optimized)
 
-Concretely all of theses questions could be leveraged and organize via issues.
+# 4. Optional: Enrich with HuggingFace metadata
+python src/getHF_collect.py          # Add ML models, datasets, GitHub stats
 
-## API integrated 
-|                    | SemanticScholar  | OpenAlex                   | Istex | IEEE                       | HAL                                               | Elsevier | DBLP | Arxiv | Springer |
-|--------------------|------------------|----------------------------|-------|----------------------------|---------------------------------------------------|----------|------|-------|----------|
-| requiere API key ? | optional         | NA                         |       | X                          | NA                                                | X        |      |       | X        |
-| Rate limit         | 100 req/sec      | 10/seq - 100000/days       |       | 10/sec –  200/days         |                                                   |          |      | 3/seq | 8/seq    |
-| Year               | X                | X                          | X     | X                          | X                                                 | X        |      |       | X        |
-| Abstract content   | X                |                            | X     | X                          |                                                   |          |      |       |          |
-| Title content      | X                |                            | X     | X                          | X                                                 |          |      |       | X        |
-| Document type      | X                | X                          | ?     | X                          | X                                                 |          |      |       | X        |
-| Classification ?   | fieldOfStudy     | conceptID, Wikidataconcept |       | IEEE thesaurus, indexterms | acm\_classif, HAL classif, keyword, JELclassif... |          |      |       | keywords |
-| title              | X                |                            | X     | X                          | X                                                 | X        | X    | X     | X        |
-| abstract           | X                |                            | X     | X                          | X                                                 |          |      | X     | X        |
-| DOi                | X                | X                          | X     | X                          |                                                   | X        | X    | X     | X        |
-| citations metrics  | X                | X                          |       | X                          |                                                   | X        |      |       |          |
-| publication data   | X                | X                          | X     | X                          |                                                   | X        | X    |       | X        |
-| isOpen             | X                | X                          | X     | X                          |                                                   | X        | X    |       | X        |
-| journal            | X                | X                          | X     | X                          |                                                   |          | X    | X     | X        |
-| conference         | X                | X                          | X     | X                          |                                                   |          | X    | X     | X        |
-| authors            | name,  author id | name, orcid, inst          |       | X                          | X                                                 | X        | X    | X     | X        |
-| publicationType    | X                | X                          | X     | X                          | X                                                 | X        | X    |       | X        |
-| referenced\_works  |                  | X                          | X     |                            |                                                   |          |      |       |          |
-| related\_works     |                  | X                          |       |                            |                                                   |          |      |       |          |
-| keywords           |                  | X                          | X     | X                          | X                                                 |          |      | X     |          |
-| related entities   |                  | X                          | X     |                            |                                                   |          |      |       |          |
-| qualityIndicators  |                  |                            | X     |                            |                                                   |          |      |       |          |
-| enrichments        |                  |                            | X     | X                          |                                                   |          |      |       |          |
-| fieldOfstudy       | X                |                            | X     |                            |                                                   |          |      |       | X        |
+```
+
+---
+
+## Core Commands
+
+### Collection & Aggregation
+
+```bash
+# Basic collection
+python src/run_collecte.py
+
+# Aggregation with all features (default: parallel mode)
+python src/aggregate_collect.py
+# Optional flags:
+#   --auto-install-spacy: Skip spacy model prompt
+#   --skip-citations: Skip citation fetching
+#   --workers N: Citation workers (default: 3)
+#   --parallel-workers N: Aggregation workers (default: auto)
+#   --profile: Show performance stats
+```
+
+### Zotero Integration
+
+```bash
+python src/push_to_zotero.py
+
+# Legacy script (DEPRECATED)
+python src/push_to_Zotero_collect.py
+```
+
+### HuggingFace Enrichment (NEW)
+
+```bash
+# Full enrichment
+python src/getHF_collect.py
+
+# Dry run (preview matches without updating)
+python src/getHF_collect.py --dry-run --limit 10
+
+# Process specific collection
+python src/getHF_collect.py --collection "ML_Papers"
+```
+
+### Code Quality
+
+```bash
+# Format and lint
+uvx ruff format .
+uvx ruff check --fix .
+```
+
+---
+
+## Supported APIs
+
+| API | Key Required | Rate Limit | Abstract | Citations | Best For |
+|-----|--------------|------------|----------|-----------|----------|
+| **SemanticScholar** | Optional | 1/sec (100/page regular, 1000/page bulk) | ✓ | ✓ | CS/AI papers, citation networks |
+| **OpenAlex** | No | 10/sec, 100k/day | ~60% | ✓ | Broad coverage, ORCID data |
+| **IEEE** | Yes | 10/sec, 200/day | ✓ | ✓ | Engineering, CS conferences |
+| **Arxiv** | No | 3/sec | ✓ | ✗ | Preprints, physics, CS |
+| **Springer** | Yes | 1.5/sec | ✓ | Partial | Journals, books |
+| **Elsevier** | Yes | 6/sec | Partial | ✓ | Medical, life sciences |
+| **HAL** | No | 10/sec | ✓ | ✗ | French research, theses |
+| **DBLP** | No | 10/sec | ✗ (copyright) | ✗ | CS bibliography, 95%+ DOI coverage |
+| **Istex** | No | Conservative | ✓ | ✗ | French institutional access |
+
+**Notes:**
+- **SemanticScholar bulk mode**: 10x faster collection but requires higher-tier API access
+- **DBLP**: No abstracts by design (copyright restrictions), but excellent bibliographic metadata
+- Rate limits are configurable in `api.config.yml`
+
+---
+
+## Advanced Features
+
+### Quality Filtering Pipeline
+
+1. **ItemType filtering** (whitelist mode): Keep only journalArticle, conferencePaper, book, bookSection
+2. **Dual keyword enforcement**: Papers must match keywords from BOTH groups (if dual-group mode configured)
+3. **Abstract quality scoring**: Metadata completeness (DOI, title, authors weighted higher)
+4. **Time-aware citation filtering**:
+   - 0-18 months: 0 citations required (grace period)
+   - 18-21 months: 1+ citation
+   - 21-24 months: 3+ citations
+   - 24-36 months: 5-8+ citations (gradual increase)
+   - 36+ months: 10+ citations (established papers)
+5. **Relevance ranking**: Composite score (keywords 45%, quality 25%, itemType 20%, citations 10%)
+
+### Performance Optimizations
+
+- Parallel aggregation (default mode, configurable workers)
+- SQLite citation caching with 30-day TTL
+- Circuit breaker pattern for failed API endpoints
+- Bulk Zotero upload in batches of 50 items
+
+### HuggingFace Enrichment
+
+- Fuzzy title matching with 85% threshold
+- Extracts: TASK, PTM (pre-trained models), ARCHI, DATASET, FRAMEWORK, GITHUB_STARS
+- Updates Zotero fields: `archive` (HF URL), `archiveLocation` (GitHub repo)
+- Match rate: 30-50%, with SQLite caching (30-day TTL)
+
+---
+
+## Configuration
+
+### `src/scilex.config.yml` - Collection Parameters
+
+- **`keywords`**: Single or dual group mode
+  - Single: `[["term1", "term2"], []]` (ANY match)
+  - Dual: `[["group1"], ["group2"]]` (AND logic between groups)
+- **`years`**: List of years to search (e.g., [2020, 2021, 2022, 2023, 2024])
+- **`apis`**: Which APIs to query (e.g., ['SemanticScholar', 'IEEE', 'OpenAlex'])
+- **`semantic_scholar_mode`**: "regular" (100/page) or "bulk" (1000/page)
+- **`aggregate_get_citations`**: Enable automatic citation fetching
+- **`quality_filters`**: Relevance weights, max_papers limit, citation thresholds
+
+### `src/api.config.yml` - API Credentials
+
+- **Zotero**: `api_key`, `user_id`, `collection_id`
+- **IEEE, Elsevier, Springer**: `api_key` (required)
+- **SemanticScholar, HuggingFace**: `token` (optional, improves rate limits)
+- **`rate_limits`**: Per-API request limits (configurable)
+
+---
+
+## Documentation & Contributing
+
+- **Output structure**: `output/collect_YYYYMMDD_HHMMSS/` with timestamped collections
+- **Idempotent design**: Safe re-runs automatically skip completed queries
+- **Built for**: Systematic reviews in AI/ML research (PhD context)
+
+### Contributing
+
+- Report issues: [GitHub Issues](https://github.com/datalogism/SciLEx/issues)
+
+### Requirements
+
+- Python ≥3.13
+- uv package manager
