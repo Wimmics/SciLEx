@@ -41,6 +41,12 @@ Zotero:
 SemanticScholar:
   api_key: "YOUR_SEMANTIC_SCHOLAR_API_KEY"  # Free tier OK, get at https://www.semanticscholar.org/product/api
 
+# HuggingFace (optional - for paper enrichment with ML models/datasets/code repos)
+HuggingFace:
+  token: null  # Optional HF token (get at https://huggingface.co/settings/tokens)
+               # Benefits: 5x higher rate limit (5 req/sec vs 1 req/sec)
+               # Leave null to use public API (works but slower)
+
 # Google Scholar (no API key needed, uses scholarly package with Tor/proxies)
 GoogleScholar:
   enabled: false  # Set to true to enable web scraping of Google Scholar
