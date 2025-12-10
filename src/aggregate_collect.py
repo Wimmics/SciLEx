@@ -1355,8 +1355,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--workers",
         type=int,
-        default=3,
-        help="Number of parallel workers for citation fetching (default: 3)",
+        default=1,
+        help="Number of parallel workers for citation fetching (default: 1)",
     )
     parser.add_argument(
         "--checkpoint-interval",
