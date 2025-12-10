@@ -33,12 +33,12 @@ cp src/scilex.config.yml.example src/scilex.config.yml
 # Edit with your API keys and keywords
 
 # 3. Main workflow
-python src/run_collecte.py           # Collect papers from APIs
-python src/aggregate_collect.py      # Deduplicate & filter (parallel by default)
-python src/push_to_zotero.py         # Push to Zotero (optimized)
+uv run python src/run_collecte.py           # Collect papers from APIs
+uv run python src/aggregate_collect.py      # Deduplicate & filter (parallel by default)
+uv run python src/push_to_zotero.py         # Push to Zotero (optimized)
 
 # 4. Optional: Enrich with HuggingFace metadata
-python src/getHF_collect.py          # Add ML models, datasets, GitHub stats
+uv run python src/getHF_collect.py          # Add ML models, datasets, GitHub stats
 
 ```
 
@@ -50,10 +50,10 @@ python src/getHF_collect.py          # Add ML models, datasets, GitHub stats
 
 ```bash
 # Basic collection
-python src/run_collecte.py
+uv run python src/run_collecte.py
 
 # Aggregation with all features (default: parallel mode)
-python src/aggregate_collect.py
+uv run python src/aggregate_collect.py
 # Optional flags:
 #   --auto-install-spacy: Skip spacy model prompt
 #   --skip-citations: Skip citation fetching
@@ -65,23 +65,23 @@ python src/aggregate_collect.py
 ### Zotero Integration
 
 ```bash
-python src/push_to_zotero.py
+uv run python src/push_to_zotero.py
 
 # Legacy script (DEPRECATED)
-python src/push_to_Zotero_collect.py
+uv run python src/push_to_Zotero_collect.py
 ```
 
 ### HuggingFace Enrichment (NEW)
 
 ```bash
 # Full enrichment
-python src/getHF_collect.py
+uv run python src/getHF_collect.py
 
 # Dry run (preview matches without updating)
-python src/getHF_collect.py --dry-run --limit 10
+uv run python src/getHF_collect.py --dry-run --limit 10
 
 # Process specific collection
-python src/getHF_collect.py --collection "ML_Papers"
+uv run python src/getHF_collect.py --collection "ML_Papers"
 ```
 
 ### Code Quality
