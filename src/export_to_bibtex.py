@@ -13,10 +13,11 @@ from pathlib import Path
 import pandas as pd
 
 # Add src to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
-from constants import is_valid, safe_get
+from src.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
+from src.constants import is_valid
+from src.crawlers.utils import load_all_configs
 
 # Configure logging
 logging.basicConfig(
@@ -24,6 +25,17 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+def safe_get(row, field):
+    """Safely get a field from a pandas Series or dict-like object."""
+    try:
+        if hasattr(row, field):
+            return getattr(row, field)
+        return row.get(field) if hasattr(row, "get") else None
+    except (AttributeError, KeyError, TypeError):
+        return None
+
 
 # ItemType to BibTeX entry type mapping
 ITEMTYPE_TO_BIBTEX = {
@@ -52,18 +64,11 @@ BIBTEX_SPECIAL_CHARS = {
 
 def load_config() -> dict:
     """Load scilex.config.yml configuration."""
-    import yaml
-
-    config_path = Path(__file__).parent / "scilex.config.yml"
-    if not config_path.exists():
-        raise FileNotFoundError(
-            f"Config file not found: {config_path}. Please create src/scilex.config.yml"
-        )
-
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
-
-    return config
+    config_files = {
+        "main_config": "scilex.config.yml",
+    }
+    configs = load_all_configs(config_files)
+    return configs["main_config"]
 
 
 def load_aggregated_data(config: dict) -> pd.DataFrame:
@@ -79,7 +84,7 @@ def load_aggregated_data(config: dict) -> pd.DataFrame:
     output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
     aggregate_file = config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
     dir_collect = os.path.join(output_dir, config["collect_name"])
-    file_path = os.path.join(dir_collect, aggregate_file)
+    file_path = dir_collect + aggregate_file
 
     logger.info(f"Loading data from: {file_path}")
 
@@ -94,7 +99,10 @@ def load_aggregated_data(config: dict) -> pd.DataFrame:
             logger.debug(f"Failed to load with delimiter '{delimiter}': {e}")
             continue
 
-    raise ValueError(f"Could not load CSV file with any delimiter. File: {file_path}")
+    raise ValueError(
+        f"Could not load CSV file with any delimiter (tried: ';', '\\t', ','). "
+        f"File: {file_path}"
+    )
 
 
 def escape_bibtex(text: str) -> str:
@@ -327,10 +335,10 @@ def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
     if is_valid(url):
         lines.append(f"  url = {{{url}}},")
 
-    # PDF file link
+    # PDF file link (remote URL - no :PDF suffix needed for standard BibTeX)
     pdf_url = safe_get(row, "pdf_url")
     if is_valid(pdf_url):
-        lines.append(f"  file = {{{pdf_url}:PDF}},")
+        lines.append(f"  file = {{{pdf_url}}},")
 
     # Abstract (optional, but useful)
     abstract = safe_get(row, "abstract")
