@@ -460,4 +460,17 @@ def prepare_zotero_item(
         doi = item.get("DOI")
         item["url"] = str(doi) if is_valid(doi) else None
 
+    # Handle HF tags (if present in CSV)
+    tags_str = get_value(row, "tags", MISSING_VALUE)
+    if is_valid(tags_str) and tags_str != MISSING_VALUE:
+        tags_list = [tag.strip() for tag in str(tags_str).split(";")]
+        tags_list = [t for t in tags_list if t]  # Remove empty strings
+        if tags_list:
+            item["tags"] = [{"tag": t} for t in tags_list]
+
+    # Handle GitHub repo (if present in CSV)
+    github_repo = get_value(row, "github_repo", MISSING_VALUE)
+    if is_valid(github_repo) and github_repo != MISSING_VALUE and "archiveLocation" in item:
+        item["archiveLocation"] = str(github_repo)
+
     return item if item.get("url") else None

@@ -30,6 +30,8 @@ uv sync
 # 2. Configure APIs and search parameters
 cp src/api.config.yml.example src/api.config.yml
 cp src/scilex.config.yml.example src/scilex.config.yml
+cp src/scilex.advanced.yml.example src/scilex.advanced.yml
+
 # Edit with your API keys and keywords
 
 # 3. Main workflow

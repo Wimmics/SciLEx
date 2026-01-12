@@ -105,6 +105,22 @@ def load_aggregated_data(config: dict) -> pd.DataFrame:
     )
 
 
+def parse_tags(tags_str: str) -> list[str]:
+    """Parse semicolon-separated tags from CSV.
+
+    Args:
+        tags_str: Semicolon-separated tags (e.g., "TASK:NER;PTM:BERT")
+
+    Returns:
+        List of tag strings
+    """
+    if not is_valid(tags_str):
+        return []
+
+    tags = [tag.strip() for tag in str(tags_str).split(";")]
+    return [t for t in tags if t]  # Remove empty strings
+
+
 def escape_bibtex(text: str) -> str:
     """
     Escape special BibTeX characters in text.
@@ -348,6 +364,25 @@ def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
         if len(abstract_text) > 500:
             abstract_text = abstract_text[:500] + "..."
         lines.append(f"  abstract = {{{abstract_text}}},")
+
+    # Keywords (from HF tags) - standard BibTeX field
+    tags_str = safe_get(row, "tags")
+    if is_valid(tags_str):
+        tags_list = parse_tags(tags_str)
+        if tags_list:
+            # Convert to comma-separated for BibTeX keywords field
+            keywords = ", ".join(tags_list)
+            lines.append(f"  keywords = {{{keywords}}},")
+
+    # HuggingFace URL (in note field)
+    hf_url = safe_get(row, "hf_url")
+    if is_valid(hf_url):
+        lines.append(f"  note = {{HuggingFace: {hf_url}}},")
+
+    # GitHub repository (in howpublished field)
+    github_repo = safe_get(row, "github_repo")
+    if is_valid(github_repo):
+        lines.append(f"  howpublished = {{{github_repo}}},")
 
     # Close entry (remove trailing comma from last line)
     if lines[-1].endswith(","):
