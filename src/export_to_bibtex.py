@@ -44,7 +44,7 @@ ITEMTYPE_TO_BIBTEX = {
     "bookSection": "incollection",
     "book": "book",
     "preprint": "misc",
-    "Manuscript": "unpublished",
+    "Manuscript": "misc",  # Use @misc instead of @unpublished for proper DOI field support in Zotero
 }
 
 # Special characters that need escaping in BibTeX
@@ -356,14 +356,31 @@ def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
     if is_valid(pdf_url):
         lines.append(f"  file = {{{pdf_url}}},")
 
-    # Abstract (optional, but useful)
+    # Abstract (optional, but useful) - no truncation
     abstract = safe_get(row, "abstract")
     if is_valid(abstract):
-        # Escape and truncate if very long
         abstract_text = escape_bibtex(str(abstract))
-        if len(abstract_text) > 500:
-            abstract_text = abstract_text[:500] + "..."
         lines.append(f"  abstract = {{{abstract_text}}},")
+
+    # Language (standard BibTeX field)
+    language = safe_get(row, "language")
+    if is_valid(language):
+        lines.append(f"  language = {{{escape_bibtex(str(language))}}},")
+
+    # Copyright/Rights (standard BibTeX field)
+    rights = safe_get(row, "rights")
+    if is_valid(rights):
+        lines.append(f"  copyright = {{{escape_bibtex(str(rights))}}},")
+
+    # Archive source (API name)
+    archive = safe_get(row, "archive")
+    if is_valid(archive):
+        lines.append(f"  archiveprefix = {{{escape_bibtex(str(archive))}}},")
+
+    # Archive ID (original API ID)
+    archive_id = safe_get(row, "archiveID")
+    if is_valid(archive_id):
+        lines.append(f"  eprint = {{{escape_bibtex(str(archive_id))}}},")
 
     # Keywords (from HF tags) - standard BibTeX field
     tags_str = safe_get(row, "tags")

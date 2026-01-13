@@ -124,6 +124,48 @@ uvx ruff check --fix .
 
 ---
 
+## BibTeX Export
+
+Export aggregated papers to BibTeX format for LaTeX, Overleaf, and citation managers.
+
+```bash
+uv run python src/export_to_bibtex.py
+```
+
+**Output**: `output/collect_YYYYMMDD_HHMMSS/aggregated_results.bib`
+
+### PDF Download Links
+
+The `file` field contains **direct PDF download URLs** (~40-60% coverage, open-access only). This is different from `url` (publisher landing page):
+- **`file`**: Direct PDF link for automated downloads (`https://arxiv.org/pdf/2307.03172.pdf`)
+- **`url`**: Landing page requiring human interaction (`https://arxiv.org/abs/2307.03172`)
+
+**PDF Sources by API:**
+
+| API | PDF Availability | Source | Implementation |
+|-----|------------------|--------|----------------|
+| arXiv | ✅ Always (100%) | Constructed from ID | `https://arxiv.org/pdf/{id}.pdf` |
+| SemanticScholar | ✅ Good (~60%) | `open_access_pdf` field | Includes bioRxiv, medRxiv, SSRN |
+| OpenAlex | ✅ Good (~50%) | `best_oa_location.pdf_url` | DOAJ, PubMed Central, repos |
+| HAL | ✅ Good (~70%) | `files_s` list | French institutional repos |
+| IEEE | ⚠️ Rare (<5%) | `pdf_url` field | Requires subscription |
+| Springer | ❌ Rarely | API provides no PDFs | Paywalled |
+| Elsevier | ❌ Rarely | API provides no PDFs | Paywalled |
+
+### BibTeX Fields Summary
+
+| Field Category | Fields | Notes |
+|----------------|--------|-------|
+| **Core** | title, author, year, journal/booktitle, volume, number, pages | Standard bibliographic data |
+| **Links** | `file` (PDF URL), `url` (landing page) | file ~40-60% coverage, url ~95% |
+| **Identifiers** | doi, abstract, language, copyright | Full abstracts (no truncation) |
+| **Source** | archiveprefix (API), eprint (API ID) | Track data provenance |
+| **HF Enrichment** | keywords, note (HF URL), howpublished (GitHub) | Optional, after `enrich_with_hf.py` |
+
+**Entry Types**: journalArticle → @article, conferencePaper → @inproceedings, book → @book, bookSection → @incollection, preprint → @misc
+
+---
+
 ## Aggregation Pipeline Overview
 
 The aggregation step transforms raw API results into a curated, high-quality dataset. From **200,000 raw papers** down to **500 final papers** (99.75% reduction).
