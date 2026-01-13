@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 from tqdm import tqdm
 
-from src.config_defaults import DEFAULT_OUTPUT_DIR, DEFAULT_AGGREGATED_FILENAME
+from src.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
 from src.constants import is_valid
 from src.crawlers.utils import load_all_configs
 from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
@@ -43,7 +43,7 @@ def load_aggregated_data(config: dict) -> pd.DataFrame:
     output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
     aggregate_file = config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
     dir_collect = os.path.join(output_dir, config["collect_name"])
-    file_path = dir_collect + aggregate_file
+    file_path = os.path.join(dir_collect, aggregate_file)
 
     logging.info(f"Loading data from: {file_path}")
 
@@ -129,7 +129,12 @@ def push_new_items_to_zotero(
     """
     output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
     dir_collect = os.path.join(output_dir, config["collect_name"])
-    results = {"success": 0, "failed": 0, "skipped": 0, "skipped_for_incompatibility": 0,}
+    results = {
+        "success": 0,
+        "failed": 0,
+        "skipped": 0,
+        "skipped_for_incompatibility": 0,
+    }
     invalid_items = []
     items_to_upload = []
 
@@ -170,7 +175,8 @@ def push_new_items_to_zotero(
         invalid_data_path = os.path.join(dir_collect, "invalid_items_no_url.csv")
         invalid_data.to_csv(invalid_data_path, index=False)
         logging.info(
-            f"Found {len(invalid_items)} invalid items without valid URLs, saving them into {invalid_data_path}...")
+            f"Found {len(invalid_items)} invalid items without valid URLs, saving them into {invalid_data_path}..."
+        )
     # Upload all items in bulk (automatically batched into groups of 50)
     if items_to_upload:
         logging.info(f"Uploading {len(items_to_upload)} new papers in bulk...")
@@ -264,7 +270,9 @@ def main():
     logging.info(f"✅ Successfully uploaded: {results['success']} papers")
     logging.info(f"❌ Failed to upload: {results['failed']} papers")
     logging.info(f"⏭️  Skipped (duplicates/none): {results['skipped']} papers")
-    logging.info(f"⏭️  Skipped (non URL): {results['skipped_for_incompatibility']} papers")
+    logging.info(
+        f"⏭️  Skipped (non URL): {results['skipped_for_incompatibility']} papers"
+    )
     logging.info(f"Process completed at {datetime.now()}")
 
 

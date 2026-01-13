@@ -15,7 +15,7 @@ will use the corresponding default from this module.
 DEFAULT_OUTPUT_DIR = "output"
 """Base directory for all collection and aggregation output."""
 
-DEFAULT_AGGREGATED_FILENAME = "/aggregated_results.csv"
+DEFAULT_AGGREGATED_FILENAME = "aggregated_results.csv"
 """Filename for aggregated and deduplicated papers."""
 
 DEFAULT_ENABLE_TEXT_FILTER = True

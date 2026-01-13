@@ -33,6 +33,40 @@ def safe_has_key(obj, key):
     return isinstance(obj, dict) and key in obj
 
 
+def clean_doi(doi_value):
+    """
+    Extract clean DOI from URL-formatted DOI or return as-is.
+
+    Converts: "https://doi.org/10.1007/..." → "10.1007/..."
+    Keeps: "10.1007/..." → "10.1007/..."
+
+    Args:
+        doi_value: DOI string (may be URL-formatted or clean)
+
+    Returns:
+        Clean DOI string without URL prefix, or MISSING_VALUE if invalid
+    """
+    if not is_valid(doi_value):
+        return MISSING_VALUE
+
+    doi_str = str(doi_value).strip()
+
+    # Remove common DOI URL prefixes
+    prefixes = [
+        "https://doi.org/",
+        "http://doi.org/",
+        "https://dx.doi.org/",
+        "http://dx.doi.org/",
+    ]
+
+    for prefix in prefixes:
+        if doi_str.lower().startswith(prefix.lower()):
+            return doi_str[len(prefix) :]
+
+    # Already clean or unknown format
+    return doi_str
+
+
 ############
 # FUNCTION FOR AGGREGATIONS OF DATA
 ############
@@ -371,7 +405,7 @@ def SemanticScholartoZoteroFormat(row):
         zotero_temp["date"] = row["publication_date"]
 
     if safe_get(row, "DOI"):
-        zotero_temp["DOI"] = row["DOI"]
+        zotero_temp["DOI"] = clean_doi(row["DOI"])
 
     if safe_get(row, "url"):
         zotero_temp["url"] = row["url"]
@@ -446,7 +480,7 @@ def IstextoZoteroFormat(row):
     if ("doi" in row) and (len(row["doi"]) > 0):
         list_doi = []
         for doi in row["doi"]:
-            list_doi.append(doi)
+            list_doi.append(clean_doi(doi))
         zotero_temp["DOI"] = ";".join(list_doi)
 
     # Extract language - allow multiple languages, take first one
@@ -541,7 +575,7 @@ def ArxivtoZoteroFormat(row):
     if row["authors"] != "" and row["authors"] is not None:
         zotero_temp["authors"] = ";".join(row["authors"])
     if row["doi"] != "" and row["doi"] is not None:
-        zotero_temp["DOI"] = row["doi"]
+        zotero_temp["DOI"] = clean_doi(row["doi"])
     if row["title"] != "" and row["title"] is not None:
         zotero_temp["title"] = row["title"]
     if row["id"] != "" and row["id"] is not None:
@@ -621,7 +655,7 @@ def DBLPtoZoteroFormat(row):
     if len(auth_list) > 0:
         zotero_temp["authors"] = ";".join(auth_list)
     if "doi" in row:
-        zotero_temp["DOI"] = row["doi"]
+        zotero_temp["DOI"] = clean_doi(row["doi"])
     if "pages" in row:
         zotero_temp["pages"] = row["pages"]
 
@@ -708,7 +742,7 @@ def HALtoZoteroFormat(row):
         zotero_temp["serie"] = row["bookTitle_s"]
 
     if "doiId_id" in row:
-        zotero_temp["DOI"] = row["doiId_id"]
+        zotero_temp["DOI"] = clean_doi(row["doiId_id"])
     if "conferenceTitle_s" in row:
         zotero_temp["conferenceName"] = row["conferenceTitle_s"]
 
@@ -847,7 +881,7 @@ def OpenAlextoZoteroFormat(row):
 
     zotero_temp["archive"] = "OpenAlex"
     zotero_temp["archiveID"] = row["id"]
-    zotero_temp["DOI"] = row["doi"]
+    zotero_temp["DOI"] = clean_doi(row["doi"])
     zotero_temp["title"] = row["title"]
     zotero_temp["date"] = row["publication_date"]
 
@@ -1006,7 +1040,7 @@ def IEEEtoZoteroFormat(row):
     if row["access_type"] != "" and row["access_type"] is not None:
         zotero_temp["rights"] = row["access_type"]
     if "doi" in row:
-        zotero_temp["DOI"] = row["doi"]
+        zotero_temp["DOI"] = clean_doi(row["doi"])
     if "publisher" in row:
         zotero_temp["publisher"] = row["publisher"]
     if ("volume" in row) and (row["volume"] != "" and row["volume"] is not None):
@@ -1109,7 +1143,7 @@ def SpringertoZoteroFormat(row):
         if row["openaccess"] != "" and row["openaccess"] is not None:
             zotero_temp["rights"] = row["openaccess"]
     if "doi" in row:
-        zotero_temp["DOI"] = row["doi"]
+        zotero_temp["DOI"] = clean_doi(row["doi"])
     if "publisher" in row:
         zotero_temp["publisher"] = row["publisher"]
 
@@ -1207,7 +1241,7 @@ def ElseviertoZoteroFormat(row):
     if row["openaccess"] != "" and row["openaccess"] is not None:
         zotero_temp["rights"] = row["openaccess"]
     if "prism:doi" in row:
-        zotero_temp["DOI"] = row["prism:doi"]
+        zotero_temp["DOI"] = clean_doi(row["prism:doi"])
     if "publisher" in row:
         zotero_temp["publisher"] = row["publisher"]
     if "prism:volume" in row:

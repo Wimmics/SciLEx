@@ -37,10 +37,14 @@ cp src/scilex.advanced.yml.example src/scilex.advanced.yml
 # 3. Main workflow
 uv run python src/run_collecte.py           # Collect papers from APIs
 uv run python src/aggregate_collect.py      # Deduplicate & filter (parallel by default)
-uv run python src/push_to_zotero.py         # Push to Zotero (optimized)
 
-# 4. Optional: Enrich with HuggingFace metadata
-uv run python src/getHF_collect.py          # Add ML models, datasets, GitHub stats
+# 4. Optional: Enrich with HuggingFace metadata (BEFORE output)
+uv run python src/enrich_with_hf.py         # Add ML models, datasets, GitHub stats
+
+# 5. Output to Zotero or BibTeX
+uv run python src/push_to_zotero.py         # Push to Zotero (with HF tags if enriched)
+# OR
+uv run python src/export_to_bibtex.py       # Export to BibTeX (with HF keywords)
 
 ```
 
@@ -76,14 +80,17 @@ uv run python src/push_to_Zotero_collect.py
 ### HuggingFace Enrichment (NEW)
 
 ```bash
-# Full enrichment
-uv run python src/getHF_collect.py
+# Full enrichment (enriches CSV before pushing to Zotero)
+uv run python src/enrich_with_hf.py
 
 # Dry run (preview matches without updating)
-uv run python src/getHF_collect.py --dry-run --limit 10
+uv run python src/enrich_with_hf.py --dry-run --limit 10
 
-# Process specific collection
-uv run python src/getHF_collect.py --collection "ML_Papers"
+# Process limited number of papers
+uv run python src/enrich_with_hf.py --limit 100
+
+# Legacy Zotero-based enrichment (DEPRECATED)
+uv run python src/getHF_collect.py
 ```
 
 ### Code Quality
@@ -114,6 +121,109 @@ uvx ruff check --fix .
 - **SemanticScholar bulk mode**: 10x faster collection but requires higher-tier API access
 - **DBLP**: No abstracts by design (copyright restrictions), but excellent bibliographic metadata
 - Rate limits are configurable in `api.config.yml`
+
+---
+
+## Aggregation Pipeline Overview
+
+The aggregation step transforms raw API results into a curated, high-quality dataset. From **200,000 raw papers** down to **500 final papers** (99.75% reduction).
+
+```mermaid
+flowchart TB
+    A[("🔍 9 APIs<br/>200,000 papers")] --> B
+    B["⚡ Deduplication<br/>-160,000 duplicates"] --> C
+    C[("📄 40,000 unique")] --> D
+    D["📋 ItemType Filter<br/>-5,000 invalid types"] --> E
+    E[("📄 35,000 valid")] --> F
+    F["🔑 Keyword Filter<br/>-20,000 no match"] --> G
+    G[("📄 15,000 matched")] --> H
+    H["✅ Quality Filter<br/>-7,000 low quality"] --> I
+    I[("📄 8,000 quality")] --> J
+    J["📊 Citation Filter<br/>-6,000 low citations"] --> K
+    K[("📄 2,000 cited")] --> L
+    L["🏆 Relevance Ranking<br/>Top 500 selected"] --> M
+    M[("✨ 500 Final Papers")]
+
+    style A fill:#e1f5fe
+    style M fill:#c8e6c9
+    style B fill:#ffecb3
+    style D fill:#ffecb3
+    style F fill:#ffecb3
+    style H fill:#ffecb3
+    style J fill:#ffecb3
+    style L fill:#ffecb3
+```
+
+### Pipeline Stages Explained
+
+| Stage | Papers In | Removed | Papers Out | Description |
+|-------|-----------|---------|------------|-------------|
+| **API Collection** | - | - | 200,000 | Raw results from 10 academic APIs |
+| **Deduplication** | 200,000 | 160,000 (80%) | 40,000 | Merge duplicates via DOI + fuzzy title matching |
+| **ItemType Filter** | 40,000 | 5,000 | 35,000 | Keep only valid types |
+| **Keyword Filter** | 35,000 | 20,000 | 15,000 | Enforce dual-group keyword matching |
+| **Quality Filter** | 15,000 | 7,000 | 8,000 | Score metadata completeness |
+| **Citation Filter** | 8,000 | 6,000 | 2,000 | Time-aware citation thresholds |
+| **Relevance Ranking** | 2,000 | 1,500 | **500** | Select top papers by composite score |
+
+### Stage Details
+
+#### 1. Deduplication (80% reduction)
+The same paper often appears in multiple APIs. Deduplication merges them using:
+- **DOI matching**: Exact match on Digital Object Identifier
+- **URL matching**: Same canonical URL
+- **Fuzzy title matching**: Similar titles (handles minor variations)
+
+When merging, the best metadata from each source is preserved.
+
+#### 2. ItemType Filter
+Removes non-research content by keeping only:
+- `journalArticle` — Peer-reviewed journal papers
+- `conferencePaper` — Conference proceedings
+- `book` — Complete books
+- `bookSection` — Book chapters
+
+Filters out: datasets, software, blog posts, news articles, patents, etc.
+
+#### 3. Keyword Filter (Dual-Group Mode)
+When configured with two keyword groups, papers must match **BOTH** groups in their **title or abstract**:
+```yaml
+keywords:
+  - ["machine learning", "deep learning", "neural network"]  # Group 1: Method
+  - ["medical", "healthcare", "clinical"]                     # Group 2: Domain
+```
+The filter combines title + abstract text and checks for keyword presence (case-insensitive). A paper needs at least one match from each group. Example: a paper titled "Deep Learning for Medical Diagnosis" passes (matches "deep learning" from Group 1 and "medical" from Group 2).
+
+#### 4. Quality Filter
+Scores metadata completeness with weighted fields:
+- **DOI** (high weight): Enables citation lookup and deduplication
+- **Title** (high weight): Essential for identification
+- **Authors** (high weight): Attribution and filtering
+- **Abstract** (medium weight): Content understanding
+- **Year, Journal** (lower weight): Supplementary metadata
+
+Papers below the quality threshold are removed.
+
+#### 5. Citation Filter (Time-Aware)
+Applies graduated citation requirements based on paper age:
+
+| Paper Age | Min Citations | Rationale |
+|-----------|---------------|-----------|
+| 0-18 months | 0 | Grace period for new papers |
+| 18-24 months | 1-3 | Early citations emerging |
+| 24-36 months | 5-8 | Should have some impact |
+| 36+ months | 10+ | Established papers only |
+
+This prevents penalizing recent papers while filtering out older papers that never gained traction.
+
+#### 6. Relevance Ranking
+Final scoring combines multiple signals:
+- **Keyword relevance** (45%): How well the paper matches search terms
+- **Quality score** (25%): Metadata completeness
+- **ItemType bonus** (20%): Journal articles and conference papers ranked higher
+- **Citation score** (10%): Normalized citation count
+
+The top N papers (configurable, default 500) are selected for the final output.
 
 ---
 

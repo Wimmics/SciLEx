@@ -84,7 +84,7 @@ def load_aggregated_data(config: dict) -> pd.DataFrame:
     output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
     aggregate_file = config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
     dir_collect = os.path.join(output_dir, config["collect_name"])
-    file_path = dir_collect + aggregate_file
+    file_path = os.path.join(dir_collect, aggregate_file)
 
     logger.info(f"Loading data from: {file_path}")
 
