@@ -1451,7 +1451,7 @@ if __name__ == "__main__":
         logging.error(f"  - config_used.yml not found at: {config_used_path}")
         logging.error("")
         logging.error("Please run collection first:")
-        logging.error("  python src/run_collecte.py")
+        logging.error("  python src/run_collection.py")
         logging.error("")
         logging.error("Or check 'collect_name' in scilex.config.yml")
         sys.exit(1)

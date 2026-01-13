@@ -35,7 +35,7 @@ cp src/scilex.advanced.yml.example src/scilex.advanced.yml
 # Edit with your API keys and keywords
 
 # 3. Main workflow
-uv run python src/run_collecte.py           # Collect papers from APIs
+uv run python src/run_collection.py           # Collect papers from APIs
 uv run python src/aggregate_collect.py      # Deduplicate & filter (parallel by default)
 
 # 4. Optional: Enrich with HuggingFace metadata (BEFORE output)
@@ -56,7 +56,7 @@ uv run python src/export_to_bibtex.py       # Export to BibTeX (with HF keywords
 
 ```bash
 # Basic collection
-uv run python src/run_collecte.py
+uv run python src/run_collection.py
 
 # Aggregation with all features (default: parallel mode)
 uv run python src/aggregate_collect.py

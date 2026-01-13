@@ -24,9 +24,9 @@ from src.crawlers.utils import load_all_configs
 from src.logging_config import log_section, setup_logging
 
 # Set up logging configuration with environment variable support
-# LOG_LEVEL=DEBUG python src/run_collecte.py    # For debugging
-# LOG_LEVEL=WARNING python src/run_collecte.py  # For quiet mode
-# LOG_COLOR=false python src/run_collecte.py    # Disable colors
+# LOG_LEVEL=DEBUG python src/run_collection.py    # For debugging
+# LOG_LEVEL=WARNING python src/run_collection.py  # For quiet mode
+# LOG_COLOR=false python src/run_collection.py    # Disable colors
 setup_logging()
 
 # Define the configuration files to load
