@@ -37,7 +37,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from src.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
-from src.constants import MISSING_VALUE, is_valid
+from src.constants import MISSING_VALUE, is_valid, normalize_path_component
 from src.crawlers.utils import load_all_configs
 from src.HuggingFace.hf_client import HFClient
 from src.HuggingFace.metadata_extractor import MetadataExtractor
@@ -282,8 +282,10 @@ def main():
         # Load CSV
         output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
         aggregate_file = main_config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
-        collect_dir = os.path.join(output_dir, main_config["collect_name"])
-        csv_path = os.path.join(collect_dir, aggregate_file)
+        collect_dir = os.path.join(
+            output_dir, normalize_path_component(main_config["collect_name"])
+        )
+        csv_path = os.path.join(collect_dir, normalize_path_component(aggregate_file))
 
         logging.info(f"Loading CSV: {csv_path}")
         data = load_csv_with_auto_delimiter(csv_path)

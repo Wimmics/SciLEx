@@ -17,7 +17,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from src.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
-from src.constants import is_valid
+from src.constants import is_valid, normalize_path_component
 from src.crawlers.utils import load_all_configs
 from src.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
 
@@ -42,8 +42,10 @@ def load_aggregated_data(config: dict) -> pd.DataFrame:
     """
     output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
     aggregate_file = config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
-    dir_collect = os.path.join(output_dir, config["collect_name"])
-    file_path = os.path.join(dir_collect, aggregate_file)
+    dir_collect = os.path.join(
+        output_dir, normalize_path_component(config["collect_name"])
+    )
+    file_path = os.path.join(dir_collect, normalize_path_component(aggregate_file))
 
     logging.info(f"Loading data from: {file_path}")
 

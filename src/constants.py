@@ -152,3 +152,33 @@ def safe_str(value, default: str = MISSING_VALUE) -> str:
     if is_missing(value):
         return default
     return str(value)
+
+
+def normalize_path_component(path_component: str) -> str:
+    """
+    Remove leading/trailing slashes from path components.
+
+    Ensures os.path.join() works correctly by preventing absolute path behavior
+    when config values mistakenly contain leading slashes (e.g., "/aggregated_results.csv").
+
+    Python's os.path.join() treats paths starting with "/" as absolute paths and
+    discards all previous path components. This function strips leading and trailing
+    slashes to ensure path components are always treated as relative paths.
+
+    Args:
+        path_component: Path component from config or user input
+
+    Returns:
+        str: Normalized path component without leading/trailing slashes
+
+    Examples:
+        >>> normalize_path_component("/aggregated_results.csv")
+        'aggregated_results.csv'
+        >>> normalize_path_component("collect_name/")
+        'collect_name'
+        >>> normalize_path_component("/dirname/")
+        'dirname'
+        >>> normalize_path_component("normal_path")
+        'normal_path'
+    """
+    return path_component.strip("/")
