@@ -46,9 +46,7 @@ from src.duplicate_tracking import (
     analyze_and_report_duplicates,
     generate_itemtype_distribution_report,
 )
-from src.keyword_validation import (
-    generate_keyword_validation_report,
-)
+from src.keyword_validation import generate_keyword_validation_report
 from src.logging_config import log_section, setup_logging
 from src.quality_validation import (
     apply_quality_filters,
@@ -1355,8 +1353,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--workers",
         type=int,
-        default=3,
-        help="Number of parallel workers for citation fetching (default: 3)",
+        default=2,
+        help="Number of parallel workers for citation fetching (default: 1)",
     )
     parser.add_argument(
         "--checkpoint-interval",
@@ -1453,7 +1451,7 @@ if __name__ == "__main__":
         logging.error(f"  - config_used.yml not found at: {config_used_path}")
         logging.error("")
         logging.error("Please run collection first:")
-        logging.error("  python src/run_collecte.py")
+        logging.error("  python src/run_collection.py")
         logging.error("")
         logging.error("Or check 'collect_name' in scilex.config.yml")
         sys.exit(1)

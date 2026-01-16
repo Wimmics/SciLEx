@@ -22,7 +22,7 @@ api_references = "https://opencitations.net/index/coci/api/v1/references/"
     reraise=False,
 )
 @sleep_and_retry
-@limits(calls=10, period=1)
+@limits(calls=3, period=1)
 def getCitations(doi):
     """
     Fetch citation data for a given DOI from OpenCitations API.
@@ -58,7 +58,7 @@ def getCitations(doi):
     reraise=False,
 )
 @sleep_and_retry
-@limits(calls=10, period=1)
+@limits(calls=3, period=1)
 def getReferences(doi):
     """
     Fetch reference data for a given DOI from OpenCitations API.

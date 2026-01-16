@@ -132,6 +132,28 @@ quality_filters:
   max_papers: 1000
 
 # ============================================================================
+# HUGGINGFACE ENRICHMENT (Optional - adds ML models/datasets/code to papers)
+# ============================================================================
+
+hf_enrichment:
+  enabled: true                      # Enable/disable HF enrichment
+
+  # Search strategy (NEW - recommended for better match rates)
+  use_papers_api: true               # Use HF Papers API (RECOMMENDED)
+                                     # true: 30-50% match rate (paper-to-paper matching)
+                                     # false: 0-5% match rate (paper-to-model matching, legacy)
+
+  fuzzy_match_threshold: 85          # Minimum similarity score (0-100)
+                                     # 90+: Very strict, 85: Recommended, 75: Lenient
+
+  max_models: 3                      # Max HF models to consider (for Models API fallback)
+
+  # Cache settings (recommended for performance)
+  cache_enabled: true                # Enable SQLite caching
+  cache_path: "output/hf_cache.db"   # Cache database location
+  cache_ttl_days: 30                 # Cache expiration (days)
+
+# ============================================================================
 # NOTES
 # ============================================================================
 #

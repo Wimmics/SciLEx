@@ -221,7 +221,8 @@ class ZoteroAPI:
 
         while True:
             params = {"limit": limit, "start": start}
-            response = self._get("/items", params=params)
+            # Use collection-specific endpoint for better performance
+            response = self._get(f"/collections/{collection_key}/items", params=params)
 
             if not response:
                 break
@@ -231,10 +232,7 @@ class ZoteroAPI:
                 if not page_items:
                     break
 
-                # Filter items that belong to the collection
-                for item in page_items:
-                    if collection_key in item.get("data", {}).get("collections", []):
-                        items.append(item)
+                items.extend(page_items)
 
                 # Check if there are more items
                 total_results = int(response.headers.get("Total-Results", 0))
@@ -459,5 +457,22 @@ def prepare_zotero_item(
     if not is_valid(item.get("url")):
         doi = item.get("DOI")
         item["url"] = str(doi) if is_valid(doi) else None
+
+    # Handle HF tags (if present in CSV)
+    tags_str = get_value(row, "tags", MISSING_VALUE)
+    if is_valid(tags_str) and tags_str != MISSING_VALUE:
+        tags_list = [tag.strip() for tag in str(tags_str).split(";")]
+        tags_list = [t for t in tags_list if t]  # Remove empty strings
+        if tags_list:
+            item["tags"] = [{"tag": t} for t in tags_list]
+
+    # Handle GitHub repo (if present in CSV)
+    github_repo = get_value(row, "github_repo", MISSING_VALUE)
+    if (
+        is_valid(github_repo)
+        and github_repo != MISSING_VALUE
+        and "archiveLocation" in item
+    ):
+        item["archiveLocation"] = str(github_repo)
 
     return item if item.get("url") else None

@@ -33,6 +33,40 @@ def safe_has_key(obj, key):
     return isinstance(obj, dict) and key in obj
 
 
+def clean_doi(doi_value):
+    """
+    Extract clean DOI from URL-formatted DOI or return as-is.
+
+    Converts: "https://doi.org/10.1007/..." → "10.1007/..."
+    Keeps: "10.1007/..." → "10.1007/..."
+
+    Args:
+        doi_value: DOI string (may be URL-formatted or clean)
+
+    Returns:
+        Clean DOI string without URL prefix, or MISSING_VALUE if invalid
+    """
+    if not is_valid(doi_value):
+        return MISSING_VALUE
+
+    doi_str = str(doi_value).strip()
+
+    # Remove common DOI URL prefixes
+    prefixes = [
+        "https://doi.org/",
+        "http://doi.org/",
+        "https://dx.doi.org/",
+        "http://dx.doi.org/",
+    ]
+
+    for prefix in prefixes:
+        if doi_str.lower().startswith(prefix.lower()):
+            return doi_str[len(prefix) :]
+
+    # Already clean or unknown format
+    return doi_str
+
+
 ############
 # FUNCTION FOR AGGREGATIONS OF DATA
 ############
@@ -257,6 +291,7 @@ def SemanticScholartoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
     zotero_temp["archive"] = "SemanticScholar"
     #### publicationTypes is a list Zotero only take one value
@@ -370,13 +405,14 @@ def SemanticScholartoZoteroFormat(row):
         zotero_temp["date"] = row["publication_date"]
 
     if safe_get(row, "DOI"):
-        zotero_temp["DOI"] = row["DOI"]
+        zotero_temp["DOI"] = clean_doi(row["DOI"])
 
     if safe_get(row, "url"):
         zotero_temp["url"] = row["url"]
 
     if safe_get(row, "open_access_pdf"):
-        zotero_temp["rights"] = row["open_access_pdf"]
+        zotero_temp["pdf_url"] = row["open_access_pdf"]
+        zotero_temp["rights"] = "open_access"
 
     # Preserve Semantic Scholar citation data for fallback
     if safe_get(row, "citationCount"):
@@ -407,6 +443,7 @@ def IstextoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
     # Genre pas clair
     zotero_temp["archive"] = "Istex"
@@ -443,7 +480,7 @@ def IstextoZoteroFormat(row):
     if ("doi" in row) and (len(row["doi"]) > 0):
         list_doi = []
         for doi in row["doi"]:
-            list_doi.append(doi)
+            list_doi.append(clean_doi(doi))
         zotero_temp["DOI"] = ";".join(list_doi)
 
     # Extract language - allow multiple languages, take first one
@@ -525,6 +562,7 @@ def ArxivtoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
     zotero_temp["archive"] = "Arxiv"
     # arXiv is always open access
@@ -537,7 +575,7 @@ def ArxivtoZoteroFormat(row):
     if row["authors"] != "" and row["authors"] is not None:
         zotero_temp["authors"] = ";".join(row["authors"])
     if row["doi"] != "" and row["doi"] is not None:
-        zotero_temp["DOI"] = row["doi"]
+        zotero_temp["DOI"] = clean_doi(row["doi"])
     if row["title"] != "" and row["title"] is not None:
         zotero_temp["title"] = row["title"]
     if row["id"] != "" and row["id"] is not None:
@@ -552,6 +590,8 @@ def ArxivtoZoteroFormat(row):
             if "/" in arxiv_id:
                 arxiv_id = arxiv_id.split("/")[-1]
             zotero_temp["url"] = f"https://arxiv.org/abs/{arxiv_id}"
+            # Generate PDF URL
+            zotero_temp["pdf_url"] = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
 
     if row["published"] != "" and row["published"] is not None:
         zotero_temp["date"] = row["published"]
@@ -594,6 +634,7 @@ def DBLPtoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
     zotero_temp["archiveID"] = row["@id"]
     row = row["info"]
@@ -614,7 +655,7 @@ def DBLPtoZoteroFormat(row):
     if len(auth_list) > 0:
         zotero_temp["authors"] = ";".join(auth_list)
     if "doi" in row:
-        zotero_temp["DOI"] = row["doi"]
+        zotero_temp["DOI"] = clean_doi(row["doi"])
     if "pages" in row:
         zotero_temp["pages"] = row["pages"]
 
@@ -678,6 +719,7 @@ def HALtoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
     zotero_temp["archiveID"] = row["halId_s"]
     zotero_temp["archive"] = "HAL"
@@ -700,7 +742,7 @@ def HALtoZoteroFormat(row):
         zotero_temp["serie"] = row["bookTitle_s"]
 
     if "doiId_id" in row:
-        zotero_temp["DOI"] = row["doiId_id"]
+        zotero_temp["DOI"] = clean_doi(row["doiId_id"])
     if "conferenceTitle_s" in row:
         zotero_temp["conferenceName"] = row["conferenceTitle_s"]
 
@@ -733,6 +775,15 @@ def HALtoZoteroFormat(row):
     # Construct URL from HAL ID
     if "halId_s" in row and row["halId_s"]:
         zotero_temp["url"] = f"https://hal.science/{row['halId_s']}"
+
+    # Extract PDF URLs from files_s field
+    if "files_s" in row and row["files_s"]:
+        files = row["files_s"]
+        if isinstance(files, list):
+            for file_url in files:
+                if isinstance(file_url, str) and file_url.endswith(".pdf"):
+                    zotero_temp["pdf_url"] = file_url
+                    break
 
     # Extract language
     if "language_s" in row and is_valid(row["language_s"]):
@@ -825,11 +876,12 @@ def OpenAlextoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
 
     zotero_temp["archive"] = "OpenAlex"
     zotero_temp["archiveID"] = row["id"]
-    zotero_temp["DOI"] = row["doi"]
+    zotero_temp["DOI"] = clean_doi(row["doi"])
     zotero_temp["title"] = row["title"]
     zotero_temp["date"] = row["publication_date"]
 
@@ -837,13 +889,16 @@ def OpenAlextoZoteroFormat(row):
     if "language" in row and is_valid(row["language"]):
         zotero_temp["language"] = row["language"]
 
-    # Extract URL - prefer best_oa_location, then primary_location, then construct from DOI
+    # Extract URL and PDF URL - prefer best_oa_location, then primary_location, then construct from DOI
     if "best_oa_location" in row and row["best_oa_location"]:
         oa_location = row["best_oa_location"]
         if "landing_page_url" in oa_location and oa_location["landing_page_url"]:
             zotero_temp["url"] = oa_location["landing_page_url"]
         elif "pdf_url" in oa_location and oa_location["pdf_url"]:
             zotero_temp["url"] = oa_location["pdf_url"]
+        # Store PDF URL separately if available
+        if "pdf_url" in oa_location and oa_location["pdf_url"]:
+            zotero_temp["pdf_url"] = oa_location["pdf_url"]
     elif "primary_location" in row and row["primary_location"]:
         primary = row["primary_location"]
         if "landing_page_url" in primary and primary["landing_page_url"]:
@@ -958,6 +1013,7 @@ def IEEEtoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
 
     zotero_temp["archive"] = "IEEE"
@@ -984,7 +1040,7 @@ def IEEEtoZoteroFormat(row):
     if row["access_type"] != "" and row["access_type"] is not None:
         zotero_temp["rights"] = row["access_type"]
     if "doi" in row:
-        zotero_temp["DOI"] = row["doi"]
+        zotero_temp["DOI"] = clean_doi(row["doi"])
     if "publisher" in row:
         zotero_temp["publisher"] = row["publisher"]
     if ("volume" in row) and (row["volume"] != "" and row["volume"] is not None):
@@ -1007,14 +1063,16 @@ def IEEEtoZoteroFormat(row):
                 auth_list.append(auth["full_name"])
     if auth_list:
         zotero_temp["authors"] = ";".join(auth_list)
-    if "start_page" in row:
-        if (
-            row["start_page"]
-            and row["start_page"] != ""
-            and row["end_page"]
-            and row["end_page"] != ""
-        ):
-            zotero_temp["pages"] = row["start_page"] + "-" + row["end_page"]
+    if "start_page" in row and (
+        row["start_page"]
+        and row["start_page"] != ""
+        and row["end_page"]
+        and row["end_page"] != ""
+    ):
+        zotero_temp["pages"] = row["start_page"] + "-" + row["end_page"]
+    # Extract PDF URL
+    if "pdf_url" in row and is_valid(row["pdf_url"]):
+        zotero_temp["pdf_url"] = row["pdf_url"]
     if row["content_type"] == "Journals":
         zotero_temp["itemType"] = "journalArticle"
     if row["content_type"] == "Conferences":
@@ -1048,6 +1106,7 @@ def SpringertoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
 
     zotero_temp["archive"] = "Springer"
@@ -1084,7 +1143,7 @@ def SpringertoZoteroFormat(row):
         if row["openaccess"] != "" and row["openaccess"] is not None:
             zotero_temp["rights"] = row["openaccess"]
     if "doi" in row:
-        zotero_temp["DOI"] = row["doi"]
+        zotero_temp["DOI"] = clean_doi(row["doi"])
     if "publisher" in row:
         zotero_temp["publisher"] = row["publisher"]
 
@@ -1157,6 +1216,7 @@ def ElseviertoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
 
     zotero_temp["archive"] = "Elsevier"
@@ -1181,7 +1241,7 @@ def ElseviertoZoteroFormat(row):
     if row["openaccess"] != "" and row["openaccess"] is not None:
         zotero_temp["rights"] = row["openaccess"]
     if "prism:doi" in row:
-        zotero_temp["DOI"] = row["prism:doi"]
+        zotero_temp["DOI"] = clean_doi(row["prism:doi"])
     if "publisher" in row:
         zotero_temp["publisher"] = row["publisher"]
     if "prism:volume" in row:
@@ -1205,7 +1265,7 @@ def ElseviertoZoteroFormat(row):
     #    if(auth["creator"]!="" and auth["creator"] is not None):
     #         auth_list.append( auth["creator"])
     #    if(len(auth_list)>0):
-    #     zotero_temp["authors"]=";".join(auth_list)
+    #     zotero_temp["authors"]";".join(auth_list)
     if ("dc:creator" in row) and (row["dc:creator"] and row["dc:creator"] != ""):
         zotero_temp["authors"] = row["dc:creator"]
     if row["prism:pageRange"] and row["prism:pageRange"] != "":
@@ -1258,6 +1318,7 @@ def GoogleScholartoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
     }
 
     zotero_temp["archive"] = "GoogleScholar"
