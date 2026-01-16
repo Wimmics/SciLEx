@@ -28,7 +28,12 @@ from src.config_defaults import (
     DEFAULT_RELEVANCE_WEIGHTS,
     MIN_ABSTRACT_QUALITY_SCORE,
 )
-from src.constants import MISSING_VALUE, CitationFilterConfig, is_valid
+from src.constants import (
+    MISSING_VALUE,
+    CitationFilterConfig,
+    is_valid,
+    normalize_path_component,
+)
 from src.crawlers.aggregate import (
     ArxivtoZoteroFormat,
     DBLPtoZoteroFormat,
@@ -1389,12 +1394,12 @@ if __name__ == "__main__":
         main_config.get("aggregate_get_citations", True) and not args.skip_citations
     )
     output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
-    collect_name = main_config.get("collect_name")
+    collect_name = normalize_path_component(main_config.get("collect_name"))
     dir_collect = os.path.join(output_dir, collect_name)
-    # Get output filename from config, with fallback and handle leading slashes
-    output_filename = main_config.get(
-        "aggregate_file", DEFAULT_AGGREGATED_FILENAME
-    ).lstrip("/")
+    # Get output filename from config, with fallback and normalize path
+    output_filename = normalize_path_component(
+        main_config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
+    )
 
     # Path to config snapshot
     config_used_path = os.path.join(dir_collect, "config_used.yml")
