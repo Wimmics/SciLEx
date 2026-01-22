@@ -43,6 +43,7 @@ from src.crawlers.aggregate import (
     IEEEtoZoteroFormat,
     IstextoZoteroFormat,
     OpenAlextoZoteroFormat,
+    PubMedCentraltoZoteroFormat,
     SemanticScholartoZoteroFormat,
     SpringertoZoteroFormat,
 )
@@ -80,6 +81,7 @@ FORMAT_CONVERTERS = {
     "Istex": IstextoZoteroFormat,
     "Arxiv": ArxivtoZoteroFormat,
     "GoogleScholar": GoogleScholartoZoteroFormat,
+    "PubMedCentral": PubMedCentraltoZoteroFormat,
 }
 
 # ============================================================================

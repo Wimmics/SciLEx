@@ -9,6 +9,7 @@ import yaml
 from tqdm import tqdm
 
 from src.config_defaults import DEFAULT_OUTPUT_DIR
+
 from .collectors import (
     Arxiv_collector,
     DBLP_collector,
@@ -18,6 +19,7 @@ from .collectors import (
     IEEE_collector,
     Istex_collector,
     OpenAlex_collector,
+    PubMedCentral_collector,
     SemanticScholar_collector,
     Springer_collector,
 )
@@ -42,6 +44,7 @@ api_collectors = {
     "HAL": HAL_collector,
     "ISTEX": Istex_collector,
     "GoogleScholar": GoogleScholarCollector,
+    "PubMedCentral": PubMedCentral_collector,
 }
 
 

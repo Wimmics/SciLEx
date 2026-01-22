@@ -13,6 +13,7 @@ from .hal import HAL_collector
 from .ieee import IEEE_collector
 from .istex import Istex_collector
 from .openalex import OpenAlex_collector
+from .pubmed_central import PubMedCentral_collector
 from .semantic_scholar import SemanticScholar_collector
 from .springer import Springer_collector
 
@@ -29,4 +30,5 @@ __all__ = [
     "Istex_collector",
     "Springer_collector",
     "GoogleScholarCollector",
+    "PubMedCentral_collector",
 ]

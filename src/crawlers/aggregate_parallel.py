@@ -361,6 +361,7 @@ def _process_batch_worker(
         HALtoZoteroFormat,
         IEEEtoZoteroFormat,
         OpenAlextoZoteroFormat,
+        PubMedCentraltoZoteroFormat,
         SemanticScholartoZoteroFormat,
         SpringertoZoteroFormat,
     )
@@ -375,6 +376,7 @@ def _process_batch_worker(
         "DBLP": DBLPtoZoteroFormat,
         "Arxiv": ArxivtoZoteroFormat,
         "GoogleScholar": GoogleScholartoZoteroFormat,
+        "PubMedCentral": PubMedCentraltoZoteroFormat,
     }
 
     # Import text filtering helper

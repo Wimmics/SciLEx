@@ -1,0 +1,121 @@
+# ============================================================================
+# SciLEx Main Configuration
+# ============================================================================
+#
+# Your research parameters for LLM + Knowledge Graph project
+#
+# ============================================================================
+
+# ============================================================================
+# RESEARCH QUESTION
+# ============================================================================
+
+# Keywords for paper search
+# Dual groups: papers matching (ANY from group 1 AND ANY from group 2)
+keywords:
+  # - ["Large language model", "agent", "LLM", "agentic", "multi-agent"]
+  # - ["Knowledge Graph", "KG", "knowledge graphs", "Graph-RAG"]
+
+  # - ["Large language model", "agent", "LLM", "agentic", "multi-agent", "multi-hop", "multi-agent systems", "RAG"]
+  # - ["Knowledge Graph", "KG", "knowledge graphs", "graphs", "neuro-symbolic", "temporal memory", "external memory", "hierarchical memory", "ontologies", "user interaction", "Long-context"]
+
+  # - ["Agentic", "temporal knowledge graph", "retrieval-augmented generation", "memory consolidation", "knowledge indexing", "semantic encoding"]
+  # - ["Long-context", "multi-hop reasoning", "hallucination mitigation", "memory", "factual grounding", "context personalization"]
+
+  - ["agents", "multi-agent systems", "Large language models", "LLMs", "large language model", "llm", "language model"]
+  - ["knowledge graph", "knowledge graphs", "KG", "KGs", "graph", "user interaction", "historical relationships", "context", "context management", "long-term", "memory", "retrieval", "human-in-the-loop", "human in the loop", "long-term memory", "graph retrieval" ]
+
+# Optional bonus keywords - boost relevance scores but don't filter papers
+# Papers don't need to match bonus keywords, but those that do get higher relevance scores
+bonus_keywords:
+  - "neuro-symbolic"
+  - "temporal memory"
+  - "Long-context"
+  - "external memory"
+  - "hierarchical memory"
+  - "ontologies"
+  - "Knowledge Graph"
+  - "Knowledge Graphs"
+  - "KG"
+  - "KGs"
+  - "agent"
+  - "survey"
+  - "review"
+
+# Years to search
+years:
+  - 2026
+
+# Data sources to query
+apis:
+  - HAL
+  - OpenAlex
+  - SemanticScholar
+  - Arxiv
+  # - DBLP
+  - ISTEX
+  # - GoogleScholar
+  - Elsevier
+  # - IEEE
+  - Springer  # Uncomment if you have Springer API key
+
+
+# Semantic Scholar API mode - IMPORTANT for collection speed
+# "regular": 100 papers per page, works with free tier (RECOMMENDED)
+# "bulk": 1000 papers per page (10x faster), requires approval
+semantic_scholar_mode: bulk
+
+# Project identification
+collect_name: collection_2026_01_13
+
+# Maximum articles to collect per query (keyword/year/API combo)
+# Set to -1 for unlimited (default), or specify a number like 1000, 2000, etc.
+# Stops requesting when total papers >= this limit
+# Useful for testing (100) or quota control (1000-2000)
+# See scilex.advanced.yml.example for detailed explanation
+max_articles_per_query: 2000
+
+# ============================================================================
+# QUALITY FILTERS
+# ============================================================================
+
+quality_filters:
+  # Content requirements
+  require_abstract: true
+  require_doi: false
+
+  # Focus on impactful papers
+  aggregate_get_citations: true
+  apply_citation_filter: true
+
+  # Output size
+  max_papers: 500
+
+# ============================================================================
+# NOTE: Advanced settings moved to scilex.advanced.yml
+# ============================================================================
+
+
+
+# ============================================================================
+# HUGGINGFACE ENRICHMENT (Optional - adds ML models/datasets/code to papers)
+# ============================================================================
+
+hf_enrichment:
+  enabled: true                      # Enable/disable HF enrichment
+
+  # Search strategy (NEW - fixes 0-match issue)
+  use_papers_api: true               # Use HF Papers API (RECOMMENDED)
+                                     # true: 30-50% match rate (paper-to-paper matching)
+                                     # false: 0-5% match rate (paper-to-model matching, legacy)
+
+  fuzzy_match_threshold: 85          # Minimum similarity score (0-100)
+                                     # Changed from 90 to 85 for better recall
+                                     # 90+: Very strict, 85: Recommended, 75: Lenient
+
+  max_models: 3                      # Max HF models to consider (for Models API fallback)
+
+  # Cache settings (recommended for performance)
+  cache_enabled: true                # Enable SQLite caching
+  cache_path: "output/hf_cache.db"   # Cache database location
+  cache_ttl_days: 30                 # Cache expiration (days)
