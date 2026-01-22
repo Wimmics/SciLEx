@@ -452,6 +452,7 @@ The aggregation applies these filters in order:
 | Arxiv | No | 3/sec | Preprints, no citations |
 | Springer | Yes | 1.5/sec | Journals, books |
 | Elsevier | Yes | 6/sec | Medical, requires inst_token |
+| PubMed Central | No | 3/sec | Biomedical literature, NIH repository |
 | HAL | No | 10/sec | French research |
 | DBLP | No | 10/sec | No abstracts (copyright), 95%+ DOI |
 | Istex | No | Conservative | French institutional |

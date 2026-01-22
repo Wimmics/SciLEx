@@ -154,7 +154,7 @@ pip install --upgrade certifi
 1. Check if it's actually making progress (logs update slowly)
 2. Enable debug logging:
    ```bash
-   LOG_LEVEL=DEBUG python src/run_collecte.py
+   LOG_LEVEL=DEBUG python src/run_collection.py
    ```
 3. Check API rate limits aren't too low
 4. Try with fewer APIs first
@@ -312,7 +312,7 @@ nano src/scilex.config.yml
 ### Enable Debug Logging
 
 ```bash
-LOG_LEVEL=DEBUG python src/run_collecte.py
+LOG_LEVEL=DEBUG python src/run_collection.py
 ```
 
 ### Check Logs

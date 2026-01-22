@@ -389,14 +389,14 @@ snakeviz profile.stats
 ```python
 # Use memory_profiler
 pip install memory_profiler
-python -m memory_profiler src/run_collecte.py
+python -m memory_profiler src/run_collection.py
 ```
 
 ### Debugging Tips
 
 1. **Enable debug logging**:
    ```bash
-   LOG_LEVEL=DEBUG python src/run_collecte.py
+   LOG_LEVEL=DEBUG python src/run_collection.py
    ```
 
 2. **Save intermediate results**:
