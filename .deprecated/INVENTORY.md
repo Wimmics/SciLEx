@@ -45,6 +45,24 @@ This directory contains code that has been deprecated and will be removed in a f
 
 ---
 
+## Deprecated Collectors
+
+### 1. PubMed Central Collector (`src/crawlers/collectors/pubmed_central.py`)
+- **Reason:** Replaced by comprehensive PubMed collector with integrated PMC PDF enrichment
+- **Replacement:** `src/crawlers/collectors/pubmed.py`
+- **Date Deprecated:** 2026-01-22
+- **Location:** `.deprecated/collectors/pubmed_central.py`
+- **Size:** ~14KB
+- **Key Changes:**
+  - PubMed collector provides 5x more papers (35M vs 7M)
+  - Same open-access PDF coverage (~20-30% of papers)
+  - Automatic PMCID detection and PDF URL construction
+  - Metadata for paywalled papers (useful for systematic reviews)
+- **Migration:** Update `scilex.config.yml` to use `PubMed` instead of `PubMedCentral`
+- **Import Check:** ⚠️ Still referenced in code (will be removed in cleanup phase)
+
+---
+
 ## Deprecated Scripts
 
 ### 1. Legacy PapersWithCode Collector (`src/getLPWC_collect.py`)
@@ -80,6 +98,17 @@ grep -r "optimize_keywords" src --include="*.py"
 ```
 
 **Result:** ✅ Zero active imports found - safe to proceed with deletion
+
+**PubMedCentral Collector Deprecation (2026-01-22):**
+```bash
+# Note: PubMedCentral collector is still imported but deprecated
+# Kept in codebase for backward compatibility during migration period
+# Will be fully removed after users migrate to PubMed collector
+grep -r "PubMedCentral_collector" src --include="*.py"
+```
+
+**Status:** ⚠️ Soft deprecation - users should migrate to `PubMed` collector
+**Migration Period:** 30 days minimum before full removal
 
 ---
 

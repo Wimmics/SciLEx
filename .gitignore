@@ -453,6 +453,7 @@ src/scilex.advanced.yml
 
 
 .claude/plans/
+docs/plans/
 
 # Deprecated code (tracked in git for history)
 # .deprecated/ is intentionally committed

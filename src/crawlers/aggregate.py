@@ -1507,3 +1507,124 @@ def PubMedCentraltoZoteroFormat(row):
     zotero_temp["itemType"] = "journalArticle"
 
     return zotero_temp
+
+
+def PubMedtoZoteroFormat(row):
+    """Convert PubMed results to Zotero format.
+
+    PubMed provides comprehensive biomedical literature metadata (35M+ papers)
+    including both open-access and paywalled content. When PMCID is available,
+    PDF URLs are automatically generated for PMC open-access subset.
+
+    Args:
+        row: Dictionary containing PubMed article data from collector
+
+    Returns:
+        dict: Zotero-formatted article metadata
+    """
+    zotero_temp = {
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
+        "tags": MISSING_VALUE,
+    }
+
+    # Set archive name
+    zotero_temp["archive"] = "PubMed"
+
+    # Rights - only set to open-access if PMCID present
+    if is_valid(row.get("pmcid")):
+        zotero_temp["rights"] = "open-access"
+
+    # Title
+    if is_valid(row.get("title")):
+        zotero_temp["title"] = row["title"]
+
+    # Authors - PubMed returns list of "LastName ForeName" strings
+    if "authors" in row and row["authors"]:
+        authors = row["authors"]
+        if isinstance(authors, list) and len(authors) > 0:
+            zotero_temp["authors"] = ";".join(authors)
+        elif isinstance(authors, str) and authors != "":
+            zotero_temp["authors"] = authors
+
+    # Abstract
+    if is_valid(row.get("abstract")):
+        zotero_temp["abstract"] = row["abstract"]
+
+    # DOI
+    if is_valid(row.get("doi")):
+        zotero_temp["DOI"] = row["doi"]
+
+    # PMID (archiveID) - primary identifier
+    if is_valid(row.get("pmid")):
+        pmid = row["pmid"]
+        zotero_temp["archiveID"] = pmid
+        # Construct PubMed URL
+        zotero_temp["url"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+
+    # PDF URL - populated by collector when PMCID present
+    if is_valid(row.get("pdf_url")):
+        zotero_temp["pdf_url"] = row["pdf_url"]
+
+    # Publication date (YYYY-MM-DD format from collector)
+    if is_valid(row.get("date")):
+        zotero_temp["date"] = row["date"]
+
+    # Journal name
+    if is_valid(row.get("journal")):
+        zotero_temp["journalAbbreviation"] = row["journal"]
+
+    # Volume
+    if is_valid(row.get("volume")):
+        zotero_temp["volume"] = row["volume"]
+
+    # Issue
+    if is_valid(row.get("issue")):
+        zotero_temp["issue"] = row["issue"]
+
+    # Pages
+    if is_valid(row.get("pages")):
+        zotero_temp["pages"] = row["pages"]
+
+    # Language
+    if is_valid(row.get("language")):
+        zotero_temp["language"] = row["language"]
+
+    # MeSH terms as tags (optional)
+    if "mesh_terms" in row and row["mesh_terms"]:
+        mesh_terms = row["mesh_terms"]
+        if isinstance(mesh_terms, list) and len(mesh_terms) > 0:
+            zotero_temp["tags"] = ";".join(mesh_terms)
+
+    # ItemType - map from publication_type
+    pub_type = row.get("publication_type", "")
+    if pub_type:
+        # Map PubMed publication types to Zotero itemTypes
+        type_mapping = {
+            "Journal Article": "journalArticle",
+            "Review": "journalArticle",
+            "Book": "book",
+            "Book Chapter": "bookSection",
+        }
+        zotero_temp["itemType"] = type_mapping.get(pub_type, "journalArticle")
+    else:
+        # Default to journal article
+        zotero_temp["itemType"] = "journalArticle"
+
+    return zotero_temp

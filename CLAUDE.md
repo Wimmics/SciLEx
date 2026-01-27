@@ -452,7 +452,8 @@ The aggregation applies these filters in order:
 | Arxiv | No | 3/sec | Preprints, no citations |
 | Springer | Yes | 1.5/sec | Journals, books |
 | Elsevier | Yes | 6/sec | Medical, requires inst_token |
-| PubMed Central | No | 3/sec | Biomedical literature, NIH repository |
+| PubMed | Optional | 3/sec (10/sec with key) | 35M biomedical papers, ~25% with PMC PDFs |
+| ~~PubMed Central~~ | ~~No~~ | ~~3/sec~~ | ~~Deprecated - use PubMed instead~~ |
 | HAL | No | 10/sec | French research |
 | DBLP | No | 10/sec | No abstracts (copyright), 95%+ DOI |
 | Istex | No | Conservative | French institutional |
@@ -470,6 +471,55 @@ Requires Tor for reliable operation:
 ```bash
 brew install tor && brew services start tor  # macOS
 ```
+
+## PubMed Integration
+
+**Architecture:**
+- PubMed as primary biomedical source (35M papers)
+- Automatic PDF URLs for PMC open-access subset (~7M papers)
+- No separate PMC collector needed
+
+**Coverage:**
+- All biomedical literature (open-access + paywalled metadata)
+- ~20-30% have direct PDF downloads via PMC
+- Complete metadata for systematic reviews
+
+**Fields:**
+- PMID: Primary identifier
+- PMCID: When available (links to PDF)
+- MeSH terms: Medical subject headings (optional)
+- DOI, abstract, authors: Standard fields
+
+**Usage:**
+
+```bash
+# Enable PubMed in scilex.config.yml
+apis:
+  - SemanticScholar
+  - OpenAlex
+  - PubMed  # Biomedical literature
+
+# Run collection
+uv run python src/run_collection.py
+uv run python src/aggregate_collect.py
+uv run python src/push_to_zotero.py
+```
+
+**Migrating from PubMedCentral:**
+
+If your config uses `PubMedCentral`:
+
+1. Update `scilex.config.yml`:
+   ```yaml
+   apis: ['PubMed']  # was: ['PubMedCentral']
+   ```
+
+2. Benefits:
+   - 5x more papers (35M vs 7M)
+   - Same PDF coverage for open-access
+   - Metadata for paywalled papers (systematic reviews)
+
+3. No other changes needed - existing workflows remain the same
 
 ## HuggingFace Enrichment
 

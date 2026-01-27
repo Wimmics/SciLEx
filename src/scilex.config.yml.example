@@ -58,13 +58,13 @@ years:
   - 2025
 
 # Data sources to query
-# Free APIs: OpenAlex, HAL, DBLP, Arxiv, PubMedCentral
+# Free APIs: OpenAlex, HAL, DBLP, Arxiv, PubMed
 # Paid APIs: SemanticScholar (free tier OK), IEEE, Elsevier, Springer
 apis:
   - SemanticScholar
   - OpenAlex
   - Arxiv
-  # - PubMedCentral  # Open-access biomedical literature (chemistry, drug discovery, etc.)
+  # - PubMed  # Biomedical literature (35M+ papers, ~25% with PMC PDFs)
 
 # Semantic Scholar API mode - IMPORTANT for collection speed
 # Choose wisely based on your API tier:

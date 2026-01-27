@@ -47,9 +47,14 @@ HuggingFace:
                # Benefits: 5x higher rate limit (5 req/sec vs 1 req/sec)
                # Leave null to use public API (works but slower)
 
-# PubMed Central (PMC) - Open-access biomedical literature
+# PubMed - Biomedical literature (35M+ papers, ~25% with PMC PDFs)
 # Free tier: 3 req/sec, With API key: 10 req/sec
 # Get key at: https://www.ncbi.nlm.nih.gov/account/settings/
+# PubMed:
+#   api_key: "YOUR_NCBI_API_KEY"  # Optional but recommended for better rate limits
+
+# PubMed Central (PMC) - Deprecated: Use PubMed instead
+# PMC is now a subset of PubMed with automatic PDF enrichment
 # PubMedCentral:
 #   api_key: "YOUR_NCBI_API_KEY"  # Optional but recommended for better rate limits
 
@@ -73,10 +78,10 @@ GoogleScholar:
 #   - HAL: French open archive (https://api.archives-ouvertes.fr/docs)
 #   - DBLP: Computer science bibliography (https://dblp.org)
 #   - Istex: French academic archive (https://api.istex.fr/documentation)
-#   - PubMedCentral: Open-access biomedical literature (https://pmc.ncbi.nlm.nih.gov/)
+#   - PubMed: Biomedical literature (https://www.ncbi.nlm.nih.gov/home/develop/api/)
 #
 # To enable: Add to 'apis' list in scilex.config.yml
-# Example: apis: [OpenAlex, Arxiv, HAL, DBLP, PubMedCentral]
+# Example: apis: [OpenAlex, Arxiv, HAL, DBLP, PubMed]
 #
 
 # ============================================================================
@@ -97,4 +102,5 @@ GoogleScholar:
 #   HAL: 10.0
 #   DBLP: 1.0
 #   GoogleScholar: 2.0
-#   PubMedCentral: 10.0       # With API key (3.0 without)
+#   PubMed: 10.0              # With API key (3.0 without)
+#   PubMedCentral: 10.0       # Deprecated - use PubMed instead

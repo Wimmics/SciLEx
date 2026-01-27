@@ -19,6 +19,7 @@ from .collectors import (
     IEEE_collector,
     Istex_collector,
     OpenAlex_collector,
+    PubMed_collector,
     PubMedCentral_collector,
     SemanticScholar_collector,
     Springer_collector,
@@ -44,6 +45,7 @@ api_collectors = {
     "HAL": HAL_collector,
     "ISTEX": Istex_collector,
     "GoogleScholar": GoogleScholarCollector,
+    "PubMed": PubMed_collector,
     "PubMedCentral": PubMedCentral_collector,
 }
 
