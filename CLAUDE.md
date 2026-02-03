@@ -452,7 +452,7 @@ The aggregation applies these filters in order:
 | Arxiv | No | 3/sec | Preprints, no citations |
 | Springer | Yes | 1.5/sec | Journals, books |
 | Elsevier | Yes | 6/sec | Medical, requires inst_token |
-| PubMed | Optional | 3/sec (10/sec with key) | 35M biomedical papers, auto-fetches PDF URLs via OA Service (~20-30%) |
+| PubMed | Optional | 3/sec (10/sec with key) | 35M biomedical papers, provides PMC landing page URLs (100% coverage for papers with PMCID) |
 | ~~PubMed Central~~ | ~~Optional~~ | ~~3/sec (10/sec with key)~~ | ~~Deprecated - use PubMed with OA Service instead~~ |
 | HAL | No | 10/sec | French research |
 | DBLP | No | 10/sec | No abstracts (copyright), 95%+ DOI |
@@ -476,22 +476,22 @@ brew install tor && brew services start tor  # macOS
 
 **Architecture:**
 - PubMed as primary biomedical source (35M papers)
-- Automatic PDF URL enrichment via PMC OA Service API
+- Direct PMC landing page URLs (no API calls for PDFs)
 - No separate PMC collector needed
 
 **PDF Access:**
-PubMed collector automatically enriches results with PDF URLs:
+PubMed collector provides PMC landing page URLs:
 1. Search PubMed E-utilities for papers
 2. Extract PMCID from metadata
-3. Query PMC OA Service API for PDF URLs (FTP format)
-4. Papers with Open Access get FTP download URLs
-5. Non-OA papers have empty pdf_url but valid article landing page URL
+3. Construct PMC landing page URL: `https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{id}/`
+4. Papers with PMCID get clickable URLs to article pages
+5. Users can download PDFs via "Download PDF" button on landing page
 
 **Coverage:**
 - All biomedical literature (open-access + paywalled metadata)
-- ~20-30% of PubMed papers have PMC open-access PDFs
-- FTP URLs work reliably: `ftp://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_package/.../PMCID.tar.gz`
-- Alternative: Users can manually download from article page
+- 100% of papers with PMCID get valid PMC URLs (vs 20-30% with old FTP approach)
+- HTTP landing pages work in all browsers (FTP URLs often blocked)
+- ~10x faster collection (no OA Service API calls)
 - Complete metadata for systematic reviews
 
 **Fields:**

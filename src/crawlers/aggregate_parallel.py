@@ -360,8 +360,10 @@ def _process_batch_worker(
         GoogleScholartoZoteroFormat,
         HALtoZoteroFormat,
         IEEEtoZoteroFormat,
+        IstextoZoteroFormat,
         OpenAlextoZoteroFormat,
         PubMedCentraltoZoteroFormat,
+        PubMedtoZoteroFormat,
         SemanticScholartoZoteroFormat,
         SpringertoZoteroFormat,
     )
@@ -374,8 +376,10 @@ def _process_batch_worker(
         "Springer": SpringertoZoteroFormat,
         "HAL": HALtoZoteroFormat,
         "DBLP": DBLPtoZoteroFormat,
+        "Istex": IstextoZoteroFormat,
         "Arxiv": ArxivtoZoteroFormat,
         "GoogleScholar": GoogleScholartoZoteroFormat,
+        "PubMed": PubMedtoZoteroFormat,
         "PubMedCentral": PubMedCentraltoZoteroFormat,
     }
 

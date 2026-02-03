@@ -338,10 +338,16 @@ def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
         pages = format_pages(pages)
         lines.append(f"  pages = {{{pages}}},")
 
-    # Publisher (for books, incollections)
+    # Publisher (for books, incollections, and inproceedings)
+    # Note: Publisher is NOT included for @article entries (not standard per BibTeX spec)
     publisher = safe_get(row, "publisher")
-    if is_valid(publisher) and entry_type in ["book", "incollection"]:
+    if is_valid(publisher) and entry_type in ["book", "incollection", "inproceedings"]:
         lines.append(f"  publisher = {{{escape_bibtex(publisher)}}},")
+
+    # Series/ISSN (for books, journals, conferences)
+    serie = safe_get(row, "serie")
+    if is_valid(serie):
+        lines.append(f"  series = {{{escape_bibtex(str(serie))}}},")
 
     # DOI
     doi = safe_get(row, "DOI")
