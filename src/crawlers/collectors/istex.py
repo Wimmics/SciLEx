@@ -11,7 +11,7 @@ class Istex_collector(API_collector):
         super().__init__(filter_param, data_path, api_key)
         self.rate_limit = 3
         self.max_by_page = 500  # Maximum number of results to retrieve per page
-        self.api_name = "ISTEX"
+        self.api_name = "Istex"
         self.api_url = "https://api.istex.fr/document/"
 
     def parsePageResults(self, response, page):
@@ -49,33 +49,54 @@ class Istex_collector(API_collector):
 
     def get_configurated_url(self):
         """
-        Constructs the API URL with the search query and filters based on the year and pagination.
+        Constructs the API URL with the search query and filters.
 
         Returns:
-            str: The formatted API URL for the request.
+            str: The formatted API URL with {} placeholder for pagination offset.
         """
-        year_range = self.get_year()  # Assuming this returns a list of years
-        # year_min = min(year_range)
-        # year_max = max(year_range)
+        import urllib.parse
 
-        # Construct the keyword query
-        keywords = self.get_keywords()  # Get keywords from filter parameters
+        # Get year range and construct ISTEX date filter
+        years = self.get_year()
+        if isinstance(years, int):
+            # Single year for this query
+            year_filter = str(years)
+        elif isinstance(years, list) and len(years) > 0:
+            # Year range
+            year_min = min(years)
+            year_max = max(years)
+            year_filter = f"[{year_min} TO {year_max}]"
+        else:
+            # No year filter
+            year_filter = "*"
 
-        # Flatten the keywords if necessary
+        # Get keywords and flatten nested lists
+        keywords = self.get_keywords()
         flat_keywords = [
             keyword
             for sublist in keywords
             for keyword in (sublist if isinstance(sublist, list) else [sublist])
         ]
-        keyword_query = "%20AND%20".join(flat_keywords)  # Join keywords with ' OR '
 
-        # Construct the final query string
-        query = f"(publicationDate:{year_range} AND (title:({keyword_query}) OR abstract:({keyword_query})))"
+        # Quote keywords for phrase matching and join with OR
+        quoted_keywords = [f'"{kw}"' for kw in flat_keywords]
+        keyword_query = " OR ".join(quoted_keywords)
 
-        # Construct the URL
-        configured_url = (
-            f"{self.api_url}?q={query}&output=*&size={self.max_by_page}&from={{}}"
+        # Construct Lucene query
+        query = (
+            f"publicationDate:{year_filter} AND "
+            f"(title:({keyword_query}) OR abstract:({keyword_query}))"
         )
 
-        logging.debug(f"Configured URL: {configured_url}")
+        # URL-encode the query
+        encoded_query = urllib.parse.quote(query, safe='')
+
+        # Construct final URL
+        configured_url = (
+            f"{self.api_url}?q={encoded_query}&output=*&size={self.max_by_page}&from={{}}"
+        )
+
+        logging.debug(f"ISTEX query: {query}")
+        logging.debug(f"ISTEX URL: {configured_url}")
+
         return configured_url

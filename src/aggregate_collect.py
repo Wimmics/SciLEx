@@ -1238,7 +1238,11 @@ def _fetch_citations_parallel(
             "Using citation cache (30-day TTL) - expect ~60-80% cache hits on repeated runs"
         )
     logging.info(
-        f"Using {num_workers} parallel workers (rate limit: ~{num_workers * 0.5:.1f} papers/second)"
+        f"Using {num_workers} parallel workers for citation fetching"
+    )
+    logging.info(
+        "Rate limits: OpenCitations API at 1 req/sec "
+        "(cache hits and Semantic Scholar data bypass this limit)"
     )
 
     # Create progress bar and ThreadPoolExecutor for parallel fetching

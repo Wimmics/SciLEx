@@ -405,6 +405,12 @@ def _process_batch_worker(
             except Exception as e:
                 logging.debug(f"Error converting paper from {api_name}: {e}")
                 continue
+        else:
+            # Log when no converter found for API
+            logging.warning(
+                f"No format converter found for API: {api_name}. "
+                f"Available converters: {list(FORMAT_CONVERTERS.keys())}"
+            )
 
     return results
 

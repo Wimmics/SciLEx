@@ -44,7 +44,7 @@ api_collectors = {
     "SemanticScholar": SemanticScholar_collector,
     "OpenAlex": OpenAlex_collector,
     "HAL": HAL_collector,
-    "ISTEX": Istex_collector,
+    "Istex": Istex_collector,
     "GoogleScholar": GoogleScholarCollector,
     "PubMed": PubMed_collector,
     "PubMedCentral": PubMedCentral_collector,
