@@ -53,11 +53,6 @@ HuggingFace:
 # PubMed:
 #   api_key: "YOUR_NCBI_API_KEY"  # Optional but recommended for better rate limits
 
-# PubMed Central (PMC) - Deprecated: Use PubMed instead
-# PMC is now a subset of PubMed with automatic PDF enrichment
-# PubMedCentral:
-#   api_key: "YOUR_NCBI_API_KEY"  # Optional but recommended for better rate limits
-
 # Google Scholar (no API key needed, uses scholarly package with Tor/proxies)
 GoogleScholar:
   enabled: false  # Set to true to enable web scraping of Google Scholar
@@ -103,4 +98,3 @@ GoogleScholar:
 #   DBLP: 1.0
 #   GoogleScholar: 2.0
 #   PubMed: 10.0              # With API key (3.0 without)
-#   PubMedCentral: 10.0       # Deprecated - use PubMed instead

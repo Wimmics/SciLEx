@@ -452,8 +452,8 @@ The aggregation applies these filters in order:
 | Arxiv | No | 3/sec | Preprints, no citations |
 | Springer | Yes | 1.5/sec | Journals, books |
 | Elsevier | Yes | 6/sec | Medical, requires inst_token |
-| PubMed | Optional | 3/sec (10/sec with key) | 35M biomedical papers, ~25% with PMC PDFs |
-| ~~PubMed Central~~ | ~~No~~ | ~~3/sec~~ | ~~Deprecated - use PubMed instead~~ |
+| PubMed | Optional | 3/sec (10/sec with key) | 35M biomedical papers, auto-fetches PDF URLs via OA Service (~20-30%) |
+| ~~PubMed Central~~ | ~~Optional~~ | ~~3/sec (10/sec with key)~~ | ~~Deprecated - use PubMed with OA Service instead~~ |
 | HAL | No | 10/sec | French research |
 | DBLP | No | 10/sec | No abstracts (copyright), 95%+ DOI |
 | Istex | No | Conservative | French institutional |
@@ -476,12 +476,22 @@ brew install tor && brew services start tor  # macOS
 
 **Architecture:**
 - PubMed as primary biomedical source (35M papers)
-- Automatic PDF URLs for PMC open-access subset (~7M papers)
+- Automatic PDF URL enrichment via PMC OA Service API
 - No separate PMC collector needed
+
+**PDF Access:**
+PubMed collector automatically enriches results with PDF URLs:
+1. Search PubMed E-utilities for papers
+2. Extract PMCID from metadata
+3. Query PMC OA Service API for PDF URLs (FTP format)
+4. Papers with Open Access get FTP download URLs
+5. Non-OA papers have empty pdf_url but valid article landing page URL
 
 **Coverage:**
 - All biomedical literature (open-access + paywalled metadata)
-- ~20-30% have direct PDF downloads via PMC
+- ~20-30% of PubMed papers have PMC open-access PDFs
+- FTP URLs work reliably: `ftp://ftp.ncbi.nlm.nih.gov/pub/pmc/oa_package/.../PMCID.tar.gz`
+- Alternative: Users can manually download from article page
 - Complete metadata for systematic reviews
 
 **Fields:**

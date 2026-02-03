@@ -36,44 +36,36 @@ class PubMed_collector(API_collector):
         self.load_rate_limit_from_config()
 
     def construct_search_query(self):
-        """Construct Entrez query with keyword groups and date filters.
+        """Construct Entrez query with keywords and date filters.
 
-        Supports dual keyword groups:
-        - Single group: [["term1", "term2"], []] → (term1 OR term2)
-        - Dual groups: [["group1"], ["group2"]] → (group1) AND (group2)
+        get_keywords() returns a flat list of keywords like ["agents", "knowledge graph"]
+        where each element is a complete keyword (possibly multi-word). In dual keyword
+        mode, this list represents the cross-product of both groups, so we join them
+        with AND to match papers containing all keywords.
+
+        All keywords are quoted for exact phrase matching (disables Automatic Term
+        Mapping to MeSH terms, providing more precise results for systematic reviews).
 
         Returns:
-            str: URL-encoded Entrez query string
+            str: Entrez query string for PubMed API
         """
-        keyword_groups = []
+        # Build query terms for each keyword (all quoted for exact matching)
+        query_terms = []
+        for keyword in self.get_keywords():
+            query_terms.append(f'"{keyword}"[Title/Abstract]')
 
-        for keyword_set in self.get_keywords():
-            if not keyword_set:  # Skip empty groups
-                continue
-
-            # Build OR terms for this group
-            group_terms = []
-            for keyword in keyword_set:
-                # Search in both title and abstract
-                encoded_keyword = urllib.parse.quote(keyword)
-                group_terms.append(f"({encoded_keyword}[Title/Abstract])")
-
-            # Join terms in this group with OR
-            if group_terms:
-                keyword_groups.append(f"({' OR '.join(group_terms)})")
-
-        # Join all groups with AND
+        # Join all keywords with AND
         query_parts = []
-        if keyword_groups:
-            query_parts.append(" AND ".join(keyword_groups))
+        if query_terms:
+            query_parts.append(" AND ".join(query_terms))
 
-        # Add date filter
+        # Add date filter with quoted dates and space around colon
         year = str(self.get_year())
         date_filter = f'"{year}/01/01"[PDAT] : "{year}/12/31"[PDAT]'
         query_parts.append(date_filter)
 
         final_query = " AND ".join(query_parts)
-        logging.debug(f"Constructed PubMed query: {final_query}")
+        logging.debug(f"PubMed query: {final_query}")
         return final_query
 
     def get_configurated_url(self):
@@ -83,12 +75,14 @@ class PubMed_collector(API_collector):
             str: URL template with {} placeholder for retstart (offset)
         """
         query = self.construct_search_query()
+        # URL-encode the query for safe transmission
+        encoded_query = urllib.parse.quote(query, safe="")
         api_key_param = f"&api_key={self.api_key}" if self.api_key else ""
 
         url = (
             f"{self.base_url}/esearch.fcgi?"
             f"db=pubmed&"
-            f"term={query}&"
+            f"term={encoded_query}&"
             f"retmax={self.max_by_page}&"
             f"retstart={{}}&"
             f"retmode=xml"
@@ -270,7 +264,7 @@ class PubMed_collector(API_collector):
                 if doi_elem is not None and doi_elem.text:
                     doi = doi_elem.text.strip()
 
-            # Extract PMCID (for PDF URL construction)
+            # Extract PMCID and fetch PDF URL from OA Service
             pmcid = ""
             pdf_url = ""
             if article_id_list is not None:
@@ -281,9 +275,8 @@ class PubMed_collector(API_collector):
                     pmcid_number = pmcid_text.replace("PMC", "")
                     if pmcid_number.isdigit():
                         pmcid = f"PMC{pmcid_number}"
-                        pdf_url = (
-                            f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/"
-                        )
+                        # Query PMC OA Service for actual PDF URL
+                        pdf_url = self._fetch_pmc_pdf_url(pmcid)
 
             # Extract title
             title_elem = article.find(".//ArticleTitle")
@@ -493,6 +486,46 @@ class PubMed_collector(API_collector):
                     mesh_terms.append(descriptor.text.strip())
 
         return mesh_terms
+
+    def _fetch_pmc_pdf_url(self, pmcid):
+        """Fetch PDF URL from PMC OA Service API.
+
+        Args:
+            pmcid: PMC ID (e.g., "PMC3232518")
+
+        Returns:
+            str: FTP URL to PDF/tgz file, or empty string if not Open Access
+        """
+        try:
+            # Query PMC OA Service
+            oa_url = f"https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id={pmcid}"
+            response = self.api_call_decorator(oa_url)
+            response.raise_for_status()
+
+            # Parse XML response
+            root = etree.fromstring(response.content)
+
+            # Check for errors (not Open Access)
+            error = root.find(".//error")
+            if error is not None:
+                logging.debug(f"PMC {pmcid}: {error.get('code')} - {error.text}")
+                return ""
+
+            # Extract PDF or tgz link (prefer PDF)
+            pdf_link = root.find(".//link[@format='pdf']")
+            if pdf_link is not None:
+                return pdf_link.get("href", "")
+
+            # Fallback to tgz if no PDF
+            tgz_link = root.find(".//link[@format='tgz']")
+            if tgz_link is not None:
+                return tgz_link.get("href", "")
+
+            return ""
+
+        except Exception as e:
+            logging.warning(f"Error fetching PMC PDF URL for {pmcid}: {str(e)}")
+            return ""
 
     def _convert_month_to_number(self, month_str):
         """Convert month name/abbreviation to zero-padded number.
