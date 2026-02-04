@@ -88,8 +88,8 @@ class Istex_collector(API_collector):
             f"(title:({keyword_query}) OR abstract:({keyword_query}))"
         )
 
-        # URL-encode the query
-        encoded_query = urllib.parse.quote(query, safe='')
+        # URL-encode the query while preserving Lucene syntax characters
+        encoded_query = urllib.parse.quote(query, safe=':[]() "')
 
         # Construct final URL
         configured_url = (
