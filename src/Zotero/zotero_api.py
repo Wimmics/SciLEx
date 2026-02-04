@@ -97,13 +97,16 @@ class ZoteroAPI:
             logging.error(f"GET request failed for {url}: {e}")
         return None
 
-    def _post(self, path: str, data: Any) -> requests.Response | None:
+    def _post(
+        self, path: str, data: Any, timeout: int = 120
+    ) -> requests.Response | None:
         """
         Perform a POST request to the Zotero API.
 
         Args:
             path: API path (e.g., "/items")
             data: Data to send (will be JSON-encoded)
+            timeout: Request timeout in seconds (default: 120 for bulk uploads)
 
         Returns:
             Response object if successful, None otherwise
@@ -119,12 +122,12 @@ class ZoteroAPI:
 
         try:
             response = requests.post(
-                url, headers=post_headers, data=json.dumps(data), timeout=30
+                url, headers=post_headers, data=json.dumps(data), timeout=timeout
             )
             response.raise_for_status()
             return response
         except requests.exceptions.Timeout:
-            logging.error(f"Timeout while posting to {url}")
+            logging.error(f"Timeout after {timeout}s while posting to {url}")
         except requests.exceptions.RequestException as e:
             logging.error(f"POST request failed for {url}: {e}")
         return None
@@ -318,7 +321,8 @@ class ZoteroAPI:
         Post multiple items to Zotero using true bulk API calls.
 
         Zotero API supports up to 50 items per POST request. This method
-        batches items appropriately for optimal performance.
+        batches items appropriately for optimal performance. If a batch fails
+        due to timeout, it will retry with smaller batch sizes (25, then 10).
 
         Args:
             items: List of item data dictionaries
@@ -346,14 +350,23 @@ class ZoteroAPI:
                 f"Posting batch {batch_num}/{total_batches} ({len(batch)} items)"
             )
 
+            # Try posting with current batch size
             response = self._post("/items", data=batch)
 
             if response and response.status_code in [200, 201]:
                 # All items in batch succeeded
                 results["success"] += len(batch)
                 logging.debug(f"Batch {batch_num} posted successfully")
+            elif response is None and len(batch) > 10:
+                # Timeout likely - retry with smaller batches
+                logging.warning(
+                    f"Batch {batch_num} failed (likely timeout). Retrying with smaller batches..."
+                )
+                retry_results = self._retry_with_smaller_batches(batch)
+                results["success"] += retry_results["success"]
+                results["failed"] += retry_results["failed"]
             else:
-                # Entire batch failed - could implement per-item retry here if needed
+                # Entire batch failed and can't be split further
                 results["failed"] += len(batch)
                 logging.warning(
                     f"Batch {batch_num} failed - {len(batch)} items not posted"
@@ -363,6 +376,52 @@ class ZoteroAPI:
             f"Bulk post complete: {results['success']} succeeded, "
             f"{results['failed']} failed across {total_batches} batches"
         )
+        return results
+
+    def _retry_with_smaller_batches(self, items: list[dict]) -> dict[str, int]:
+        """
+        Retry posting items with progressively smaller batch sizes.
+
+        Args:
+            items: List of items that failed in a larger batch
+
+        Returns:
+            Dictionary with counts: {"success": n, "failed": m}
+        """
+        results = {"success": 0, "failed": 0}
+        remaining_items = items.copy()
+
+        # Try with half the original size first, then smaller
+        for retry_size in [25, 10]:
+            if not remaining_items:
+                break
+
+            # Skip if batch size is too large for remaining items
+            if len(remaining_items) <= retry_size:
+                retry_size = len(remaining_items)
+
+            logging.info(
+                f"Retrying {len(remaining_items)} items with batch size {retry_size}"
+            )
+
+            failed_in_this_round = []
+            for i in range(0, len(remaining_items), retry_size):
+                sub_batch = remaining_items[i : i + retry_size]
+                response = self._post("/items", data=sub_batch)
+
+                if response and response.status_code in [200, 201]:
+                    results["success"] += len(sub_batch)
+                else:
+                    results["failed"] += len(sub_batch)
+                    failed_in_this_round.extend(sub_batch)
+
+            # Update remaining items for next retry
+            remaining_items = failed_in_this_round
+
+            # If all succeeded with this batch size, stop retrying
+            if not remaining_items:
+                break
+
         return results
 
 

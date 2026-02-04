@@ -31,7 +31,7 @@ fields: ["title", "abstract"]
 ### Run Collection
 
 ```bash
-python src/run_collecte.py
+python src/run_collection.py
 ```
 
 Results saved to `output/collect_YYYYMMDD_HHMMSS/`
@@ -149,7 +149,7 @@ quality_filters:
 
 Run:
 ```bash
-python src/run_collecte.py
+python src/run_collection.py
 python src/aggregate_collect.py
 python src/push_to_zotero.py
 ```
@@ -172,13 +172,13 @@ print(df.nlargest(10, 'citation_count')[['title', 'citation_count']])
 
 ```bash
 # Default (clean output)
-python src/run_collecte.py
+python src/run_collection.py
 
 # Detailed progress
-LOG_LEVEL=INFO python src/run_collecte.py
+LOG_LEVEL=INFO python src/run_collection.py
 
 # Full debugging
-LOG_LEVEL=DEBUG python src/run_collecte.py
+LOG_LEVEL=DEBUG python src/run_collection.py
 ```
 
 ## Next Steps

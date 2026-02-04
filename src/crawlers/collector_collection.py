@@ -7,8 +7,10 @@ from queue import Queue
 
 import yaml
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 from src.config_defaults import DEFAULT_OUTPUT_DIR
+
 from .collectors import (
     Arxiv_collector,
     DBLP_collector,
@@ -18,6 +20,8 @@ from .collectors import (
     IEEE_collector,
     Istex_collector,
     OpenAlex_collector,
+    PubMed_collector,
+    PubMedCentral_collector,
     SemanticScholar_collector,
     Springer_collector,
 )
@@ -40,8 +44,10 @@ api_collectors = {
     "SemanticScholar": SemanticScholar_collector,
     "OpenAlex": OpenAlex_collector,
     "HAL": HAL_collector,
-    "ISTEX": Istex_collector,
+    "Istex": Istex_collector,
     "GoogleScholar": GoogleScholarCollector,
+    "PubMed": PubMed_collector,
+    "PubMedCentral": PubMedCentral_collector,
 }
 
 
@@ -483,41 +489,43 @@ class CollectCollection:
         total_queries = sum(len(api_jobs) for api_jobs in jobs_by_api.values())
 
         try:
-            while completed_count < total_queries:
-                try:
-                    # Get result from queue with timeout
-                    result = progress_queue.get(timeout=0.1)
+            # Redirect logging output to work with tqdm progress bars
+            with logging_redirect_tqdm(loggers=[logging.root]):
+                while completed_count < total_queries:
+                    try:
+                        # Get result from queue with timeout
+                        result = progress_queue.get(timeout=0.1)
 
-                    # Update stats
-                    api_name = result["api"]
-                    articles = result["articles_collected"]
-                    api_stats[api_name]["completed"] += 1
-                    api_stats[api_name]["articles"] += articles
+                        # Update stats
+                        api_name = result["api"]
+                        articles = result["articles_collected"]
+                        api_stats[api_name]["completed"] += 1
+                        api_stats[api_name]["articles"] += articles
 
-                    # Update progress bar
-                    if api_name in api_progress_bars:
-                        pbar = api_progress_bars[api_name]
-                        pbar.update(1)
-                        pbar.set_postfix({"papers": api_stats[api_name]["articles"]})
+                        # Update progress bar
+                        if api_name in api_progress_bars:
+                            pbar = api_progress_bars[api_name]
+                            pbar.update(1)
+                            pbar.set_postfix({"papers": api_stats[api_name]["articles"]})
 
-                        # Log milestone when query completes
-                        completed = api_stats[api_name]["completed"]
-                        total = api_stats[api_name]["total"]
-                        total_articles = api_stats[api_name]["articles"]
+                            # Log milestone when query completes
+                            completed = api_stats[api_name]["completed"]
+                            total = api_stats[api_name]["total"]
+                            total_articles = api_stats[api_name]["articles"]
 
-                        # Log at 25%, 50%, 75%, and 100% completion
-                        if completed % max(1, total // 4) == 0 or completed == total:
-                            logging.debug(
-                                f"[{api_name}] Progress: {completed}/{total} queries | {total_articles} papers collected"
-                            )
+                            # Log at 25%, 50%, 75%, and 100% completion
+                            if completed % max(1, total // 4) == 0 or completed == total:
+                                logging.debug(
+                                    f"[{api_name}] Progress: {completed}/{total} queries | {total_articles} papers collected"
+                                )
 
-                    completed_count += 1
+                        completed_count += 1
 
-                except Exception:
-                    # Check if all threads are done
-                    if not any(t.is_alive() for t in threads):
-                        break
-                    continue
+                    except Exception:
+                        # Check if all threads are done
+                        if not any(t.is_alive() for t in threads):
+                            break
+                        continue
 
         finally:
             # Wait for all threads to complete

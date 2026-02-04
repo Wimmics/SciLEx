@@ -180,7 +180,7 @@ src/
 ├── Zotero/
 │   └── zotero_api.py
 ├── constants.py               # Shared constants
-├── run_collecte.py           # Main collection script
+├── run_collection.py           # Main collection script
 └── aggregate_collect.py      # Main aggregation script
 
 output/

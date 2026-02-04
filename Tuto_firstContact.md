@@ -103,15 +103,15 @@ quality_filters:
 Once the previous steps are complete, run the collection from the library source:
 
 ```bash
-python src/run_collecte.py
+python src/run_collection.py
 ```
 
 You'll see real-time progress bars for each API. Expected time: ~5-15 minutes per API.
 
 **Optional:** Control logging verbosity:
 ```bash
-LOG_LEVEL=INFO python src/run_collecte.py   # Detailed logs
-LOG_LEVEL=DEBUG python src/run_collecte.py  # Full debugging
+LOG_LEVEL=INFO python src/run_collection.py   # Detailed logs
+LOG_LEVEL=DEBUG python src/run_collection.py  # Full debugging
 ```
 
 ---

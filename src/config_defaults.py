@@ -8,12 +8,17 @@ When a configuration value is not specified in scilex.config.yml, the system
 will use the corresponding default from this module.
 """
 
+import os
+
 # ============================================================================
 # OUTPUT AND FILE SETTINGS
 # ============================================================================
 
-DEFAULT_OUTPUT_DIR = "output"
-"""Base directory for all collection and aggregation output."""
+# Compute project root (parent of src/) to ensure consistent paths
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DEFAULT_OUTPUT_DIR = os.path.join(_PROJECT_ROOT, "output")
+"""Base directory for all collection and aggregation output.
+Absolute path to ensure consistency regardless of working directory."""
 
 DEFAULT_AGGREGATED_FILENAME = "aggregated_results.csv"
 """Filename for aggregated and deduplicated papers."""

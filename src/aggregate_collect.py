@@ -43,6 +43,8 @@ from src.crawlers.aggregate import (
     IEEEtoZoteroFormat,
     IstextoZoteroFormat,
     OpenAlextoZoteroFormat,
+    PubMedCentraltoZoteroFormat,
+    PubMedtoZoteroFormat,
     SemanticScholartoZoteroFormat,
     SpringertoZoteroFormat,
 )
@@ -80,6 +82,8 @@ FORMAT_CONVERTERS = {
     "Istex": IstextoZoteroFormat,
     "Arxiv": ArxivtoZoteroFormat,
     "GoogleScholar": GoogleScholartoZoteroFormat,
+    "PubMed": PubMedtoZoteroFormat,
+    "PubMedCentral": PubMedCentraltoZoteroFormat,
 }
 
 # ============================================================================
@@ -966,14 +970,14 @@ def _get_ss_citations_if_available(row):
     ss_citation_count = row.get("ss_citation_count")
     ss_reference_count = row.get("ss_reference_count")
 
-    # Check if SS data exists and is valid (> 0)
-    has_valid_citations = pd.notna(ss_citation_count) and ss_citation_count > 0
-    has_valid_references = pd.notna(ss_reference_count) and ss_reference_count > 0
+    # Check if SS data exists (even if 0 - zero citations is valid for recent papers)
+    has_ss_data = pd.notna(ss_citation_count) or pd.notna(ss_reference_count)
 
-    if has_valid_citations or has_valid_references:
+    if has_ss_data:
         # Return the values, defaulting to 0 if one is missing
-        citation_count = int(ss_citation_count) if has_valid_citations else 0
-        reference_count = int(ss_reference_count) if has_valid_references else 0
+        # Note: 0 is a valid value meaning "API confirmed 0 citations"
+        citation_count = int(ss_citation_count) if pd.notna(ss_citation_count) else 0
+        reference_count = int(ss_reference_count) if pd.notna(ss_reference_count) else 0
         return (citation_count, reference_count)
 
     return (None, None)
@@ -1234,7 +1238,11 @@ def _fetch_citations_parallel(
             "Using citation cache (30-day TTL) - expect ~60-80% cache hits on repeated runs"
         )
     logging.info(
-        f"Using {num_workers} parallel workers (rate limit: ~{num_workers * 2.5:.1f} papers/second)"
+        f"Using {num_workers} parallel workers for citation fetching"
+    )
+    logging.info(
+        "Rate limits: OpenCitations API at 1 req/sec "
+        "(cache hits and Semantic Scholar data bypass this limit)"
     )
 
     # Create progress bar and ThreadPoolExecutor for parallel fetching
@@ -1244,6 +1252,8 @@ def _fetch_citations_parallel(
             initial=start_index,
             desc="Fetching citations",
             unit="paper",
+            position=0,
+            leave=True,
         ) as pbar,
         ThreadPoolExecutor(max_workers=num_workers) as executor,
     ):

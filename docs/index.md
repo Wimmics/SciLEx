@@ -66,7 +66,7 @@ cp src/scilex.config.yml.example src/scilex.config.yml
 cp src/api.config.yml.example src/api.config.yml
 
 # 3. Run collection
-python src/run_collecte.py
+python src/run_collection.py
 
 # 4. Aggregate results
 python src/aggregate_collect.py

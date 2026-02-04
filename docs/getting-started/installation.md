@@ -88,7 +88,7 @@ fields: ["title", "abstract"]
 python -c "import pandas, requests, yaml; print('OK')"
 
 # Run a test collection
-python src/run_collecte.py
+python src/run_collection.py
 ```
 
 ## Common Issues

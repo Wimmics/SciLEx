@@ -29,7 +29,7 @@ EOF
 ### 2. Run Collection
 
 ```bash
-python src/run_collecte.py --config src/test_collection.yml
+python src/run_collection.py --config src/test_collection.yml
 ```
 
 You'll see progress like:
@@ -88,7 +88,7 @@ quality_filters:
 
 Then run:
 ```bash
-python src/run_collecte.py
+python src/run_collection.py
 python src/aggregate_collect.py
 ```
 
