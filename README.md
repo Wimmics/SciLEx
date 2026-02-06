@@ -10,7 +10,7 @@ I developed SciLEx scripts in the context of a systematic review conducted durin
 
 ## Key Features
 
-- Multi-API collection with parallel processing (SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, HAL, DBLP, Istex, GoogleScholar)
+- Multi-API collection with parallel processing (SemanticScholar, OpenAlex, IEEE, Arxiv, BioRxiv, PubMed, Springer, HAL, DBLP, Istex)
 - Smart deduplication using DOI, URL, and fuzzy title matching
 - Parallel aggregation with configurable workers (default mode)
 - Citation network extraction via OpenCitations + Semantic Scholar with SQLite caching
@@ -115,6 +115,8 @@ uvx ruff check --fix .
 | **Elsevier** | Yes | 6/sec | Partial | ✓ | Medical, life sciences |
 | **HAL** | No | 10/sec | ✓ | ✗ | French research, theses |
 | **DBLP** | No | 10/sec | ✗ (copyright) | ✗ | CS bibliography, 95%+ DOI coverage |
+| **BioRxiv** | No | 1/sec | ✓ | ✗ | Biology preprints, 100% PDF, client-side keyword filtering |
+| **PubMed** | Optional | 3/sec (10 w/ key) | ✓ | ✗ | 35M biomedical papers, PMC landing page URLs |
 | **Istex** | No | Conservative | ✓ | ✗ | French institutional access |
 
 **Notes:**
@@ -145,6 +147,7 @@ The `file` field contains **direct PDF download URLs** (~40-60% coverage, open-a
 | API | PDF Availability | Source | Implementation |
 |-----|------------------|--------|----------------|
 | arXiv | ✅ Always (100%) | Constructed from ID | `https://arxiv.org/pdf/{id}.pdf` |
+| BioRxiv | ✅ Always (100%) | Constructed from DOI + version | `https://www.biorxiv.org/content/{doi}v{ver}.full.pdf` |
 | SemanticScholar | ✅ Good (~60%) | `open_access_pdf` field | Includes bioRxiv, medRxiv, SSRN |
 | OpenAlex | ✅ Good (~50%) | `best_oa_location.pdf_url` | DOAJ, PubMed Central, repos |
 | HAL | ✅ Good (~70%) | `files_s` list | French institutional repos |

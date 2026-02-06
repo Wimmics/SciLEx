@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SciLEx (Science Literature Exploration) is a Python toolkit for systematic literature reviews. It crawls 10 academic APIs, deduplicates papers, extracts citation networks, and pushes to Zotero with quality filtering.
+SciLEx (Science Literature Exploration) is a Python toolkit for systematic literature reviews. It crawls 11 academic APIs, deduplicates papers, extracts citation networks, and pushes to Zotero with quality filtering.
 
 ## Quick Reference - Commands
 
@@ -83,7 +83,7 @@ See `.deprecated/INVENTORY.md` for details.
 
 Each API has its own collector inheriting from `API_collector`:
 - `semantic_scholar.py`, `openalex.py`, `ieee.py`, `elsevier.py`, `springer.py`
-- `arxiv.py`, `hal.py`, `dblp.py`, `istex.py`, `google_scholar.py`
+- `arxiv.py`, `biorxiv.py`, `hal.py`, `dblp.py`, `istex.py`, `google_scholar.py`
 
 **To add a new API:**
 1. Create collector in `src/crawlers/collectors/` inheriting `API_collector`
@@ -175,14 +175,15 @@ The `file` field in BibTeX entries contains **direct PDF download URLs** when av
 
 **Coverage:**
 - **~40-60% of papers** will have PDF links (only open-access papers)
-- **Best sources**: arXiv (100%), SemanticScholar open-access, OpenAlex open-access
+- **Best sources**: arXiv (100%), BioRxiv (100%), SemanticScholar open-access, OpenAlex open-access
 - **Limited/No PDFs**: Paywalled journals, IEEE (institutional access required), Springer (rare)
 
 **PDF Sources by API:**
 
 | API | PDF Availability | Example Sources |
 |-----|------------------|-----------------|
-| **arXiv** | ✅ Always (100%) | arxiv.org, bioRxiv, medRxiv preprints |
+| **arXiv** | ✅ Always (100%) | arxiv.org preprints |
+| **BioRxiv** | ✅ Always (100%) | Biology preprints (URL built from DOI + version) |
 | **SemanticScholar** | ✅ Good (~60%) | Open-access journals, preprint servers, institutional repos |
 | **OpenAlex** | ✅ Good (~50%) | DOAJ, PubMed Central, institutional repos |
 | **HAL** | ✅ Good (~70%) | French institutional repositories |
@@ -201,6 +202,7 @@ The `pdf_url` field is populated during aggregation in `src/crawlers/aggregate.p
 | **arXiv** | Constructed | Line 594: `https://arxiv.org/pdf/{arxiv_id}.pdf` |
 | **OpenAlex** | `oa_location["pdf_url"]` | Line 901: From `best_oa_location` field |
 | **HAL** | `files_s[0]` | Lines 780-786: First `.pdf` file in list |
+| **BioRxiv** | Constructed | `https://www.biorxiv.org/content/{doi}v{version}.full.pdf` |
 | **IEEE** | `row["pdf_url"]` | Line 1075: Direct from API (when available) |
 | **Others** | N/A | Default: `MISSING_VALUE` |
 
@@ -450,6 +452,7 @@ The aggregation applies these filters in order:
 | OpenAlex | No | 10/sec | Broad coverage, ~60% abstracts |
 | IEEE | Yes | 10/sec, 200/day | Engineering, CS conferences |
 | Arxiv | No | 3/sec | Preprints, no citations |
+| BioRxiv | No | 1/sec | Biology preprints, 100% PDF, two-phase cache+filter (no server-side keyword search) |
 | Springer | Yes | 1.5/sec | Journals, books |
 | Elsevier | Yes | 6/sec | Medical, requires inst_token |
 | PubMed | Optional | 3/sec (10/sec with key) | 35M biomedical papers, provides PMC landing page URLs (100% coverage for papers with PMCID) |
