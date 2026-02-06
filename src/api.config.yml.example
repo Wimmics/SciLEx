@@ -70,6 +70,7 @@ GoogleScholar:
 # These APIs are free to use - no API keys required:
 #   - OpenAlex: Comprehensive open database (https://docs.openalex.org)
 #   - Arxiv: Preprints (https://info.arxiv.org/help/api)
+#   - BioRxiv: Biology preprints (https://api.biorxiv.org)
 #   - HAL: French open archive (https://api.archives-ouvertes.fr/docs)
 #   - DBLP: Computer science bibliography (https://dblp.org)
 #   - Istex: French academic archive (https://api.istex.fr/documentation)
@@ -97,4 +98,5 @@ GoogleScholar:
 #   HAL: 10.0
 #   DBLP: 1.0
 #   GoogleScholar: 2.0
+#   BioRxiv: 1.0              # No API key needed
 #   PubMed: 10.0              # With API key (3.0 without)

@@ -13,6 +13,7 @@ from src.config_defaults import DEFAULT_OUTPUT_DIR
 
 from .collectors import (
     Arxiv_collector,
+    BioRxiv_collector,
     DBLP_collector,
     Elsevier_collector,
     GoogleScholarCollector,
@@ -36,6 +37,7 @@ except ImportError:
     log_api_complete = None
 
 api_collectors = {
+    "BioRxiv": BioRxiv_collector,
     "DBLP": DBLP_collector,
     "Arxiv": Arxiv_collector,
     "Elsevier": Elsevier_collector,
@@ -506,7 +508,9 @@ class CollectCollection:
                         if api_name in api_progress_bars:
                             pbar = api_progress_bars[api_name]
                             pbar.update(1)
-                            pbar.set_postfix({"papers": api_stats[api_name]["articles"]})
+                            pbar.set_postfix(
+                                {"papers": api_stats[api_name]["articles"]}
+                            )
 
                             # Log milestone when query completes
                             completed = api_stats[api_name]["completed"]
@@ -514,7 +518,10 @@ class CollectCollection:
                             total_articles = api_stats[api_name]["articles"]
 
                             # Log at 25%, 50%, 75%, and 100% completion
-                            if completed % max(1, total // 4) == 0 or completed == total:
+                            if (
+                                completed % max(1, total // 4) == 0
+                                or completed == total
+                            ):
                                 logging.debug(
                                     f"[{api_name}] Progress: {completed}/{total} queries | {total_articles} papers collected"
                                 )

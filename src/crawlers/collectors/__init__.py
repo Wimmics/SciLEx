@@ -6,6 +6,7 @@ This module provides API collectors for various academic paper databases.
 
 from .arxiv import Arxiv_collector
 from .base import API_collector, Filter_param
+from .biorxiv import BioRxiv_collector
 from .dblp import DBLP_collector
 from .elsevier import Elsevier_collector
 from .google_scholar import GoogleScholarCollector
@@ -20,6 +21,7 @@ from .springer import Springer_collector
 
 __all__ = [
     "API_collector",
+    "BioRxiv_collector",
     "Filter_param",
     "SemanticScholar_collector",
     "IEEE_collector",

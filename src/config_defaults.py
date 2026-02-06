@@ -184,6 +184,7 @@ Options: 'regular' (default, recommended) or 'bulk' (requires special access).""
 # ============================================================================
 
 DEFAULT_RATE_LIMITS = {
+    "BioRxiv": 1.0,  # No official limit, conservative default
     "SemanticScholar": 1.0,  # With API key: 1 req/sec
     "OpenAlex": 10.0,  # Free tier: 10 req/sec, 100k/day
     "Arxiv": 3.0,  # Recommended: 3 req/sec

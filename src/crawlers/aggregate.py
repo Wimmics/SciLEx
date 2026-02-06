@@ -1630,3 +1630,84 @@ def PubMedtoZoteroFormat(row):
         zotero_temp["itemType"] = "journalArticle"
 
     return zotero_temp
+
+
+def BioRxivtoZoteroFormat(row):
+    """Convert bioRxiv /details/ API results to Zotero format.
+
+    bioRxiv is a preprint server for biological sciences. The ``/details/``
+    endpoint returns clean field names (``doi``, ``title``, ``authors``, etc.)
+    with 100% PDF coverage (constructed from DOI).
+
+    Args:
+        row: Dictionary from the bioRxiv ``/details/`` collection array.
+
+    Returns:
+        dict: Zotero-formatted article metadata.
+    """
+    zotero_temp = {
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": MISSING_VALUE,
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
+    }
+
+    # Fixed fields
+    zotero_temp["archive"] = "BioRxiv"
+    zotero_temp["rights"] = "open_access"
+    zotero_temp["language"] = "en"
+    zotero_temp["publisher"] = "bioRxiv"
+
+    # Default itemType -- override below if published in a journal
+    zotero_temp["itemType"] = "preprint"
+
+    # Title
+    if is_valid(row.get("title")):
+        zotero_temp["title"] = row["title"]
+
+    # Authors -- semicolon-separated string from the API
+    if is_valid(row.get("authors")):
+        zotero_temp["authors"] = row["authors"]
+
+    # Abstract
+    if is_valid(row.get("abstract")):
+        zotero_temp["abstract"] = row["abstract"]
+
+    # DOI and URLs
+    if is_valid(row.get("doi")):
+        doi = clean_doi(row["doi"])
+        zotero_temp["DOI"] = doi
+        zotero_temp["archiveID"] = doi
+        zotero_temp["url"] = f"https://www.biorxiv.org/content/{row['doi']}"
+        zotero_temp["pdf_url"] = (
+            f"https://www.biorxiv.org/content/{row['doi']}v"
+            f"{row.get('version', '1')}.full.pdf"
+        )
+
+    # Date (YYYY-MM-DD from API)
+    if is_valid(row.get("date")):
+        zotero_temp["date"] = row["date"]
+
+    # Category as journalAbbreviation (like arXiv categories)
+    if is_valid(row.get("category")):
+        zotero_temp["journalAbbreviation"] = row["category"]
+
+    # If published in a journal, upgrade itemType
+    if is_valid(row.get("published")) and row["published"] != "NA":
+        zotero_temp["itemType"] = "journalArticle"
+
+    return zotero_temp

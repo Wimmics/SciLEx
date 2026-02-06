@@ -355,6 +355,7 @@ def _process_batch_worker(
     # Import format converters (in worker to avoid pickling issues)
     from src.crawlers.aggregate import (
         ArxivtoZoteroFormat,
+        BioRxivtoZoteroFormat,
         DBLPtoZoteroFormat,
         ElseviertoZoteroFormat,
         GoogleScholartoZoteroFormat,
@@ -378,6 +379,7 @@ def _process_batch_worker(
         "DBLP": DBLPtoZoteroFormat,
         "Istex": IstextoZoteroFormat,
         "Arxiv": ArxivtoZoteroFormat,
+        "BioRxiv": BioRxivtoZoteroFormat,
         "GoogleScholar": GoogleScholartoZoteroFormat,
         "PubMed": PubMedtoZoteroFormat,
         "PubMedCentral": PubMedCentraltoZoteroFormat,
