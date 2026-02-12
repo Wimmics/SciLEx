@@ -1,10 +1,38 @@
+
 ![Scilex](img/projectLogoScilex.png)
 # SciLEx
 
 **SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 9+ academic APIs, deduplicate papers, analyze citation networks, and push to Zotero with advanced quality filtering.
 
-I developed SciLEx scripts in the context of a systematic review conducted during my PhD, introduced in:
-> Celian Ringwald. Learning Pattern-Based Extractors from Natural Language and Knowledge Graphs: Applying Large Language Models to Wikipedia and Linked Open Data. AAAI-24 - 38th AAAI Conference on Artificial Intelligence, Feb 2024, Vancouver, Canada. pp.23411-23412, ⟨10.1609/aaai.v38i21.30406⟩. ⟨hal-04526050⟩
+
+## Cite this work:
+
+Either cite one of the papers above or cite the software itself as this with its SWHID:
+
+**Full text**:
+
+Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit ⟨swh:1:dir:944639eb0260a034a5cbf8766d5ee9b74ca85330⟩. 
+
+**Bibtex**:
+
+```bibtex
+@softwareversion{michel:hal-04128090v1,
+  TITLE = {{SciLEx, Science Literature Exploration Toolkit}},
+  AUTHOR = {Ringwald, Célian and Navey, Benjamin},
+  URL = {https://github.com/Wimmics/SciLEx},
+  NOTE = {},
+  INSTITUTION = {{University C{\^o}te d'Azur ; CNRS ; Inria}},
+  YEAR = {2026},
+  MONTH = Fev,
+  SWHID = {swh:1:dir:944639eb0260a034a5cbf8766d5ee9b74ca85330},
+  VERSION = {1.0},
+  REPOSITORY = {https://github.com/Wimmics/SciLEx},
+  LICENSE = {MIT Licence},
+  KEYWORDS = {Python, Scientific literature, literature research, paper retriva},
+  HAL_ID = {},
+  HAL_VERSION = {},
+}
+```
 
 ---
 
