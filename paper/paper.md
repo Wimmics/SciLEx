@@ -34,8 +34,35 @@ Finally, SciLEx exports all gathered information into a Zotero~\cite{mueen_ahmed
 
 **Legal/Ethical Notice:** 
 ### Similar software
-**1. PyPaperRetriever
+**1. 2025 PyPaperRetriever
 PyPaperRetriever [@Turner2025] addresses these shortcomings through several key improvements. It integrates with three different APIs (Unpaywall, NIH's Entrez, and Crossref) to expand access to a wide range of sources, and prioritizes open‑access sources. The tool also supports PubMed ID searches and programmatic PubMed queries, while enabling module‑level imports for integration into Python workflows, unlike PyPaperBot's command‑line‑only functionality.
+
+-- > Célian
+Ok cela est limité à PubMed, cependant permet utilisation SciHub et intègre fonction téléchargement/ extraction PDF 
+-- > Ben
+Pypaperretriever est un peu similaire à pygetpapers mais diffère dans le sens ou la recherche se fait par DOI et non par keywords. Les deux logiciels proposent un dossiers de documents pdfs en sortie et non une bibliographie. -> pour text mining derrière. 
+Pypaperretriever uitilise le réseau de citations pour parcourir les articles similaires. 
+les 2 papiers sont orientés bio-médecine. 
+
+**2. 2022 Pygetpapers
+-- > Ben
+ils sont quand même orienté bio avec arXiv, EuropePMC, bioRxiv, medRxiv. 
+
+pygetpapers ne fait pas : 
+- filtrage par la qualité, ce qui permet d'enlever les articles apuvres en metadonées 
+- un tri par pertience, ce qui permet d'avoir une sélection d'articles finale en rapport avec les KW
+- un filtrage des papiers par impact avec la mesure d'un seuil de citations en fonction de l'age de publication
+- ne donne pas en sortie une bibliographie (zotero ou Bibtex), mais un dossier de PDFs ou fichiers XMLs
+- n'aggège pas les données suivantes : repo github, dataset, models, et liste de keywords (si existent)
+- N'intègre pas un nombre aussi important de sources que ScilEx
+- la déduplication des articles entre les sources
+- recherche généraliste (centré sur la biologie dans le choix de ses apis)
+
+Les différences semblent aussi porter sur l'objectif : 
+- ScilEx : constituer une  collection scientifique, puis management sur zotero (etudiants) ou integration dans un pipeline (data mining par exemple)
+- pygetpapers : constituer une base de documents PDFs pour data mining derrière (ne fait pas lui meme)
+
+l'un fourni des références, l'autre le full-text. 
 - **2. PyPaperBot**
 
 PyPaperBot [@pypaperbot], while functional, has significant limitations that prompted the development of PyPaperRetriever. PyPaperBot relies primarily on Sci‑Hub, which is ethically controversial, may be unlawful to use in many jurisdictions, and is often blocked by academic institutions and in certain countries. Additionally, it lacks support for PubMed ID‑based searches, a critical feature for researchers in biomedical sciences.
