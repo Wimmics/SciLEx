@@ -16,7 +16,7 @@ Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit
 **Bibtex**:
 
 ```bibtex
-@softwareversion{michel:hal-04128090v1,
+@softwareversion{scilex2026,
   TITLE = {{SciLEx, Science Literature Exploration Toolkit}},
   AUTHOR = {Ringwald, Célian and Navey, Benjamin},
   URL = {https://github.com/Wimmics/SciLEx},
