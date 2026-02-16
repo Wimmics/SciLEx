@@ -18,6 +18,7 @@ getting-started/troubleshooting
 
 user-guides/basic-workflow
 user-guides/advanced-filtering
+user-guides/python-scripting
 ```
 
 ```{toctree}
