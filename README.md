@@ -38,7 +38,7 @@ Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit
 
 ## Key Features
 
-- Multi-API collection with parallel processing (SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, HAL, DBLP, Istex, GoogleScholar)
+- Multi-API collection with parallel processing (SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, HAL, DBLP, Istex, PubMed)
 - Smart deduplication using DOI, URL, and fuzzy title matching
 - Parallel aggregation with configurable workers (default mode)
 - Citation network extraction via OpenCitations + Semantic Scholar with SQLite caching
@@ -49,31 +49,46 @@ Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit
 
 ---
 
+## Installation
+
+```bash
+# Install with pip (or uv)
+pip install -e .
+# OR
+uv pip install -e .
+
+# For development (includes pytest, ruff)
+pip install -e ".[dev]"
+```
+
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
-uv sync
-
-# 2. Configure APIs and search parameters
-cp src/api.config.yml.example src/api.config.yml
-cp src/scilex.config.yml.example src/scilex.config.yml
-cp src/scilex.advanced.yml.example src/scilex.advanced.yml
+# 1. Configure APIs and search parameters
+cp scilex/api.config.yml.example scilex/api.config.yml
+cp scilex/scilex.config.yml.example scilex/scilex.config.yml
+cp scilex/scilex.advanced.yml.example scilex/scilex.advanced.yml
 
 # Edit with your API keys and keywords
 
-# 3. Main workflow
-uv run python src/run_collection.py           # Collect papers from APIs
-uv run python src/aggregate_collect.py      # Deduplicate & filter (parallel by default)
+# 2. Main workflow (CLI commands)
+scilex-collect                               # Collect papers from APIs
+scilex-aggregate                             # Deduplicate & filter (parallel by default)
 
-# 4. Optional: Enrich with HuggingFace metadata (BEFORE output)
-uv run python src/enrich_with_hf.py         # Add ML models, datasets, GitHub stats
+# 3. Optional: Enrich with HuggingFace metadata (BEFORE output)
+scilex-enrich                                # Add ML models, datasets, GitHub stats
 
-# 5. Output to Zotero or BibTeX
-uv run python src/push_to_zotero.py         # Push to Zotero (with HF tags if enriched)
+# 4. Output to Zotero or BibTeX
+scilex-push-zotero                           # Push to Zotero (with HF tags if enriched)
 # OR
-uv run python src/export_to_bibtex.py       # Export to BibTeX (with HF keywords)
+scilex-export-bibtex                         # Export to BibTeX (with HF keywords)
 
+# Alternative: use python -m
+python -m scilex collect
+python -m scilex aggregate
+python -m scilex enrich
+python -m scilex push-zotero
+python -m scilex export-bibtex
 ```
 
 ---
@@ -84,12 +99,11 @@ uv run python src/export_to_bibtex.py       # Export to BibTeX (with HF keywords
 
 ```bash
 # Basic collection
-uv run python src/run_collection.py
+scilex-collect
 
 # Aggregation with all features (default: parallel mode)
-uv run python src/aggregate_collect.py
+scilex-aggregate
 # Optional flags:
-#   --auto-install-spacy: Skip spacy model prompt
 #   --skip-citations: Skip citation fetching
 #   --workers N: Citation workers (default: 3)
 #   --parallel-workers N: Aggregation workers (default: auto)
@@ -99,26 +113,20 @@ uv run python src/aggregate_collect.py
 ### Zotero Integration
 
 ```bash
-uv run python src/push_to_zotero.py
-
-# Legacy script (DEPRECATED)
-uv run python src/push_to_Zotero_collect.py
+scilex-push-zotero
 ```
 
 ### HuggingFace Enrichment (NEW)
 
 ```bash
 # Full enrichment (enriches CSV before pushing to Zotero)
-uv run python src/enrich_with_hf.py
+scilex-enrich
 
 # Dry run (preview matches without updating)
-uv run python src/enrich_with_hf.py --dry-run --limit 10
+scilex-enrich --dry-run --limit 10
 
 # Process limited number of papers
-uv run python src/enrich_with_hf.py --limit 100
-
-# Legacy Zotero-based enrichment (DEPRECATED)
-uv run python src/getHF_collect.py
+scilex-enrich --limit 100
 ```
 
 ### Code Quality
@@ -157,7 +165,7 @@ uvx ruff check --fix .
 Export aggregated papers to BibTeX format for LaTeX, Overleaf, and citation managers.
 
 ```bash
-uv run python src/export_to_bibtex.py
+scilex-export-bibtex
 ```
 
 **Output**: `output/collect_YYYYMMDD_HHMMSS/aggregated_results.bib`
@@ -330,7 +338,7 @@ The top N papers (configurable, default 500) are selected for the final output.
 
 ## Configuration
 
-### `src/scilex.config.yml` - Collection Parameters
+### `scilex/scilex.config.yml` - Collection Parameters
 
 - **`keywords`**: Single or dual group mode
   - Single: `[["term1", "term2"], []]` (ANY match)
@@ -341,7 +349,7 @@ The top N papers (configurable, default 500) are selected for the final output.
 - **`aggregate_get_citations`**: Enable automatic citation fetching
 - **`quality_filters`**: Relevance weights, max_papers limit, citation thresholds
 
-### `src/api.config.yml` - API Credentials
+### `scilex/api.config.yml` - API Credentials
 
 - **Zotero**: `api_key`, `user_id`, `collection_id`
 - **IEEE, Elsevier, Springer**: `api_key` (required)
@@ -362,5 +370,5 @@ The top N papers (configurable, default 500) are selected for the final output.
 
 ### Requirements
 
-- Python ≥3.13
-- uv package manager
+- Python >=3.10
+- pip or uv package manager

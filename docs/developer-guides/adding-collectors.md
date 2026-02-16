@@ -14,7 +14,7 @@ Steps to add a collector:
 
 ## Collector Class
 
-Create in `src/crawlers/collectors.py`:
+Create in `scilex/crawlers/collectors.py`:
 
 ```python
 class YourAPI_collector(API_collector):
@@ -77,10 +77,10 @@ class YourAPI_collector(API_collector):
 
 ## Format Converter
 
-Add to `src/crawlers/aggregate.py`:
+Add to `scilex/crawlers/aggregate.py`:
 
 ```python
-from src.constants import MISSING_VALUE, is_valid
+from scilex.constants import MISSING_VALUE, is_valid
 
 def YourAPItoZoteroFormat(paper):
     """Convert YourAPI format to Zotero."""
@@ -116,7 +116,7 @@ def YourAPItoZoteroFormat(paper):
 
 ## Registration
 
-In `src/crawlers/collector_collection.py`:
+In `scilex/crawlers/collector_collection.py`:
 
 ```python
 api_collectors = {
@@ -127,7 +127,7 @@ api_collectors = {
 }
 ```
 
-In `src/crawlers/aggregate.py`:
+In `scilex/crawlers/aggregate.py`:
 
 ```python
 format_converters = {
@@ -140,7 +140,7 @@ format_converters = {
 
 ## Configuration
 
-Add to `src/api.config.yml.example`:
+Add to `scilex/api.config.yml.example`:
 
 ```yaml
 # YourAPI Configuration
@@ -152,7 +152,7 @@ rate_limits:
   YourAPI: 2.0  # requests/second
 ```
 
-Add to `src/scilex.config.yml.example`:
+Add to `scilex/scilex.config.yml.example`:
 
 ```yaml
 apis:
@@ -163,7 +163,7 @@ apis:
 
 ## Testing
 
-Create `src/API tests/YourAPITest.py`:
+Create `scilex/API tests/YourAPITest.py`:
 
 ```python
 import sys
@@ -177,7 +177,7 @@ import yaml
 
 def test_collector():
     # Load config
-    with open('src/api.config.yml', 'r') as f:
+    with open('scilex/api.config.yml', 'r') as f:
         config = yaml.safe_load(f)
 
     # Test collection
@@ -195,7 +195,7 @@ if __name__ == "__main__":
     test_collector()
 ```
 
-Run: `python "src/API tests/YourAPITest.py"`
+Run: `python "scilex/API tests/YourAPITest.py"`
 
 ## Key Points
 

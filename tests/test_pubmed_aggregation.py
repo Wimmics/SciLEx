@@ -8,14 +8,8 @@ Tests cover:
 - ItemType conversion
 """
 
-import sys
-from pathlib import Path
-
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-from constants import MISSING_VALUE, is_valid
-from crawlers.aggregate import PubMedtoZoteroFormat
+from scilex.constants import MISSING_VALUE, is_valid
+from scilex.crawlers.aggregate import PubMedtoZoteroFormat
 
 
 class TestPubMedAggregation:

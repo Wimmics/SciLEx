@@ -34,7 +34,7 @@ SciLEx is a Python toolkit for systematic literature reviews and academic paper 
 - **arXiv** - Preprints in physics, CS, math
 - **HAL** - French open archive
 - **DBLP** - Computer science bibliography
-- **Google Scholar** - Broad academic search
+- ~~**Google Scholar**~~ - Deprecated (unreliable, requires Tor)
 - **ISTEX** - French scientific archives
 
 ## Key Features
@@ -60,19 +60,19 @@ Query multiple academic databases in parallel with automatic rate limiting.
 
 ```bash
 # 1. Configure search
-cp src/scilex.config.yml.example src/scilex.config.yml
+cp scilex/scilex.config.yml.example scilex/scilex.config.yml
 
 # 2. Set up API keys
-cp src/api.config.yml.example src/api.config.yml
+cp scilex/api.config.yml.example scilex/api.config.yml
 
 # 3. Run collection
-python src/run_collection.py
+scilex-collect
 
 # 4. Aggregate results
-python src/aggregate_collect.py
+scilex-aggregate
 
 # 5. Export to Zotero (optional)
-python src/push_to_zotero.py
+scilex-push-zotero
 ```
 
 ## System Requirements

@@ -6,8 +6,8 @@ This guide explains how to configure SciLEx for your research needs.
 
 SciLEx uses two main configuration files:
 
-1. **`src/scilex.config.yml`** - Search and collection settings
-2. **`src/api.config.yml`** - API credentials and rate limits
+1. **`scilex/scilex.config.yml`** - Search and collection settings
+2. **`scilex/api.config.yml`** - API credentials and rate limits
 
 ## Basic Configuration
 
@@ -195,7 +195,7 @@ These APIs work without configuration:
 - Arxiv
 - DBLP
 - HAL
-- GoogleScholar
+- ~~GoogleScholar~~ (deprecated - unreliable, requires Tor proxy)
 
 ### APIs Requiring Keys
 

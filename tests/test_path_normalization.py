@@ -1,13 +1,6 @@
 """Unit tests for path normalization utilities."""
 
-import sys
-from pathlib import Path
-
-# Add project root to path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
-from src.constants import normalize_path_component  # noqa: E402
+from scilex.constants import normalize_path_component
 
 
 def test_normalize_leading_slash():

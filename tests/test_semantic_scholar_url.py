@@ -3,11 +3,7 @@
 Test to verify Semantic Scholar URL construction with pagination parameters.
 """
 
-import sys
-
-sys.path.insert(0, "/Users/jean_hubert/dev/SciLEx/src")
-
-from crawlers.collectors import SemanticScholar_collector
+from scilex.crawlers.collectors import SemanticScholar_collector
 
 
 def test_semantic_scholar_url():

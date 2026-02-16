@@ -142,7 +142,7 @@ packaging==25.0
     #   scilex
     #   sphinx
     #   statsmodels
-pandas==2.3.1
+#pandas==2.3.1
     # via
     #   scilex
     #   statsmodels
@@ -202,7 +202,7 @@ roman-numerals-py==3.1.0
     #   sphinx
 scholarly==1.7.11
     # via scilex
-scikit-learn==1.7.1
+#scikit-learn==1.7.1
     # via scilex
 scipy==1.16.1
     # via

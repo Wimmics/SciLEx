@@ -159,20 +159,20 @@ sketch
 
 /output_dir/*
 /output/*
-/src/output/*
-/src/api.config.yml
-/src/scilex.config.yml
-/src/output/entityLinking/
-/src/output/guigui_test/
-/src/output/relationExtraction2019_2022/
-/src/output/relationExtraction2023_2024/
-/src/output/relationExtraction_new/
-/src/output/relationExtraction_SAT/
-/src/output/relationExtraction_test/
-/src/output/testBeamSearch/
-/src/output/testBeamSearch2/
-/src/output/testRE202d4/
-/src/output/config_used.yml
+/scilex/output/*
+/scilex/api.config.yml
+/scilex/scilex.config.yml
+/scilex/output/entityLinking/
+/scilex/output/guigui_test/
+/scilex/output/relationExtraction2019_2022/
+/scilex/output/relationExtraction2023_2024/
+/scilex/output/relationExtraction_new/
+/scilex/output/relationExtraction_SAT/
+/scilex/output/relationExtraction_test/
+/scilex/output/testBeamSearch/
+/scilex/output/testBeamSearch2/
+/scilex/output/testRE202d4/
+/scilex/output/config_used.yml
 
 # Git worktrees (isolated development workspaces)
 .worktrees/
@@ -441,14 +441,14 @@ pyrightconfig.json
 .history
 .ionide
 CLAUDE.md
-src/api.config.yml
+scilex/api.config.yml
 
 KG_memory
 
 
 .claude
 .serena
-src/scilex.advanced.yml
+scilex/scilex.advanced.yml
 
 
 

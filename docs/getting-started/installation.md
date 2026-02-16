@@ -23,8 +23,8 @@ pip install -r requirements.txt
 ### 2. Configure API Keys
 
 ```bash
-cp src/api.config.yml.example src/api.config.yml
-nano src/api.config.yml
+cp scilex/api.config.yml.example scilex/api.config.yml
+nano scilex/api.config.yml
 ```
 
 Add your API keys:
@@ -62,8 +62,8 @@ Get API keys from:
 ### 3. Configure Search
 
 ```bash
-cp src/scilex.config.yml.example src/scilex.config.yml
-nano src/scilex.config.yml
+cp scilex/scilex.config.yml.example scilex/scilex.config.yml
+nano scilex/scilex.config.yml
 ```
 
 Basic configuration:
@@ -88,7 +88,7 @@ fields: ["title", "abstract"]
 python -c "import pandas, requests, yaml; print('OK')"
 
 # Run a test collection
-python src/run_collection.py
+scilex-collect
 ```
 
 ## Common Issues

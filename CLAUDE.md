@@ -10,21 +10,25 @@ SciLEx (Science Literature Exploration) is a Python toolkit for systematic liter
 
 ```bash
 # Setup
-uv sync                                      # Install dependencies
-cp src/api.config.yml.example src/api.config.yml    # Create API config
-cp src/scilex.config.yml.example src/scilex.config.yml  # Create collection config
+pip install -e .                                     # Install package (or: uv pip install -e .)
+cp scilex/api.config.yml.example scilex/api.config.yml    # Create API config
+cp scilex/scilex.config.yml.example scilex/scilex.config.yml  # Create collection config
 
-# Main workflow
-uv run python src/run_collection.py                   # 1. Collect papers from APIs
-uv run python src/aggregate_collect.py              # 2. Deduplicate & filter (parallel)
-uv run python src/enrich_with_hf.py                 # 3. (Optional) HuggingFace CSV enrichment
-uv run python src/push_to_zotero.py                 # 4. Push to Zotero (OR export to BibTeX below)
-uv run python src/export_to_bibtex.py               # 4. (Alternative) Export to BibTeX file
+# Main workflow (CLI commands)
+scilex-collect                                       # 1. Collect papers from APIs
+scilex-aggregate                                     # 2. Deduplicate & filter (parallel)
+scilex-enrich                                        # 3. (Optional) HuggingFace CSV enrichment
+scilex-push-zotero                                   # 4. Push to Zotero (OR export to BibTeX below)
+scilex-export-bibtex                                 # 4. (Alternative) Export to BibTeX file
+
+# Alternative: python -m scilex <command>
+python -m scilex collect                             # Same as scilex-collect
+python -m scilex aggregate                           # Same as scilex-aggregate
 
 # Aggregation flags
-uv run python src/aggregate_collect.py --skip-citations     # Skip citation fetching
-uv run python src/aggregate_collect.py --workers 5          # Citation workers (default: 3)
-uv run python src/aggregate_collect.py --profile            # Performance stats
+scilex-aggregate --skip-citations                    # Skip citation fetching
+scilex-aggregate --workers 5                         # Citation workers (default: 3)
+scilex-aggregate --profile                           # Performance stats
 
 # Code quality (run before committing)
 uvx ruff format .                            # Format code
@@ -35,8 +39,8 @@ uv run python -m pytest tests/                      # Run all tests
 uv run python -m pytest tests/test_dual_keyword_logic.py   # Run specific test
 
 # Debug logging
-LOG_LEVEL=DEBUG uv run python src/run_collection.py  # Full diagnostic details
-LOG_LEVEL=INFO uv run python src/run_collection.py   # Key milestones only
+LOG_LEVEL=DEBUG scilex-collect                       # Full diagnostic details
+LOG_LEVEL=INFO scilex-collect                        # Key milestones only
 ```
 
 ## Architecture
@@ -59,6 +63,7 @@ The following modules/scripts have been moved to `.deprecated/` and are no longe
 - `API tests/` - Replaced by unit tests
 - `getLPWC_collect.py` - Use `enrich_with_hf.py` instead
 - `optimize_keywords.py` - Standalone tool (not integrated)
+- `google_scholar.py` - Deprecated collector (unreliable, requires Tor, frequent blocking)
 
 See `.deprecated/INVENTORY.md` for details.
 
@@ -66,30 +71,30 @@ See `.deprecated/INVENTORY.md` for details.
 
 | File | Purpose |
 |------|---------|
-| `src/run_collection.py` | Main collection orchestrator |
-| `src/aggregate_collect.py` | Deduplication, filtering, relevance ranking |
-| `src/enrich_with_hf.py` | HuggingFace CSV enrichment (adds HF metadata to aggregated CSV) |
-| `src/push_to_zotero.py` | Bulk upload to Zotero (50 items/batch) |
-| `src/export_to_bibtex.py` | Export aggregated papers to BibTeX format |
-| `src/getHF_collect.py` | HuggingFace metadata enrichment (legacy Zotero-based) |
-| `src/constants.py` | `MISSING_VALUE`, `is_valid()`, config classes |
-| `src/crawlers/collectors/base.py` | `API_collector` base class |
-| `src/crawlers/collector_collection.py` | `CollectCollection` orchestrator |
-| `src/crawlers/aggregate.py` | Format converters for all APIs |
-| `src/Zotero/zotero_api.py` | `ZoteroAPI` client class |
-| `src/citations/citations_tools.py` | Citation fetching (cache → SS → OpenCitations) |
+| `scilex/run_collection.py` | Main collection orchestrator |
+| `scilex/aggregate_collect.py` | Deduplication, filtering, relevance ranking |
+| `scilex/enrich_with_hf.py` | HuggingFace CSV enrichment (adds HF metadata to aggregated CSV) |
+| `scilex/push_to_zotero.py` | Bulk upload to Zotero (50 items/batch) |
+| `scilex/export_to_bibtex.py` | Export aggregated papers to BibTeX format |
+| `scilex/getHF_collect.py` | HuggingFace metadata enrichment (legacy Zotero-based) |
+| `scilex/constants.py` | `MISSING_VALUE`, `is_valid()`, config classes |
+| `scilex/crawlers/collectors/base.py` | `API_collector` base class |
+| `scilex/crawlers/collector_collection.py` | `CollectCollection` orchestrator |
+| `scilex/crawlers/aggregate.py` | Format converters for all APIs |
+| `scilex/Zotero/zotero_api.py` | `ZoteroAPI` client class |
+| `scilex/citations/citations_tools.py` | Citation fetching (cache → SS → OpenCitations) |
 
-### Collector Classes (`src/crawlers/collectors/`)
+### Collector Classes (`scilex/crawlers/collectors/`)
 
 Each API has its own collector inheriting from `API_collector`:
 - `semantic_scholar.py`, `openalex.py`, `ieee.py`, `elsevier.py`, `springer.py`
 - `arxiv.py`, `hal.py`, `dblp.py`, `istex.py`, `google_scholar.py`
 
 **To add a new API:**
-1. Create collector in `src/crawlers/collectors/` inheriting `API_collector`
+1. Create collector in `scilex/crawlers/collectors/` inheriting `API_collector`
 2. Implement: `__init__()`, `query_build()`, `run()`, `parsePageResults()`
-3. Add format converter in `src/crawlers/aggregate.py` (use `MISSING_VALUE`, `is_valid()`)
-4. Register in `api_collectors` dict in `src/crawlers/collector_collection.py`
+3. Add format converter in `scilex/crawlers/aggregate.py` (use `MISSING_VALUE`, `is_valid()`)
+4. Register in `api_collectors` dict in `scilex/crawlers/collector_collection.py`
 
 ### Data Flow
 
@@ -107,7 +112,7 @@ output/
 
 ## Configuration
 
-### `src/scilex.config.yml` - Search Parameters
+### `scilex/scilex.config.yml` - Search Parameters
 
 ```yaml
 keywords:
@@ -125,7 +130,7 @@ Export aggregated papers to BibTeX format for LaTeX, Overleaf, and citation mana
 
 ```bash
 # Export to BibTeX (generates aggregated_results.bib in collection directory)
-uv run python src/export_to_bibtex.py
+scilex-export-bibtex
 ```
 
 ### Features
@@ -193,7 +198,7 @@ The `file` field in BibTeX entries contains **direct PDF download URLs** when av
 
 **For Developers:**
 
-The `pdf_url` field is populated during aggregation in `src/crawlers/aggregate.py`:
+The `pdf_url` field is populated during aggregation in `scilex/crawlers/aggregate.py`:
 
 | API | Source Field | Implementation |
 |-----|-------------|----------------|
@@ -205,7 +210,7 @@ The `pdf_url` field is populated during aggregation in `src/crawlers/aggregate.p
 | **Others** | N/A | Default: `MISSING_VALUE` |
 
 **Technical Notes:**
-- Only valid URLs are included (validated via `is_valid()` from `src/constants.py`)
+- Only valid URLs are included (validated via `is_valid()` from `scilex/constants.py`)
 - SemanticScholar's `open_access_pdf` field indexes multiple preprint servers (bioRxiv, medRxiv, SSRN)
 - OpenAlex uses the "best" open-access location (preference: repository > publisher)
 
@@ -298,7 +303,7 @@ if 'url' in entry:
 }
 ```
 
-### `src/api.config.yml` - API Keys & Rate Limits
+### `scilex/api.config.yml` - API Keys & Rate Limits
 
 ```yaml
 SemanticScholar:
@@ -318,12 +323,12 @@ Enriches aggregated papers with HF metadata (tags, URLs, GitHub repos) BEFORE pu
 
 ```bash
 # Enrich CSV with HuggingFace metadata
-uv run python src/enrich_with_hf.py
+scilex-enrich
 
 # Then choose output format:
-uv run python src/push_to_zotero.py      # Push to Zotero (with tags)
+scilex-push-zotero                       # Push to Zotero (with tags)
 # OR
-uv run python src/export_to_bibtex.py    # Export to BibTeX (with keywords)
+scilex-export-bibtex                     # Export to BibTeX (with keywords)
 ```
 
 ### What It Does
@@ -340,18 +345,18 @@ uv run python src/export_to_bibtex.py    # Export to BibTeX (with keywords)
 
 ```bash
 # Normal run (updates CSV in-place)
-uv run python src/enrich_with_hf.py
+scilex-enrich
 
 # Dry run (preview matches without updating)
-uv run python src/enrich_with_hf.py --dry-run --limit 10
+scilex-enrich --dry-run --limit 10
 
 # Process specific number of papers
-uv run python src/enrich_with_hf.py --limit 100
+scilex-enrich --limit 100
 ```
 
 ### Configuration
 
-Existing config in `src/scilex.config.yml` (no changes needed):
+Existing config in `scilex/scilex.config.yml` (no changes needed):
 ```yaml
 hf_enrichment:
   enabled: true                      # Enable/disable enrichment
@@ -403,7 +408,7 @@ When pushing to Zotero after enrichment:
 ### Missing Value Handling
 
 ```python
-from src.constants import MISSING_VALUE, is_valid, is_missing, safe_str
+from scilex.constants import MISSING_VALUE, is_valid, is_missing, safe_str
 
 # Always use these instead of hardcoded "NA" or None checks
 if is_valid(paper.get("DOI")):
@@ -457,7 +462,7 @@ The aggregation applies these filters in order:
 | HAL | No | 10/sec | French research |
 | DBLP | No | 10/sec | No abstracts (copyright), 95%+ DOI |
 | Istex | No | Conservative | French institutional |
-| GoogleScholar | No | 2/sec | Uses Tor proxy, slow |
+| ~~GoogleScholar~~ | ~~No~~ | ~~2/sec~~ | ~~Deprecated - unreliable, requires Tor, frequent blocking. Use SemanticScholar or OpenAlex instead~~ |
 
 ## Known Issues
 
@@ -465,12 +470,6 @@ The aggregation applies these filters in order:
 API directory names must match config exactly. If collector creates `Istex/` but config has `ISTEX`, papers are excluded.
 
 **Fix:** Rename directory or update `self.api_name` in collector to match config.
-
-### Google Scholar Setup
-Requires Tor for reliable operation:
-```bash
-brew install tor && brew services start tor  # macOS
-```
 
 ## PubMed Integration
 
@@ -510,9 +509,9 @@ apis:
   - PubMed  # Biomedical literature
 
 # Run collection
-uv run python src/run_collection.py
-uv run python src/aggregate_collect.py
-uv run python src/push_to_zotero.py
+scilex-collect
+scilex-aggregate
+scilex-push-zotero
 ```
 
 **Migrating from PubMedCentral:**
@@ -536,8 +535,8 @@ If your config uses `PubMedCentral`:
 Enriches papers with ML metadata (replaces deprecated PaperWithCode):
 
 ```bash
-uv run python src/getHF_collect.py --dry-run --limit 10  # Preview
-uv run python src/getHF_collect.py                        # Full run
+scilex-enrich --dry-run --limit 10                        # Preview
+scilex-enrich                                             # Full run
 ```
 
 **Updates Zotero fields:**

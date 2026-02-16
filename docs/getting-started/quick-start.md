@@ -7,7 +7,7 @@ Get your first paper collection running. This assumes you've [installed SciLEx](
 ### 1. Create Configuration
 
 ```bash
-cat > src/test_collection.yml << 'EOF'
+cat > scilex/test_collection.yml << 'EOF'
 keywords:
   - ["machine learning"]
   - []
@@ -29,7 +29,7 @@ EOF
 ### 2. Run Collection
 
 ```bash
-python src/run_collection.py --config src/test_collection.yml
+scilex-collect --config scilex/test_collection.yml
 ```
 
 You'll see progress like:
@@ -42,7 +42,7 @@ Progress: 2/4 (50%) collections completed
 ### 3. Aggregate Results
 
 ```bash
-python src/aggregate_collect.py
+scilex-aggregate
 ```
 
 Results saved to `output/collect_*/aggregated_data.csv`
@@ -61,7 +61,7 @@ Or open in spreadsheet software.
 For a proper research collection:
 
 ```yaml
-# src/scilex.config.yml
+# scilex/scilex.config.yml
 keywords:
   - ["knowledge graph", "ontology"]      # Domain
   - ["large language model", "LLM"]      # Technology
@@ -88,8 +88,8 @@ quality_filters:
 
 Then run:
 ```bash
-python src/run_collection.py
-python src/aggregate_collect.py
+scilex-collect
+scilex-aggregate
 ```
 
 ## CSV Output Columns

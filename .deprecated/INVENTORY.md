@@ -61,6 +61,20 @@ This directory contains code that has been deprecated and will be removed in a f
 - **Migration:** Update `scilex.config.yml` to use `PubMed` instead of `PubMedCentral`
 - **Import Check:** ⚠️ Still referenced in code (will be removed in cleanup phase)
 
+### 2. Google Scholar Collector (`scilex/crawlers/collectors/google_scholar.py`)
+- **Reason:** Unreliable scraping, requires Tor proxy, frequent blocking by Google
+- **Replacement:** Use `SemanticScholar` or `OpenAlex` for broad coverage
+- **Date Deprecated:** 2026-02-16
+- **Location:** `.deprecated/collectors/google_scholar.py`
+- **Key Issues:**
+  - Relies on web scraping (no official API) - fragile and unreliable
+  - Requires Tor proxy setup for IP rotation
+  - Frequently blocked by Google anti-bot measures
+  - Rate-limited to ~2 req/sec even with Tor
+  - SemanticScholar and OpenAlex provide better programmatic access
+- **Migration:** Remove `GoogleScholar` from `apis` list in `scilex.config.yml`
+- **Import Check:** ✅ Removed from collector registry and `__init__.py`
+
 ---
 
 ## Deprecated Scripts

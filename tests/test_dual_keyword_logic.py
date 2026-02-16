@@ -5,14 +5,9 @@ These tests verify that each collector properly implements AND logic
 between dual keyword groups, ensuring papers match keywords from BOTH groups.
 """
 
-import sys
 import urllib.parse
-from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-from crawlers.collectors import (
+from scilex.crawlers.collectors import (
     Arxiv_collector,
     DBLP_collector,
     Elsevier_collector,

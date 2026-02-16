@@ -12,7 +12,7 @@ Standard workflow for collecting and aggregating papers.
 
 ### Configure Search
 
-Edit `src/scilex.config.yml`:
+Edit `scilex/scilex.config.yml`:
 
 ```yaml
 keywords:
@@ -31,7 +31,7 @@ fields: ["title", "abstract"]
 ### Run Collection
 
 ```bash
-python src/run_collection.py
+scilex-collect
 ```
 
 Results saved to `output/collect_YYYYMMDD_HHMMSS/`
@@ -56,7 +56,7 @@ Re-running collection skips already completed queries. Safe to re-run without wa
 ### Basic Aggregation
 
 ```bash
-python src/aggregate_collect.py
+scilex-aggregate
 ```
 
 Process:
@@ -92,7 +92,7 @@ Columns:
 
 ### Configure
 
-Edit `src/api.config.yml`:
+Edit `scilex/api.config.yml`:
 
 ```yaml
 zotero:
@@ -104,7 +104,7 @@ zotero:
 ### Run Export
 
 ```bash
-python src/push_to_zotero.py
+scilex-push-zotero
 ```
 
 Papers uploaded in batches. Duplicates skipped by URL.
@@ -125,7 +125,7 @@ Check logs to see papers filtered at each step.
 ## Complete Example
 
 ```yaml
-# src/scilex.config.yml
+# scilex/scilex.config.yml
 keywords:
   - ["knowledge graph"]
   - ["LLM", "large language model"]
@@ -149,9 +149,9 @@ quality_filters:
 
 Run:
 ```bash
-python src/run_collection.py
-python src/aggregate_collect.py
-python src/push_to_zotero.py
+scilex-collect
+scilex-aggregate
+scilex-push-zotero
 ```
 
 ## Analyze Results
@@ -172,13 +172,13 @@ print(df.nlargest(10, 'citation_count')[['title', 'citation_count']])
 
 ```bash
 # Default (clean output)
-python src/run_collection.py
+scilex-collect
 
 # Detailed progress
-LOG_LEVEL=INFO python src/run_collection.py
+LOG_LEVEL=INFO scilex-collect
 
 # Full debugging
-LOG_LEVEL=DEBUG python src/run_collection.py
+LOG_LEVEL=DEBUG scilex-collect
 ```
 
 ## Next Steps

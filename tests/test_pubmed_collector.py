@@ -9,15 +9,11 @@ Tests cover:
 - MeSH terms extraction
 """
 
-import sys
 from pathlib import Path
 
 from lxml import etree
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-
-from crawlers.collectors import PubMed_collector
+from scilex.crawlers.collectors import PubMed_collector
 
 
 class TestPubMedCollector:

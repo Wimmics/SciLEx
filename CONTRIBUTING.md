@@ -40,7 +40,7 @@ We are committed to providing a welcoming and inclusive environment. Please:
 
 ### Prerequisites
 
-- Python 3.13 or higher
+- Python 3.10 or higher
 - uv package manager (recommended)
 - Git
 
@@ -58,8 +58,8 @@ We are committed to providing a welcoming and inclusive environment. Please:
 
 3. Copy configuration files:
    ```bash
-   cp src/api.config.yml.example src/api.config.yml
-   cp src/scilex.config.yml.example src/scilex.config.yml
+   cp scilex/api.config.yml.example scilex/api.config.yml
+   cp scilex/scilex.config.yml.example scilex/scilex.config.yml
    ```
 
 4. Run tests to verify setup:
@@ -146,7 +146,7 @@ uvx ruff check --fix .
 
 3. **Constants**: Use the centralized constants module
    ```python
-   from src.constants import MISSING_VALUE, is_valid
+   from scilex.constants import MISSING_VALUE, is_valid
    ```
 
 4. **Error Handling**: Be specific with exceptions
@@ -171,7 +171,7 @@ uvx ruff check --fix .
 ### Project Structure
 
 ```
-src/
+scilex/
 ├── crawlers/           # Keep collector logic here
 ├── citations/          # Citation-related code
 ├── Zotero/            # Zotero integration
@@ -220,7 +220,7 @@ python -m pytest
 python -m pytest tests/test_collectors.py
 
 # Run with coverage
-python -m pytest --cov=src --cov-report=html
+python -m pytest --cov=scilex --cov-report=html
 
 # Run specific API test
 python "src/API tests/SemanticScholarAPI.py"
@@ -377,7 +377,7 @@ Include:
 
 ```python
 # Use cProfile for performance analysis
-python -m cProfile -o profile.stats src/aggregate_collect.py
+python -m cProfile -o profile.stats -m scilex aggregate
 
 # Analyze with snakeviz
 pip install snakeviz
@@ -389,14 +389,14 @@ snakeviz profile.stats
 ```python
 # Use memory_profiler
 pip install memory_profiler
-python -m memory_profiler src/run_collection.py
+python -m memory_profiler -m scilex collect
 ```
 
 ### Debugging Tips
 
 1. **Enable debug logging**:
    ```bash
-   LOG_LEVEL=DEBUG python src/run_collection.py
+   LOG_LEVEL=DEBUG scilex-collect
    ```
 
 2. **Save intermediate results**:

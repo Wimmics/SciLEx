@@ -62,7 +62,7 @@ Error: IEEE API key validation failed
 ```
 
 **Solution**:
-1. Check your API key is correct in `src/api.config.yml`
+1. Check your API key is correct in `scilex/api.config.yml`
 2. Remove any extra spaces or quotes
 3. Verify key is active on API provider's dashboard
 4. Check if key has expired
@@ -154,7 +154,7 @@ pip install --upgrade certifi
 1. Check if it's actually making progress (logs update slowly)
 2. Enable debug logging:
    ```bash
-   LOG_LEVEL=DEBUG python src/run_collection.py
+   LOG_LEVEL=DEBUG scilex-collect
    ```
 3. Check API rate limits aren't too low
 4. Try with fewer APIs first
@@ -204,10 +204,10 @@ MemoryError: Unable to allocate array
 **Solution**:
 ```bash
 # Use parallel mode with batching (default)
-python src/aggregate_collect.py
+scilex-aggregate
 
 # Or reduce batch size
-python src/aggregate_collect.py --batch-size 1000
+scilex-aggregate --batch-size 1000
 ```
 
 ### Slow Aggregation
@@ -217,7 +217,7 @@ python src/aggregate_collect.py --batch-size 1000
 **Solution**:
 ```bash
 # Ensure parallel mode is used (default)
-python src/aggregate_collect.py
+scilex-aggregate
 
 # Skip citations if not needed
 # In config:
@@ -274,10 +274,10 @@ FileNotFoundError: scilex.config.yml not found
 **Solution**:
 ```bash
 # Copy example config
-cp src/scilex.config.yml.example src/scilex.config.yml
+cp scilex/scilex.config.yml.example scilex/scilex.config.yml
 
 # Edit with your settings
-nano src/scilex.config.yml
+nano scilex/scilex.config.yml
 ```
 
 ## Data Quality Issues
@@ -312,7 +312,7 @@ nano src/scilex.config.yml
 ### Enable Debug Logging
 
 ```bash
-LOG_LEVEL=DEBUG python src/run_collection.py
+LOG_LEVEL=DEBUG scilex-collect
 ```
 
 ### Check Logs
@@ -322,15 +322,15 @@ Look for errors in console output or check the collection directory for state fi
 ### Test Individual APIs
 
 ```bash
-python "src/API tests/SemanticScholarAPI.py"
-python "src/API tests/OpenAlexAPI.py"
+python "scilex/API tests/SemanticScholarAPI.py"
+python "scilex/API tests/OpenAlexAPI.py"
 ```
 
 ### Verify Configuration
 
 ```bash
 # Check YAML syntax
-python -c "import yaml; yaml.safe_load(open('src/scilex.config.yml'))"
+python -c "import yaml; yaml.safe_load(open('scilex/scilex.config.yml'))"
 ```
 
 ## Getting Help

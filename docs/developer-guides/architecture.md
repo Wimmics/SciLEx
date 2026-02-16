@@ -18,7 +18,7 @@ CSV Output / Zotero Export
 
 ### 1. Collection System
 
-**Location**: `src/crawlers/collector_collection.py`
+**Location**: `scilex/crawlers/collector_collection.py`
 
 Orchestrates parallel API collection:
 - Creates jobs from config (keywords × years × APIs)
@@ -26,14 +26,14 @@ Orchestrates parallel API collection:
 - Tracks progress and handles errors
 - Skips completed queries (idempotent)
 
-**API Collectors** (`src/crawlers/collectors.py`):
+**API Collectors** (`scilex/crawlers/collectors.py`):
 - Base class: `API_collector`
 - 10 implementations (SemanticScholar, OpenAlex, IEEE, etc.)
 - Each handles query building, pagination, parsing
 
 ### 2. Aggregation Pipeline
 
-**Location**: `src/aggregate_collect.py`
+**Location**: `scilex/aggregate_collect.py`
 
 Processes collected papers:
 1. Load JSON files from all APIs
@@ -45,14 +45,14 @@ Processes collected papers:
 7. Rank by relevance
 8. Output to CSV
 
-**Parallel Mode** (`src/crawlers/aggregate_parallel.py`):
+**Parallel Mode** (`scilex/crawlers/aggregate_parallel.py`):
 - Multiprocessing for speed
 - Batch processing (5000 papers/batch)
 - Auto-detects CPU count
 
 ### 3. Format Converters
 
-**Location**: `src/crawlers/aggregate.py`
+**Location**: `scilex/crawlers/aggregate.py`
 
 Convert API-specific formats to unified schema:
 - One converter per API
@@ -61,7 +61,7 @@ Convert API-specific formats to unified schema:
 
 ### 4. Filtering Engine
 
-**Location**: `src/aggregate_collect.py`
+**Location**: `scilex/aggregate_collect.py`
 
 5-phase filtering:
 1. ItemType filter
@@ -72,7 +72,7 @@ Convert API-specific formats to unified schema:
 
 ### 5. Citation System
 
-**Location**: `src/citations/citations_tools.py`
+**Location**: `scilex/citations/citations_tools.py`
 
 Three-tier strategy:
 1. SQLite cache (instant)
@@ -83,7 +83,7 @@ Cache location: `output/citation_cache.db`
 
 ### 6. Zotero Integration
 
-**Location**: `src/Zotero/zotero_api.py`
+**Location**: `scilex/Zotero/zotero_api.py`
 
 API client for Zotero:
 - Bulk uploads (50 items/batch)
@@ -169,7 +169,7 @@ Hierarchical priority:
 ## Directory Structure
 
 ```
-src/
+scilex/
 ├── crawlers/
 │   ├── collectors.py          # API collector classes
 │   ├── collector_collection.py
@@ -193,9 +193,9 @@ output/
 
 ### New API Collector
 
-1. Create collector class in `collectors.py`
+1. Create collector class in `scilex/crawlers/collectors.py`
 2. Implement abstract methods
-3. Add format converter in `aggregate.py`
+3. Add format converter in `scilex/crawlers/aggregate.py`
 4. Register in `api_collectors` dict
 5. Add to config examples
 

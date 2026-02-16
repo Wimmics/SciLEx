@@ -14,7 +14,7 @@ Reference guide comparing all supported academic APIs.
 | **arXiv** | 2M+ preprints | No | 3 req/s | 100% | No | 60% | Physics/Math/CS |
 | **HAL** | 1M+ docs | No | 10 req/s | 70% | No | 40% | French research |
 | **DBLP** | 6M+ CS papers | No | 10 req/s | 0% | No | 95% | CS bibliography |
-| **Google Scholar** | Unknown | No | 2 req/s | Varies | Yes | 20% | Comprehensive |
+| ~~**Google Scholar**~~ | Unknown | No | 2 req/s | Varies | Yes | 20% | ~~Comprehensive~~ **Deprecated** |
 | **ISTEX** | 25M+ docs | No | 10 req/s | 95% | No | 98% | French archives |
 
 ## API Details
@@ -67,11 +67,13 @@ Reference guide comparing all supported academic APIs.
 - **Weaknesses**: No abstracts (copyright policy), CS-only
 - **Use for**: CS conference papers, bibliographic data
 
-### Google Scholar
+### Google Scholar (Deprecated)
+
+**⚠️ This API is deprecated and is no longer recommended for use.**
 
 - **Strengths**: Broadest coverage, includes grey literature
-- **Weaknesses**: Web scraping (slow), low DOI coverage (20%)
-- **Use for**: Maximum coverage, finding obscure papers
+- **Weaknesses**: Web scraping (slow), low DOI coverage (20%), unreliable, requires Tor proxy setup
+- **Use for**: ~~Maximum coverage, finding obscure papers~~ Not recommended - Use OpenAlex or Semantic Scholar instead
 
 ### ISTEX
 
@@ -137,7 +139,7 @@ rate_limits:
   Arxiv: 3.0
   HAL: 10.0
   DBLP: 10.0
-  GoogleScholar: 2.0
+  GoogleScholar: 2.0  # Deprecated - not recommended
   Istex: 10.0
 ```
 
@@ -147,7 +149,7 @@ rate_limits:
 - **Life Sciences**: Elsevier, OpenAlex, Springer
 - **Engineering**: IEEE, Springer, Arxiv
 - **Physics/Math**: Arxiv, OpenAlex, Springer
-- **Social Sciences**: OpenAlex, Google Scholar, Springer
+- **Social Sciences**: OpenAlex, ~~Google Scholar~~, Springer
 
 ## Known Limitations
 
@@ -171,5 +173,5 @@ rate_limits:
 - 20%: Google Scholar
 
 ### Citation Data Available
-- Yes: Semantic Scholar, OpenAlex, Google Scholar
-- No: All others
+- Yes: Semantic Scholar, OpenAlex
+- No: All others (including deprecated Google Scholar)

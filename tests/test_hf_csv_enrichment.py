@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from src.constants import MISSING_VALUE, is_valid
+from scilex.constants import MISSING_VALUE, is_valid
 
 
 def test_parse_tags_normal():
