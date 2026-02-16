@@ -9,8 +9,6 @@
 
 ## Cite this work:
 
-Either cite one of the papers above or cite the software itself as this with its SWHID:
-
 **Full text**:
 
 Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit ⟨swh:1:dir:944639eb0260a034a5cbf8766d5ee9b74ca85330⟩. 
