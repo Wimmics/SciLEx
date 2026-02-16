@@ -2,27 +2,38 @@
 
 SciLEx is a Python toolkit for systematic literature reviews and academic paper collection. It collects papers from multiple academic APIs, deduplicates results, and exports to Zotero.
 
-## Quick Navigation
+```{toctree}
+:maxdepth: 2
+:caption: Getting Started
 
-### Getting Started
-- [Installation Guide](getting-started/installation.md) - Setup instructions
-- [Quick Start](getting-started/quick-start.md) - First collection tutorial
-- [Configuration](getting-started/configuration.md) - Config file guide
-- [Troubleshooting](getting-started/troubleshooting.md) - Common issues
+getting-started/installation
+getting-started/quick-start
+getting-started/configuration
+getting-started/troubleshooting
+```
 
-### User Guides
-- [Basic Workflow](user-guides/basic-workflow.md) - Collection → Aggregation → Export
-- [Advanced Filtering](user-guides/advanced-filtering.md) - Filtering pipeline
+```{toctree}
+:maxdepth: 2
+:caption: User Guides
 
-### Developer Guides
-- [Architecture](developer-guides/architecture.md) - System design
-- [Adding Collectors](developer-guides/adding-collectors.md) - Extend with new APIs
+user-guides/basic-workflow
+user-guides/advanced-filtering
+```
 
-### Reference
-- [API Comparison](reference/api-comparison.md) - Supported APIs comparison
+```{toctree}
+:maxdepth: 2
+:caption: Developer Guides
 
-### Contributing
-- [Contributing Guide](../CONTRIBUTING.md)
+developer-guides/architecture
+developer-guides/adding-collectors
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Reference
+
+reference/api-comparison
+```
 
 ## Supported APIs
 
