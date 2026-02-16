@@ -2,12 +2,12 @@
 ![Scilex](img/projectLogoScilex.png)
 # SciLEx
 
+[![Docs](https://img.shields.io/badge/Docs-Read%20the%20docs-blue?logo=readthedocs)](https://scilex.readthedocs.io/en/latest/)
+
 **SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 9+ academic APIs, deduplicate papers, analyze citation networks, and push to Zotero with advanced quality filtering.
 
 
 ## Cite this work:
-
-Either cite one of the papers above or cite the software itself as this with its SWHID:
 
 **Full text**:
 
