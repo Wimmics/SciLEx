@@ -22,18 +22,57 @@ bibliography: paper.bib
 
 ---
 # Summary
-SciLEx (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 9+ academic APIs (à verifier ensemble), deduplicate papers, enrich them, and export the produced bibtex bibliography or push to Zotero with advanced quality filtering.
+
+SciLEx (Science Literature Exploration) is an open-source Python toolkit designed to support systematic literature reviews in research and academic contexts. Given one or two groups of keywords — which are combined with Boolean AND logic to form precise, compound queries — SciLEx concurrently collects papers from up to ten academic APIs: SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, Elsevier, HAL, DBLP, Istex, and PubMed. The tool then deduplicates results across sources using DOI matching, URL matching, and fuzzy title comparison, ensuring that the same paper retrieved from multiple APIs is merged rather than counted multiple times. Beyond collection, SciLEx runs a configurable multi-stage filtering pipeline that scores papers on metadata completeness, enforces time-aware citation thresholds, and ranks results by a composite relevance score, reducing hundreds of thousands of raw results to a curated final set. It also extracts citation networks via OpenCitations[@peroni_opencitations_2020] and Semantic Scholar, and optionally enriches papers with HuggingFace metadata (linked models, datasets, and GitHub statistics), making it particularly useful for AI and machine learning literature reviews. Final outputs can be exported to BibTeX or pushed directly to a Zotero[@mueen_ahmed_zotero_2011] collection. All operations are idempotent: interrupted or repeated runs automatically skip already-completed queries, making SciLEx robust for use on standard personal hardware.
 
 # Statement of need
 
-SciLex answers to the growing need to being able to collect and quikly analyse the current state of art covering a given research topic. The software was designed to support systematic literature review methodology defined by[@kitchenham2007guidelines] and the important publication production growth [@10.1162/qss_a_00327]. Starting from a user-defined keyword list,  SciLEx automates the construction of relevant papers by generating and executing all possible combinations of queries derived from this keyword list across multiple digital libraries. This automation facilitates the paper collection process, ensures traceability, and supports the aggregation and deduplication of search result
+Face to the important publication production growth [@10.1162/qss_a_00327], Researchers initiating a new project or conducting a systematic review[@kitchenham2007guidelines] must survey a large and fragmented literature spread across disciplinary databases with incompatible formats and access policies. Existing reference managers such as Zotero provide manual search interfaces and import functionality, but do not automate multi-API retrieval, cross-source deduplication, or quality-based filtering. SciLEx fills this gap by providing a fully automated, configurable, and locally executable pipeline that takes keyword inputs and produces a ranked, deduplicated, and enriched bibliography — requiring no subscription and no cloud dependency. It is designed for researchers and graduate students who need to efficiently scope a new research area or assemble a reproducible literature corpus.
 
 SciLEx enriches the resulting corpus through the integration with external services such as [PaperWithCode](https://paperswithcode.com) (available until may 2025) now redirects to Hugging Face, CrossRef[@hendricks_crossref_2020], and Opencitation[@peroni_opencitations_2020]. PaperWithCode, was intended for the Machine Learning community and aimed at connecting research articles to their corresponding methods, implemented code, evaluation results on standard datasets, and initial paper annotations. OpenCitation enables the retrieval of citations and references for a given paper, which can be used both to filter papers by impact and to expand the corpus through citation snowballing.
-Finally, SciLEx exports all gathered information into a Zotero[@mueen_ahmed_zotero_2011] collection, facilitating collaborative management, selection, and annotation of the corpus.
+Finally, SciLEx exports all gathered information into a Zotero collection, facilitating collaborative management, selection, and annotation of the corpus.
+
+### Key Features
+[SCHEMA]
+
+- Multi-API collection with parallel processing (PubMed, SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, HAL, DBLP, Istex, PubMed)
+- Complex queries requests: two options only use a list of keywords (that will create a query per keyword) or the definition of two keywords list that will be used to combine one by one each keyword of both list, and implictly allowing the define queries integrating both the logical OR and the logical AND
+- Smart deduplication using DOI and title matching
+- Citation network extraction via OpenCitations + Semantic Scholar with SQLite caching
+- Quality filtering pipeline integrating:
+   * time-aware citation thresholds
+   * relevance ranking (based on keywords list and potential additionnal "bonus keywords"
+   * itemType filtering
+- HuggingFace enrichment (NEW): Extract ML models, datasets, GitHub stats, and AI keywords
+- Bulk Zotero upload in batches of 50 items
+- Idempotent collections for safe re-runs (automatically skips completed queries)
+- BibTex extraction
+
+# Software design
+
+Scilex is mainly based on a pipeline approach: 
+API Collection → Deduplication → ItemType Filter → Keyword Filter → Quality Filter → Citation Filter → Relevance Ranking → Output
+
+1. Collection System: To support the potential growing number of digital APIs the library is firstly based on a collector abtract interface class that is used to define each APIs collector specificities. 
+2. Aggregation Pipeline: 
+3. Format Converters: All the metadata collected are then converted into a unified structure
+4. Citation extractors
+And relies on two configurations files that need to be filled by the user:
+1. the first one gathers all the API key requiered to run a search
+2. the second one allows to 
 
 
-**Legal/Ethical Notice:** 
-### Similar software
+SciLex is a Python‑based tool designed to search, retrieve, and analyze scientific papers using a structured, object‑oriented approach. The primary class, PaperRetriever, serves as the central interface and can be used both via the command line and as an importable module for integration into custom Python scripts or Jupyter notebooks. Supporting classes—PubMedSearcher, ImageExtractor, PaperTracker, and ReferenceRetriever—extend its capabilities, allowing for enhanced paper searching, citation tracking, and figure extraction.
+
+
+### Command-Line vs. Programmatic Usage
+
+- **Command-Line Interface (CLI)**: ?
+- **Python Module Import**: ?
+
+# Research use / scholarly publications enabled
+
+# Comparison with others existing software
 
 **1. CoLRev (2026)**
 A large project
@@ -48,70 +87,20 @@ PygetPapers [@Garg2022] is also a medical/biology research oriented software whi
 
 PyPaperBot [@pypaperbot], while functional, has significant limitations that prompted the development of PyPaperRetriever. PyPaperBot relies primarily on Sci‑Hub, which is ethically controversial, may be unlawful to use in many jurisdictions, and is often blocked by academic institutions and in certain countries. Additionally, it lacks support for PubMed ID‑based searches, a critical feature for researchers in biomedical sciences.
 
-
+**5. ResearchRabbit/ Litmaps / ConnectedPapers**
 
 - 
-### Key Features
-[SCHEMA]
-
-- Multi-API collection with parallel processing (PubMed, SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, HAL, DBLP, Istex, GoogleScholar)
-- Smart deduplication using DOI, URL, and fuzzy title matching
-- Parallel aggregation with configurable workers (default mode)
-- Citation network extraction via OpenCitations + Semantic Scholar with SQLite caching
-- Quality filtering pipeline with time-aware citation thresholds, relevance ranking, and itemType filtering
-- HuggingFace enrichment (NEW): Extract ML models, datasets, GitHub stats, and AI keywords
-- Bulk Zotero upload in batches of 50 items
-- Idempotent collections for safe re-runs (automatically skips completed queries)
-- BibTex extraction
-
-# Software design
-
-To support the potential growing number of digital APIs and the 
-Scilex relies on four main components: 
-1. Collection System
-2. Aggregation Pipeline
-3. Format Converters
-4. Citation extractors
-And relies on two configurations files that need to be filled by the user:
-1. the first one gathers all the API key requiered to run a search
-2. the second one allows to 
-...
-# Methods
-
-SciLex is a Python‑based tool designed to search, retrieve, and analyze scientific papers using a structured, object‑oriented approach. The primary class, PaperRetriever, serves as the central interface and can be used both via the command line and as an importable module for integration into custom Python scripts or Jupyter notebooks. Supporting classes—PubMedSearcher, ImageExtractor, PaperTracker, and ReferenceRetriever—extend its capabilities, allowing for enhanced paper searching, citation tracking, and figure extraction.
-
-
-### Object-Oriented Structure
-
-The software is structured around the following classes:
-
-### Command-Line vs. Programmatic Usage
-
-- **Command-Line Interface (CLI)**: ?
-- **Python Module Import**: ?
-- 
-# Similar Tools
-/
-# Ethical and legal note on Sci-Hub
-
-/
-# Availability
-
-/
 # Acknowledgements
-# AI Usage Disclosure
 
-  Tools used: Claude Code CLI (Anthropic) with Claude Sonnet 4.5 and Claude Opus 4.5 models, used from October 2025 through February 2026. Prior to October 2025, no AI tools were used by any contributor (C. Ringwald, A. Ollagnier, F. Gandon).
+This work was supported by the French government through the France 2030 investment plan managed by the National Research Agency (ANR), as part of the Initiative of Excellence Université Côte d'Azur (ANR-15-IDEX-01). Additional support came from French Government's France 2030 investment plan (ANR-22-CPJ2-0048-01), through 3IA Côte d'Azur (ANR-23-IACL-0001).
 
-  Scope of assistance:
+## AI Usage Disclosure
 
+Tools used: Claude Code CLI (Anthropic) with Claude Sonnet 4.5 and Claude Opus 4.5 models, used from October 2025 through February 2026. Prior to October 2025, no AI tools were used by any contributor (C. Ringwald, A. Ollagnier, F. Gandon).
+Scope of assistance: 
   - Code development and refactoring : Claude Code was used to assist with implementing new features (PubMed collector, HuggingFace enrichment pipeline, BibTeX export, parallel aggregation, citation caching), refactoring the collector architecture (modular collector classes, multi-threading migration, state management removal), and bug fixing (API rate limiting, URL encoding, deduplication logic, metadata extraction).
   - Code quality : Automated linting, formatting (via Ruff), and code style improvements.
   - Documentation : Updating README, CLAUDE.md project instructions, documentation suite (docs/) and inline documentation.
-  
-  AI was not used for any conversational interactions between authors and editors or reviewers.
-  All AI-generated or AI-assisted outputs -- including code and documentation-- were reviewed, tested, edited, and validated by the human authors.
-  All core architectural decisions (API selection, pipeline design, filtering strategies, deduplication approach, output formats) were made by the human authors. 
-  AI served as an implementation accelerator under continuous human supervision; no AI output was merged without human review and approval.
+ 
 /
 # References
