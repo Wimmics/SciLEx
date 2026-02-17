@@ -34,38 +34,20 @@ Finally, SciLEx exports all gathered information into a Zotero[@mueen_ahmed_zote
 
 **Legal/Ethical Notice:** 
 ### Similar software
-**1. 2025 PyPaperRetriever
-PyPaperRetriever [@Turner2025] rely on a first set of paper identified by a DOI and queries three different APIs (Unpaywall, NIH's Entrez, and Crossref) to retrieve related papers based on the citation network drawn by the input articles.   access to a wide range of sources, and prioritizes open‑access sources. The tool also supports PubMed ID searches and programmatic PubMed queries, while enabling module‑level imports for integration into Python workflows, unlike PyPaperBot's command‑line‑only functionality.
 
--- > Célian
-Ok cela est limité à PubMed, cependant permet utilisation SciHub et intègre fonction téléchargement/ extraction PDF 
--- > Ben
-Pypaperretriever est un peu similaire à pygetpapers mais diffère dans le sens ou la recherche se fait par DOI et non par keywords. Les deux logiciels proposent un dossiers de documents pdfs en sortie et non une bibliographie. -> pour text mining derrière. 
-Pypaperretriever uitilise le réseau de citations pour parcourir les articles similaires. 
-les 2 papiers sont orientés bio-médecine. 
+**1. CoLRev (2026)**
+A large project
 
-**2. 2022 Pygetpapers
--- > Ben
-ils sont quand même orienté bio avec arXiv, EuropePMC, bioRxiv, medRxiv. 
+**2.PyPaperRetriever (2025)**
+PyPaperRetriever [@Turner2025] is a medical research oriented literrature exploration software. It first rely on a set of papers identified by a DOI or PubMed ID and queries three different APIs (Unpaywall, NIH's Entrez, and Crossref) to retrieve related papers based on the citation network drawn by the input articles. The software also propose the extraction of the PDF content of the resulting articles, which make it more adapted to conduct textmining. It digital library coverage is lower than SciLEx which is more general, and the the result of the extraction is more focus on the textual content of the similar articles retrieved than the bibliographic data of them.
 
-pygetpapers ne fait pas : 
-- filtrage par la qualité, ce qui permet d'enlever les articles apuvres en metadonées 
-- un tri par pertience, ce qui permet d'avoir une sélection d'articles finale en rapport avec les KW
-- un filtrage des papiers par impact avec la mesure d'un seuil de citations en fonction de l'age de publication
-- ne donne pas en sortie une bibliographie (zotero ou Bibtex), mais un dossier de PDFs ou fichiers XMLs
-- n'aggège pas les données suivantes : repo github, dataset, models, et liste de keywords (si existent)
-- N'intègre pas un nombre aussi important de sources que ScilEx
-- la déduplication des articles entre les sources
-- recherche généraliste (centré sur la biologie dans le choix de ses apis)
+**3. Pygetpapers (2022)** 
+PygetPapers [@Garg2022] is also a medical/biology research oriented software which help to collect papers based on a simple list of keywords by requesting several digital libraries (arXiv, EuropePMC, bioRxiv, medRxiv). This software do not propose filtering strategies to digest the high amonth of paper that could be retrieved by the API used, and do not propose deduplication strategies. Moreover the resulting extraction of Pygetpapers are not related to a bibiolography that could be easily shared (pdf/xmls). This software also serve different purpose than SciLEx, notably by being more centred on textmining.
 
-Les différences semblent aussi porter sur l'objectif : 
-- ScilEx : constituer une  collection scientifique, puis management sur zotero (etudiants) ou integration dans un pipeline (data mining par exemple)
-- pygetpapers : constituer une base de documents PDFs pour data mining derrière (ne fait pas lui meme)
-
-l'un fourni des références, l'autre le full-text. 
-- **2. PyPaperBot**
+ **4. PyPaperBot (2020)**
 
 PyPaperBot [@pypaperbot], while functional, has significant limitations that prompted the development of PyPaperRetriever. PyPaperBot relies primarily on Sci‑Hub, which is ethically controversial, may be unlawful to use in many jurisdictions, and is often blocked by academic institutions and in certain countries. Additionally, it lacks support for PubMed ID‑based searches, a critical feature for researchers in biomedical sciences.
+
 
 
 - 
@@ -73,14 +55,14 @@ PyPaperBot [@pypaperbot], while functional, has significant limitations that pro
 [SCHEMA]
 
 - Multi-API collection with parallel processing (PubMed, SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, HAL, DBLP, Istex, GoogleScholar)
--   Smart deduplication using DOI, URL, and fuzzy title matching
--   Parallel aggregation with configurable workers (default mode)
--   Citation network extraction via OpenCitations + Semantic Scholar with SQLite caching
--   Quality filtering pipeline with time-aware citation thresholds, relevance ranking, and itemType filtering
--   HuggingFace enrichment (NEW): Extract ML models, datasets, GitHub stats, and AI keywords
--   Bulk Zotero upload in batches of 50 items
--   Idempotent collections for safe re-runs (automatically skips completed queries)
-
+- Smart deduplication using DOI, URL, and fuzzy title matching
+- Parallel aggregation with configurable workers (default mode)
+- Citation network extraction via OpenCitations + Semantic Scholar with SQLite caching
+- Quality filtering pipeline with time-aware citation thresholds, relevance ranking, and itemType filtering
+- HuggingFace enrichment (NEW): Extract ML models, datasets, GitHub stats, and AI keywords
+- Bulk Zotero upload in batches of 50 items
+- Idempotent collections for safe re-runs (automatically skips completed queries)
+- BibTex extraction
 
 # Software design
 
@@ -117,6 +99,19 @@ The software is structured around the following classes:
 
 /
 # Acknowledgements
+# AI Usage Disclosure
 
+  Tools used: Claude Code CLI (Anthropic) with Claude Sonnet 4.5 and Claude Opus 4.5 models, used from October 2025 through February 2026. Prior to October 2025, no AI tools were used by any contributor (C. Ringwald, A. Ollagnier, F. Gandon).
+
+  Scope of assistance:
+
+  - Code development and refactoring : Claude Code was used to assist with implementing new features (PubMed collector, HuggingFace enrichment pipeline, BibTeX export, parallel aggregation, citation caching), refactoring the collector architecture (modular collector classes, multi-threading migration, state management removal), and bug fixing (API rate limiting, URL encoding, deduplication logic, metadata extraction).
+  - Code quality : Automated linting, formatting (via Ruff), and code style improvements.
+  - Documentation : Updating README, CLAUDE.md project instructions, documentation suite (docs/) and inline documentation.
+  
+  AI was not used for any conversational interactions between authors and editors or reviewers.
+  All AI-generated or AI-assisted outputs -- including code and documentation-- were reviewed, tested, edited, and validated by the human authors.
+  All core architectural decisions (API selection, pipeline design, filtering strategies, deduplication approach, output formats) were made by the human authors. 
+  AI served as an implementation accelerator under continuous human supervision; no AI output was merged without human review and approval.
 /
 # References
