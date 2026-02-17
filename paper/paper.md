@@ -22,7 +22,7 @@ bibliography: paper.bib
 
 ---
 # Summary
-SciLEx (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 9+ academic APIs [a verifier ensemble], deduplicate papers, enrich them, and export the produced bibtex bibliography or push to Zotero with advanced quality filtering.
+SciLEx (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 9+ academic APIs (à verifier ensemble), deduplicate papers, enrich them, and export the produced bibtex bibliography or push to Zotero with advanced quality filtering.
 
 # Statement of need
 
