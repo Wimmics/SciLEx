@@ -36,7 +36,6 @@ from scilex.crawlers.aggregate import (
     ArxivtoZoteroFormat,
     DBLPtoZoteroFormat,
     ElseviertoZoteroFormat,
-    GoogleScholartoZoteroFormat,
     HALtoZoteroFormat,
     IEEEtoZoteroFormat,
     IstextoZoteroFormat,
@@ -79,7 +78,6 @@ FORMAT_CONVERTERS = {
     "DBLP": DBLPtoZoteroFormat,
     "Istex": IstextoZoteroFormat,
     "Arxiv": ArxivtoZoteroFormat,
-    "GoogleScholar": GoogleScholartoZoteroFormat,
     "PubMed": PubMedtoZoteroFormat,
     "PubMedCentral": PubMedCentraltoZoteroFormat,
 }
