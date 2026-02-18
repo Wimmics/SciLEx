@@ -15,7 +15,6 @@ import requests
 
 from scilex.config_defaults import DEFAULT_RATE_LIMITS, get_rate_limit
 
-
 # ============================================================================
 # Dual-value structure validation
 # ============================================================================
@@ -183,14 +182,14 @@ rate_limits:
         collector = _make_collector(api_name="TestAPI", rate_limit=10.0)
 
         # Patch os.path to find our temp config
-        with patch(
-            "scilex.crawlers.collectors.base.os.path.join",
-            return_value=str(config_file),
+        with (
+            patch(
+                "scilex.crawlers.collectors.base.os.path.join",
+                return_value=str(config_file),
+            ),
+            patch("scilex.crawlers.collectors.base.os.path.exists", return_value=True),
         ):
-            with patch(
-                "scilex.crawlers.collectors.base.os.path.exists", return_value=True
-            ):
-                collector.load_rate_limit_from_config()
+            collector.load_rate_limit_from_config()
 
         assert collector.rate_limit == 42.0
 
