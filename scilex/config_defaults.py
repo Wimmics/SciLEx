@@ -184,20 +184,25 @@ Options: 'regular' (default, recommended) or 'bulk' (requires special access).""
 # ============================================================================
 
 DEFAULT_RATE_LIMITS = {
-    "SemanticScholar": 1.0,  # With API key: 1 req/sec
-    "OpenAlex": 10.0,  # Free tier: 10 req/sec, 100k/day
-    "Arxiv": 3.0,  # Recommended: 3 req/sec
-    "IEEE": 2.0,  # Conservative default
-    "Elsevier": 6.0,  # Varies by subscription tier
-    "Springer": 1.5,  # Basic tier: 1.67 req/sec
-    "HAL": 10.0,  # No official limit, conservative default
-    "DBLP": 1.0,  # No official limit, conservative default
-    "Crossref": 3.0,  # Polite pool: 50 req/sec, conservative 3
-    "Istex": 10.0,  # No official limit, conservative default
-    "PubMed": 3.0,  # 3 req/sec without key, 10 req/sec with key
+    "SemanticScholar": {"without_key": 1.0, "with_key": 1.0},
+    "OpenAlex": {"without_key": 10.0, "with_key": 10.0},
+    "Arxiv": {"without_key": 0.33, "with_key": 0.33},  # 1 req per 3 seconds
+    "IEEE": {"without_key": 2.0, "with_key": 2.0},
+    "Elsevier": {"without_key": 2.0, "with_key": 9.0},  # Scopus: 9 req/sec with key
+    "Springer": {"without_key": 1.67, "with_key": 1.67},  # 100 req/min
+    "HAL": {"without_key": 10.0, "with_key": 10.0},  # No documented limit
+    "DBLP": {"without_key": 1.0, "with_key": 1.0},  # 1-2s between requests
+    "Crossref": {"without_key": 3.0, "with_key": 3.0},
+    "Istex": {"without_key": 5.0, "with_key": 5.0},  # No documented limit
+    "PubMed": {
+        "without_key": 3.0,
+        "with_key": 10.0,
+    },  # NCBI: 3/sec free, 10/sec with key
+    "PubMedCentral": {"without_key": 3.0, "with_key": 10.0},  # Same NCBI limits
 }
-"""Rate limits for each API provider.
-These are CONSERVATIVE values. Premium/institutional access may allow higher limits."""
+"""Rate limits for each API provider (requests per second).
+Each entry has without_key/with_key values. The correct rate is auto-selected
+based on whether the collector has an API key configured."""
 
 # ============================================================================
 # QUALITY FILTER CONFIGURATION SCHEMA (for reference)
@@ -260,13 +265,20 @@ def get_default_quality_filters():
     }
 
 
-def get_rate_limit(api_name: str) -> float:
-    """Get rate limit for a specific API, or default to 5.0 req/sec.
+def get_rate_limit(api_name: str, has_api_key: bool = False) -> float:
+    """Get rate limit for a specific API, selecting with_key/without_key rate.
 
     Args:
         api_name: Name of the API (e.g., 'SemanticScholar', 'IEEE')
+        has_api_key: Whether the collector has an API key configured
 
     Returns:
         Rate limit in requests per second
     """
-    return DEFAULT_RATE_LIMITS.get(api_name, 5.0)
+    entry = DEFAULT_RATE_LIMITS.get(api_name)
+    if entry is None:
+        return 5.0
+    if isinstance(entry, dict):
+        return entry["with_key"] if has_api_key else entry["without_key"]
+    # Backward compat: if someone passes a plain float
+    return float(entry)  # type: ignore[arg-type]

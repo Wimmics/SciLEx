@@ -17,7 +17,6 @@ class OpenAlex_collector(API_collector):
                 Without key: 100 credits/day. With key: 100,000 credits/day.
         """
         super().__init__(filter_param, data_path, api_key)
-        self.rate_limit = 10  # Number of requests allowed per second
         self.max_by_page = 200  # Maximum number of results to retrieve per page
         self.api_name = "OpenAlex"
         self.api_url = "https://api.openalex.org/works"

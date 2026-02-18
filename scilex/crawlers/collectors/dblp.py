@@ -17,10 +17,10 @@ class DBLP_collector(API_collector):
             data_path (str): Path to save the collected data.
         """
         super().__init__(filter_param, data_path, api_key)
-        self.rate_limit = 10  # Number of requests allowed per second
         self.max_by_page = 1000  # Maximum number of results to retrieve per page
         self.api_name = "DBLP"
         self.api_url = "https://dblp.org/search/publ/api"
+        self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
         """

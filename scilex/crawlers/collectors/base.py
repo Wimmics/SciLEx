@@ -7,11 +7,13 @@ from datetime import date
 
 import requests
 import yaml
-from ratelimit import limits, sleep_and_retry
 
-from scilex.config_defaults import DEFAULT_RATE_LIMITS
+from scilex.config_defaults import get_rate_limit
 from scilex.constants import CircuitBreakerConfig, RateLimitBackoffConfig
-from scilex.crawlers.circuit_breaker import CircuitBreakerOpenError, CircuitBreakerRegistry
+from scilex.crawlers.circuit_breaker import (
+    CircuitBreakerOpenError,
+    CircuitBreakerRegistry,
+)
 
 
 class Filter_param:
@@ -51,6 +53,7 @@ class API_collector:
             ),  # Default to -1 (unlimited) if not in config
         )
         self.rate_limit = 10  # Will be overridden by load_rate_limit_from_config()
+        self._last_call_time = 0.0  # For rate limiting via _rate_limit_wait()
         self.datadir = data_path
         self.collectId = data_query["id_collect"]
         self.total_art = int(data_query["total_art"])
@@ -88,10 +91,26 @@ class API_collector:
             self.session.close()
             logging.debug(f"{self.api_name}: Session closed")
 
+    def _rate_limit_wait(self):
+        """Enforce minimum interval between API calls.
+
+        Uses time.monotonic() to track elapsed time since the last call
+        and sleeps if needed to respect the configured rate limit.
+        """
+        if self.rate_limit <= 0:
+            return
+        min_interval = 1.0 / self.rate_limit
+        now = time.monotonic()
+        elapsed = now - self._last_call_time
+        if elapsed < min_interval:
+            time.sleep(min_interval - elapsed)
+        self._last_call_time = time.monotonic()
+
     def load_rate_limit_from_config(self):
         """
         Load rate limit for this API from the configuration file.
         Falls back to DEFAULT_RATE_LIMITS if config is not available.
+        Automatically selects with_key/without_key rate based on self.api_key.
 
         This method should be called after self.api_name is set in subclass __init__.
         """
@@ -121,18 +140,14 @@ class API_collector:
                 f"{self.api_name}: Could not load rate limit from config: {e}. Using default."
             )
 
-        # Fall back to default rate limits
-        if self.api_name in DEFAULT_RATE_LIMITS:
-            default_limit = DEFAULT_RATE_LIMITS[self.api_name]
-            self.rate_limit = default_limit
-            logging.debug(
-                f"{self.api_name}: Using default rate limit of {default_limit} req/sec"
-            )
-        else:
-            # Keep the existing rate_limit value (usually set in subclass)
-            logging.debug(
-                f"{self.api_name}: Using hardcoded rate limit of {self.rate_limit} req/sec"
-            )
+        # Fall back to default rate limits (key-aware)
+        has_key = bool(self.api_key)
+        default_limit = get_rate_limit(self.api_name, has_api_key=has_key)
+        self.rate_limit = default_limit
+        key_status = "with" if has_key else "without"
+        logging.debug(
+            f"{self.api_name}: Using default rate limit of {default_limit} req/sec ({key_status} API key)"
+        )
 
     def log_api_usage(
         self, response: requests.Response | None, page: int, results_count: int
@@ -377,13 +392,14 @@ class API_collector:
             )
             raise CircuitBreakerOpenError(self.api_name, breaker.timeout_seconds)
 
-        @sleep_and_retry
-        @limits(calls=self.get_ratelimit(), period=1)
-        def access_rate_limited_decorated(configurated_url):
+        def access_rate_limited(configurated_url):
             last_exception = None
 
             for attempt in range(max_retries):
                 try:
+                    # Enforce rate limit before each request
+                    self._rate_limit_wait()
+
                     resp = self.session.get(
                         configurated_url, headers=headers, timeout=30
                     )
@@ -404,28 +420,39 @@ class API_collector:
                     last_exception = e
 
                     if status_code == 429:  # Too Many Requests
-                        # Get API-specific backoff configuration
-                        base_wait, use_exponential = (
-                            RateLimitBackoffConfig.API_SPECIFIC.get(
-                                self.api_name,
-                                (
-                                    RateLimitBackoffConfig.DEFAULT_BASE_WAIT,
-                                    RateLimitBackoffConfig.DEFAULT_USE_EXPONENTIAL,
-                                ),
+                        # Respect Retry-After header if provided by server
+                        retry_after = e.response.headers.get("Retry-After")
+                        if retry_after:
+                            try:
+                                wait_time = int(retry_after)
+                            except ValueError:
+                                wait_time = RateLimitBackoffConfig.DEFAULT_BASE_WAIT * (
+                                    2**attempt
+                                )
+                            logging.warning(
+                                f"{self.api_name} API rate limit exceeded (429). "
+                                f"Server Retry-After: {wait_time}s (attempt {attempt + 1}/{max_retries})"
                             )
-                        )
-
-                        # Calculate wait time based on strategy
-                        if use_exponential:
-                            wait_time = base_wait * (2**attempt)  # Exponential backoff
                         else:
-                            wait_time = base_wait  # Fixed wait time
-
-                        logging.warning(
-                            f"{self.api_name} API rate limit exceeded (429). "
-                            f"Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries}). "
-                            f"Strategy: {'exponential' if use_exponential else 'fixed'} backoff"
-                        )
+                            # Fall back to API-specific backoff configuration
+                            base_wait, use_exponential = (
+                                RateLimitBackoffConfig.API_SPECIFIC.get(
+                                    self.api_name,
+                                    (
+                                        RateLimitBackoffConfig.DEFAULT_BASE_WAIT,
+                                        RateLimitBackoffConfig.DEFAULT_USE_EXPONENTIAL,
+                                    ),
+                                )
+                            )
+                            if use_exponential:
+                                wait_time = base_wait * (2**attempt)
+                            else:
+                                wait_time = base_wait
+                            logging.warning(
+                                f"{self.api_name} API rate limit exceeded (429). "
+                                f"Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries}). "
+                                f"Strategy: {'exponential' if use_exponential else 'fixed'} backoff"
+                            )
                         if attempt < max_retries - 1:
                             time.sleep(wait_time)
                             continue
@@ -559,7 +586,7 @@ class API_collector:
                 breaker.record_failure()
                 raise last_exception
 
-        return access_rate_limited_decorated(configurated_url)
+        return access_rate_limited(configurated_url)
 
     def toZotero():
         pass

@@ -16,10 +16,10 @@ class Arxiv_collector(API_collector):
 
     def __init__(self, filter_param, data_path, api_key):
         super().__init__(filter_param, data_path, api_key)
-        self.rate_limit = 3  # Limit of API calls per second
         self.max_by_page = 500  # Maximum results per page
         self.api_name = "Arxiv"
         self.api_url = "http://export.arxiv.org/api/query"
+        self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
         """Parses the results from a response and organizes it into a structured format."""

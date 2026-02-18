@@ -84,17 +84,21 @@ HuggingFace:
 # RATE LIMITS (Optional - uses sensible defaults if not specified)
 # ============================================================================
 #
-# Uncomment below to override default rate limits (requests per second)
-# Most users do NOT need to customize these - defaults are conservative and safe.
-# Only increase if you have premium/institutional access and confirmed higher limits.
+# SciLEx auto-selects rate limits based on whether you have an API key:
+#   PubMed:   3 req/sec (free) → 10 req/sec (with key)
+#   Elsevier: 2 req/sec (free) → 9 req/sec (with key)
+#   Arxiv:    0.33 req/sec (1 per 3 seconds, no key system)
+#
+# You only need to override if you have special access or want lower rates.
 #
 # rate_limits:
-#   SemanticScholar: 1.0      # Default with API key
-#   OpenAlex: 10.0            # Free tier default
-#   Arxiv: 3.0
-#   IEEE: 2.0
-#   Elsevier: 6.0
-#   Springer: 1.5
-#   HAL: 10.0
-#   DBLP: 1.0
-#   PubMed: 10.0              # With API key (3.0 without)
+#   SemanticScholar: 1.0      # Same with or without key
+#   OpenAlex: 10.0            # Same with or without key
+#   Arxiv: 0.33               # 1 request per 3 seconds (no key system)
+#   IEEE: 2.0                 # Custom per registration
+#   Elsevier: 9.0             # 9 req/sec with key (2 without)
+#   Springer: 1.67            # 100 req/min
+#   HAL: 10.0                 # No documented limit
+#   DBLP: 1.0                 # 1-2s between requests
+#   Istex: 5.0                # No documented limit
+#   PubMed: 10.0              # 10 req/sec with key (3 without)
