@@ -25,15 +25,6 @@ from .collectors import (
     Springer_collector,
 )
 
-# Import centralized logging utilities
-try:
-    from scilex.logging_config import ProgressTracker, log_api_complete, log_api_start
-except ImportError:
-    # Fallback if logging_config not available
-    ProgressTracker = None
-    log_api_start = None
-    log_api_complete = None
-
 api_collectors = {
     "DBLP": DBLP_collector,
     "Arxiv": Arxiv_collector,

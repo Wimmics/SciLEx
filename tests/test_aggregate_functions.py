@@ -2,6 +2,10 @@
 
 from scilex.constants import MISSING_VALUE
 from scilex.crawlers.aggregate import (
+    ArxivtoZoteroFormat,
+    IstextoZoteroFormat,
+    OpenAlextoZoteroFormat,
+    SpringertoZoteroFormat,
     clean_doi,
     getquality,
     reconstruct_abstract_from_inverted_index,
@@ -176,3 +180,249 @@ class TestReconstructAbstractFromInvertedIndex:
     def test_single_word(self):
         inverted_index = {"Abstract": [0]}
         assert reconstruct_abstract_from_inverted_index(inverted_index) == "Abstract"
+
+
+# -------------------------------------------------------------------------
+# ArxivtoZoteroFormat - PDF URL extraction
+# -------------------------------------------------------------------------
+def _minimal_arxiv_row(**overrides):
+    """Build a minimal arXiv row that won't KeyError in ArxivtoZoteroFormat."""
+    row = {
+        "abstract": "",
+        "authors": [],
+        "doi": "",
+        "title": "",
+        "id": "",
+        "published": "",
+        "journal": "",
+        "categories": [],
+    }
+    row.update(overrides)
+    return row
+
+
+class TestArxivPdfUrl:
+    def test_bare_id_generates_pdf_url(self):
+        row = _minimal_arxiv_row(id="2301.12345")
+        result = ArxivtoZoteroFormat(row)
+        assert result["pdf_url"] == "https://arxiv.org/pdf/2301.12345.pdf"
+
+    def test_full_abs_url_generates_pdf_url(self):
+        row = _minimal_arxiv_row(id="https://arxiv.org/abs/2301.12345")
+        result = ArxivtoZoteroFormat(row)
+        assert result["pdf_url"] == "https://arxiv.org/pdf/2301.12345.pdf"
+
+    def test_full_abs_url_with_version_generates_pdf_url(self):
+        row = _minimal_arxiv_row(id="https://arxiv.org/abs/2301.12345v2")
+        result = ArxivtoZoteroFormat(row)
+        assert result["pdf_url"] == "https://arxiv.org/pdf/2301.12345v2.pdf"
+
+    def test_full_pdf_url_generates_pdf_url(self):
+        row = _minimal_arxiv_row(id="https://arxiv.org/pdf/2301.12345.pdf")
+        result = ArxivtoZoteroFormat(row)
+        assert result["pdf_url"] == "https://arxiv.org/pdf/2301.12345.pdf"
+
+    def test_old_style_id_with_category(self):
+        row = _minimal_arxiv_row(id="cs/0601078")
+        result = ArxivtoZoteroFormat(row)
+        assert result["pdf_url"] == "https://arxiv.org/pdf/0601078.pdf"
+
+    def test_empty_id_no_pdf_url(self):
+        row = _minimal_arxiv_row(id="")
+        result = ArxivtoZoteroFormat(row)
+        assert result["pdf_url"] == MISSING_VALUE
+
+
+# -------------------------------------------------------------------------
+# OpenAlextoZoteroFormat - PDF URL extraction fallback
+# -------------------------------------------------------------------------
+def _minimal_openalex_row(**overrides):
+    """Build a minimal OpenAlex row that won't KeyError."""
+    row = {
+        "id": "https://openalex.org/W123",
+        "doi": "",
+        "title": "Test",
+        "publication_date": "2024-01-01",
+        "language": "",
+        "best_oa_location": None,
+        "primary_location": None,
+        "abstract_inverted_index": None,
+        "open_access": "",
+        "authorships": [],
+        "type": "journal-article",
+        "biblio": {"volume": "", "issue": "", "first_page": "", "last_page": ""},
+    }
+    row.update(overrides)
+    return row
+
+
+class TestOpenAlexPdfUrl:
+    def test_best_oa_location_pdf_url(self):
+        row = _minimal_openalex_row(
+            best_oa_location={
+                "landing_page_url": "https://example.com/article",
+                "pdf_url": "https://example.com/article.pdf",
+            }
+        )
+        result = OpenAlextoZoteroFormat(row)
+        assert result["pdf_url"] == "https://example.com/article.pdf"
+
+    def test_primary_location_pdf_url_fallback(self):
+        row = _minimal_openalex_row(
+            best_oa_location=None,
+            primary_location={
+                "landing_page_url": "https://example.com/article",
+                "pdf_url": "https://example.com/article.pdf",
+                "source": None,
+            },
+        )
+        result = OpenAlextoZoteroFormat(row)
+        assert result["pdf_url"] == "https://example.com/article.pdf"
+        assert result["url"] == "https://example.com/article"
+
+    def test_no_oa_location_no_pdf_url(self):
+        row = _minimal_openalex_row(
+            best_oa_location=None,
+            primary_location={
+                "landing_page_url": "https://example.com",
+                "source": None,
+            },
+        )
+        result = OpenAlextoZoteroFormat(row)
+        assert result["pdf_url"] == MISSING_VALUE
+
+    def test_best_oa_without_pdf_url(self):
+        row = _minimal_openalex_row(
+            best_oa_location={
+                "landing_page_url": "https://example.com/article",
+                "pdf_url": None,
+            }
+        )
+        result = OpenAlextoZoteroFormat(row)
+        assert result["pdf_url"] == MISSING_VALUE
+
+
+# -------------------------------------------------------------------------
+# IstextoZoteroFormat - PDF URL extraction from fulltext array
+# -------------------------------------------------------------------------
+def _minimal_istex_row(**overrides):
+    """Build a minimal Istex row that won't KeyError."""
+    row = {
+        "genre": ["research-article"],
+        "title": "Test",
+        "author": [],
+        "arkIstex": "ark:/12345",
+        "publicationDate": "2024",
+        "doi": [],
+        "host": {},
+    }
+    row.update(overrides)
+    return row
+
+
+class TestIstexPdfUrl:
+    def test_fulltext_pdf_extraction(self):
+        row = _minimal_istex_row(
+            fulltext=[
+                {"extension": "zip", "uri": "https://api.istex.fr/doc/123/fulltext/zip"},
+                {"extension": "pdf", "uri": "https://api.istex.fr/doc/123/fulltext/pdf"},
+                {"extension": "tei", "uri": "https://api.istex.fr/doc/123/fulltext/tei"},
+            ]
+        )
+        result = IstextoZoteroFormat(row)
+        assert result["pdf_url"] == "https://api.istex.fr/doc/123/fulltext/pdf"
+
+    def test_no_fulltext_no_pdf_url(self):
+        row = _minimal_istex_row()
+        result = IstextoZoteroFormat(row)
+        assert result["pdf_url"] == MISSING_VALUE
+
+    def test_fulltext_without_pdf(self):
+        row = _minimal_istex_row(
+            fulltext=[
+                {"extension": "zip", "uri": "https://api.istex.fr/doc/123/fulltext/zip"},
+            ]
+        )
+        result = IstextoZoteroFormat(row)
+        assert result["pdf_url"] == MISSING_VALUE
+
+    def test_fulltext_empty_list(self):
+        row = _minimal_istex_row(fulltext=[])
+        result = IstextoZoteroFormat(row)
+        assert result["pdf_url"] == MISSING_VALUE
+
+
+# -------------------------------------------------------------------------
+# SpringertoZoteroFormat - PDF URL extraction from url array
+# -------------------------------------------------------------------------
+def _minimal_springer_row(**overrides):
+    """Build a minimal Springer row that won't KeyError."""
+    row = {
+        "identifier": "doi:10.1234/test",
+        "publicationDate": "2024-01-01",
+        "title": "Test",
+        "abstract": "",
+        "url": [],
+        "doi": "10.1234/test",
+        "publisher": "Springer",
+        "publicationName": "J. Test",
+        "creators": [],
+        "contentType": "Article",
+    }
+    row.update(overrides)
+    return row
+
+
+class TestSpringerPdfUrl:
+    def test_pdf_format_extracted(self):
+        row = _minimal_springer_row(
+            url=[
+                {
+                    "format": "html",
+                    "platform": "link",
+                    "value": "https://link.springer.com/article/10.1234/test",
+                },
+                {
+                    "format": "pdf",
+                    "platform": "link",
+                    "value": "https://link.springer.com/content/pdf/10.1234/test.pdf",
+                },
+            ]
+        )
+        result = SpringertoZoteroFormat(row)
+        assert result["pdf_url"] == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        assert result["url"] == "https://link.springer.com/article/10.1234/test"
+
+    def test_only_html_no_pdf_url(self):
+        row = _minimal_springer_row(
+            url=[
+                {
+                    "format": "html",
+                    "platform": "link",
+                    "value": "https://link.springer.com/article/10.1234/test",
+                },
+            ]
+        )
+        result = SpringertoZoteroFormat(row)
+        assert result["url"] == "https://link.springer.com/article/10.1234/test"
+        assert result["pdf_url"] == MISSING_VALUE
+
+    def test_only_pdf_also_sets_url_fallback(self):
+        row = _minimal_springer_row(
+            url=[
+                {
+                    "format": "pdf",
+                    "platform": "link",
+                    "value": "https://link.springer.com/content/pdf/10.1234/test.pdf",
+                },
+            ]
+        )
+        result = SpringertoZoteroFormat(row)
+        assert result["pdf_url"] == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        # url should fall back to the pdf value since no html format
+        assert result["url"] == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+
+    def test_empty_url_list(self):
+        row = _minimal_springer_row(url=[])
+        result = SpringertoZoteroFormat(row)
+        assert result["pdf_url"] == MISSING_VALUE

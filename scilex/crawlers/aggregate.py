@@ -114,9 +114,6 @@ def getquality(df_row, column_names):
     return quality
 
 
-def filter_data(df_input, filter_):
-    return df_input[df_input["abstract"].str.contains("triple", case=False, na=False)]
-
 
 def _find_best_duplicate_index(duplicates_df, column_names):
     """Find the best duplicate record, preferring most recent then quality."""
@@ -512,6 +509,13 @@ def IstextoZoteroFormat(row):
     if "url" in row and row["url"] != "" and row["url"] is not None:
         zotero_temp["url"] = row["url"]
 
+    # Extract PDF URL from fulltext array
+    if "fulltext" in row and isinstance(row["fulltext"], list):
+        for ft in row["fulltext"]:
+            if isinstance(ft, dict) and ft.get("extension") == "pdf" and ft.get("uri"):
+                zotero_temp["pdf_url"] = ft["uri"]
+                break
+
     if "accessCondition" in row:
         if row["accessCondition"] != "" and row["accessCondition"] is not None:
             if (
@@ -569,6 +573,14 @@ def ArxivtoZoteroFormat(row):
         # Handle full URLs or just IDs
         if arxiv_id.startswith("http"):
             zotero_temp["url"] = arxiv_id
+            # Extract arXiv ID from URL for PDF link
+            # Handles: https://arxiv.org/abs/2301.12345, http://arxiv.org/abs/cs/0601078v1
+            url_id = arxiv_id.rstrip("/")
+            if "/abs/" in url_id:
+                url_id = url_id.split("/abs/")[-1]
+            elif "/pdf/" in url_id:
+                url_id = url_id.split("/pdf/")[-1].replace(".pdf", "")
+            zotero_temp["pdf_url"] = f"https://arxiv.org/pdf/{url_id}.pdf"
         else:
             # Clean the ID if it contains the full path
             if "/" in arxiv_id:
@@ -887,6 +899,8 @@ def OpenAlextoZoteroFormat(row):
         primary = row["primary_location"]
         if "landing_page_url" in primary and primary["landing_page_url"]:
             zotero_temp["url"] = primary["landing_page_url"]
+        if "pdf_url" in primary and primary["pdf_url"]:
+            zotero_temp["pdf_url"] = primary["pdf_url"]
     # Fallback: construct URL from DOI if available
     elif is_valid(row.get("doi")):
         doi = row["doi"]
@@ -1121,19 +1135,27 @@ def SpringertoZoteroFormat(row):
     if row["abstract"] != "" and row["abstract"] is not None:
         zotero_temp["abstract"] = row["abstract"]
 
-    # Extract URL from Springer API - try multiple possible field names
-    if "url" in row and is_valid(row["url"]):
+    # Extract URL and PDF URL from Springer API
+    if "url" in row and row["url"]:
         # url can be a list of URL objects in Springer API
         if isinstance(row["url"], list) and len(row["url"]) > 0:
-            # Get the first URL or look for HTML format
             for url_obj in row["url"]:
                 if isinstance(url_obj, dict):
-                    if url_obj.get("format") == "html" or "value" in url_obj:
-                        zotero_temp["url"] = url_obj.get("value", "")
-                        break
+                    fmt = url_obj.get("format", "")
+                    val = url_obj.get("value", "")
+                    if fmt == "html" and val:
+                        zotero_temp["url"] = val
+                    elif fmt == "pdf" and val:
+                        zotero_temp["pdf_url"] = val
                 elif isinstance(url_obj, str):
-                    zotero_temp["url"] = url_obj
-                    break
+                    if not is_valid(zotero_temp.get("url")):
+                        zotero_temp["url"] = url_obj
+            # Fallback: if no html URL found, use first available value
+            if not is_valid(zotero_temp.get("url")):
+                for url_obj in row["url"]:
+                    if isinstance(url_obj, dict) and url_obj.get("value"):
+                        zotero_temp["url"] = url_obj["value"]
+                        break
         elif isinstance(row["url"], str):
             zotero_temp["url"] = row["url"]
 

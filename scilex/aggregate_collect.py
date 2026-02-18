@@ -8,9 +8,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
-from dateutil import parser as date_parser
-
 import pandas as pd
+from dateutil import parser as date_parser
 from tqdm import tqdm
 
 import scilex.citations.citations_tools as cit_tools
