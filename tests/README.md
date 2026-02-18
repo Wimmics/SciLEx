@@ -27,9 +27,11 @@ uv run python -m pytest tests/ --cov=scilex --cov-report=term-missing  # With co
 | `test_rate_limits.py` | `config_defaults.py`, `collectors/base.py` | Rate limit structure, config overrides |
 | `test_path_normalization.py` | `constants.py` | `normalize_path_component` |
 | `test_hf_csv_enrichment.py` | `enrich_with_hf.py` | HuggingFace CSV enrichment |
+| `test_crossref_citations.py` | `citations/citations_tools.py`, `aggregate_collect.py` | CrossRef per-DOI lookup, pipeline tier integration |
+| `test_crossref_coverage.py` | `citations/citations_tools.py` | Live CrossRef vs OpenCitations comparison (`-m live`) |
 
 ## Coverage
 
-**376 tests, 38% overall coverage.** Key modules: `constants` 100%, `circuit_breaker` 97%, `quality_validation` 74%, `export_to_bibtex` 71%. Coverage floor set to 35% in `pyproject.toml`.
+**376+ tests, 38% overall coverage.** Key modules: `constants` 100%, `circuit_breaker` 97%, `quality_validation` 74%, `export_to_bibtex` 71%. Coverage floor set to 35% in `pyproject.toml`.
 
 Shared fixtures live in `conftest.py`. Test XML fixtures for PubMed are in `fixtures/pubmed/`.

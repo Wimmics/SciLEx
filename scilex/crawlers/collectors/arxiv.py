@@ -127,9 +127,9 @@ class Arxiv_collector(API_collector):
         year_arg = (
             "submittedDate:["
             + years_query
-            + "01D10000 + TO + "
+            + "01010000 + TO + "
             + years_query
-            + "31122400]"
+            + "12312400]"
         )
         # Join all formatted keyword groups with ' +AND+ '
         search_query = "+AND+".join(formatted_keyword_groups)

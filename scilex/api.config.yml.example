@@ -59,6 +59,30 @@ HuggingFace:
 #   client_secret: "YOUR_ORCID_CLIENT_SECRET"
 #   dir: "YOUR_WORK_DIRECTORY"
 
+# CrossRef - Citation counts for aggregation (batch lookup, much faster than OpenCitations)
+#
+# HOW IT WORKS:
+#   During aggregation, SciLEx fetches citation counts for each paper.
+#   CrossRef supports batch DOI lookup (20 DOIs per request), which is
+#   ~200x faster than OpenCitations (1 DOI per request at 1 req/sec).
+#   CrossRef is used automatically — no configuration needed.
+#
+# POLITE POOL (recommended):
+#   CrossRef has two access tiers based on whether you provide an email:
+#   - Without email: "public pool"  — 5 requests/sec, 1 concurrent connection
+#   - With email:    "polite pool"  — 10 requests/sec, 3 concurrent connections
+#
+#   The email is sent as a mailto= query parameter. CrossRef uses it only
+#   to contact you in case of problems (e.g., excessive usage). It is never
+#   shared or used for marketing. See: https://www.crossref.org/documentation/
+#
+#   With 20 DOIs per batch request, the effective throughput is:
+#   - Public pool: ~100 DOIs/sec (5 req/sec × 20 DOIs)
+#   - Polite pool: ~200 DOIs/sec (10 req/sec × 20 DOIs)
+#
+# CrossRef:
+#   mailto: "your.email@institution.org"
+
 # ============================================================================
 # FREE APIs (no configuration needed, just enable in scilex.config.yml)
 # ============================================================================

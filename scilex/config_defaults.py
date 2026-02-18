@@ -192,7 +192,10 @@ DEFAULT_RATE_LIMITS = {
     "Springer": {"without_key": 1.67, "with_key": 1.67},  # 100 req/min
     "HAL": {"without_key": 10.0, "with_key": 10.0},  # No documented limit
     "DBLP": {"without_key": 1.0, "with_key": 1.0},  # 1-2s between requests
-    "Crossref": {"without_key": 3.0, "with_key": 3.0},
+    "Crossref": {
+        "without_key": 5.0,
+        "with_key": 10.0,
+    },  # public: 5 req/sec, polite pool (mailto): 10 req/sec
     "Istex": {"without_key": 5.0, "with_key": 5.0},  # No documented limit
     "PubMed": {
         "without_key": 3.0,

@@ -7,6 +7,7 @@ Supports DOI-based citation keys and direct PDF download links.
 
 import logging
 import os
+import sys
 
 import pandas as pd
 

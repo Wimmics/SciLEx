@@ -178,4 +178,5 @@ rate_limits:
 
 ### Citation Data Available
 - Yes: Semantic Scholar, OpenAlex
+- Citation counts only: CrossRef (used during aggregation for per-DOI citation lookup)
 - No: All others

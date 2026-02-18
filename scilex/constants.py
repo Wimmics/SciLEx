@@ -60,6 +60,14 @@ class CitationFilterConfig:
     HIGH_ZERO_CITATION_RATE = 80  # Warn if >80% of papers have 0 citations
 
 
+class ZoteroConstants:
+    """Zotero-related constants."""
+
+    DEFAULT_COLLECTION_NAME = "new_models"
+    API_BASE_URL = "https://api.zotero.org"
+    WRITE_TOKEN_LENGTH = 32
+
+
 def is_valid(value) -> bool:
     """
     Check if a value is not null, NaN, or the missing value string.

@@ -81,10 +81,11 @@ Convert API-specific formats to unified schema:
 
 **Location**: `scilex/citations/citations_tools.py`
 
-Three-tier strategy:
+Four-tier strategy:
 1. SQLite cache (instant)
-2. Semantic Scholar data (if available)
-3. OpenCitations API (rate-limited)
+2. Semantic Scholar data (if available, in-memory)
+3. CrossRef live per-DOI API call (~3-10 req/sec with polite pool)
+4. OpenCitations API (1 req/sec fallback, only for CrossRef misses)
 
 Cache location: `output/citation_cache.db`
 

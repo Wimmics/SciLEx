@@ -45,6 +45,9 @@ scilex-export-bibtex = "scilex.export_to_bibtex:main"
 testpaths = ["tests"]
 addopts = "-v"
 pythonpath = ["."]
+markers = [
+    "live: tests that require network access and local data (deselect with '-m \"not live\"')",
+]
 
 [tool.coverage.run]
 source = ["scilex"]

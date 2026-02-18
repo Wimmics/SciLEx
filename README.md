@@ -41,7 +41,7 @@ Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit
 - Multi-API collection with parallel processing (SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, HAL, DBLP, Istex, PubMed)
 - Smart deduplication using DOI, URL, and fuzzy title matching
 - Parallel aggregation with configurable workers (default mode)
-- Citation network extraction via OpenCitations + Semantic Scholar with SQLite caching
+- Citation network extraction via CrossRef (live per-DOI) + OpenCitations + Semantic Scholar with SQLite caching
 - Quality filtering pipeline with time-aware citation thresholds, relevance ranking, and itemType filtering
 - HuggingFace enrichment (NEW): Extract ML models, datasets, GitHub stats, and AI keywords
 - Bulk Zotero upload in batches of 50 items
@@ -318,6 +318,7 @@ The top N papers (configurable, default 500) are selected for the final output.
 ### Performance Optimizations
 
 - Parallel aggregation (default mode, configurable workers)
+- CrossRef citation lookup (live per-DOI, ~3-10 req/sec with polite pool)
 - SQLite citation caching with 30-day TTL
 - Circuit breaker pattern for failed API endpoints
 - Bulk Zotero upload in batches of 50 items
@@ -349,6 +350,7 @@ The top N papers (configurable, default 500) are selected for the final output.
 - **Zotero**: `api_key`, `user_id`, `collection_id`
 - **IEEE, Elsevier, Springer**: `api_key` (required)
 - **SemanticScholar, HuggingFace**: `token` (optional, improves rate limits)
+- **CrossRef**: `mailto` (optional, enables polite pool: 10 req/sec vs 5 req/sec)
 - **`rate_limits`**: Per-API request limits (configurable)
 
 ---

@@ -137,3 +137,85 @@ def countCitations(citations):
         "nb_citations": len(citations["citing"]),
         "nb_cited": len(citations["cited"]),
     }
+
+
+# ============================================================================
+# CrossRef Batch Citation Lookup
+# ============================================================================
+
+CROSSREF_BATCH_SIZE = 20
+"""Max DOIs per CrossRef batch request (URL length safety)."""
+
+
+@retry(
+    retry=retry_if_exception_type(
+        (requests.exceptions.Timeout, requests.exceptions.RequestException)
+    ),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    reraise=False,
+)
+@sleep_and_retry
+@limits(calls=3, period=1)  # Conservative: 3 req/sec (each covers ~20 DOIs)
+def getCrossRefCitationsBatch(dois, mailto=None):
+    """Fetch citation counts for multiple DOIs in a single CrossRef API call.
+
+    Uses the CrossRef works endpoint with DOI filter and field selection
+    to retrieve citation and reference counts in bulk. Much faster than
+    per-DOI lookups via OpenCitations (~60 DOIs/sec vs 1 DOI/sec).
+
+    Args:
+        dois: List of DOI strings (max ~20 per batch for URL length safety).
+        mailto: Email for CrossRef polite pool (10 req/sec vs 5 req/sec).
+
+    Returns:
+        dict: {doi_lowercase: (citation_count, reference_count)} for found DOIs.
+            DOIs not found in CrossRef are simply omitted from the result.
+    """
+    if not dois:
+        return {}
+
+    filter_str = ",".join(f"doi:{doi}" for doi in dois)
+    url = (
+        f"https://api.crossref.org/works?"
+        f"filter={filter_str}"
+        f"&select=DOI,is-referenced-by-count,references-count"
+        f"&rows={len(dois)}"
+    )
+    if mailto:
+        url += f"&mailto={mailto}"
+
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    items = resp.json()["message"]["items"]
+
+    return {
+        item["DOI"].lower(): (
+            item.get("is-referenced-by-count", 0),
+            item.get("references-count", 0),
+        )
+        for item in items
+    }
+
+
+def getCrossRefCitation(doi, mailto=None):
+    """Fetch citation counts for a single DOI from CrossRef.
+
+    Wrapper around getCrossRefCitationsBatch for per-DOI usage in the
+    four-tier citation pipeline (Cache -> SS -> CrossRef -> OpenCitations).
+
+    Args:
+        doi: DOI string.
+        mailto: Email for CrossRef polite pool.
+
+    Returns:
+        tuple: (citation_count, reference_count) or None if DOI not found.
+    """
+    try:
+        result = getCrossRefCitationsBatch([doi], mailto=mailto)
+        doi_lower = doi.lower()
+        if doi_lower in result:
+            return result[doi_lower]
+    except Exception as e:
+        logging.debug(f"CrossRef lookup failed for DOI {doi}: {e}")
+    return None

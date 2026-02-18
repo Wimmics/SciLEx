@@ -73,6 +73,10 @@ PubMed:
 OpenAlex:
   api_key: "your-openalex-key"
 
+# CrossRef (optional - faster citation fetching with polite pool)
+CrossRef:
+  mailto: "your.email@institution.org"
+
 # Zotero (for export)
 Zotero:
   api_key: "your-zotero-key"

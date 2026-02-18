@@ -288,6 +288,9 @@ def _record_passes_text_filter(
 # Global lock for thread-safe rate limiting
 _rate_limit_lock = threading.Lock()
 
+# Global lock for thread-safe stats updates
+_stats_lock = threading.Lock()
+
 
 def _calculate_paper_age_months(date_str):
     """Calculate paper age in months from publication date.
@@ -445,6 +448,8 @@ def _apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="
     )
     logging.info(
         f"  Removed (from DOI papers): {removed_count:,} ({removed_count / initial_with_doi * 100:.1f}% of DOI papers)"
+        if initial_with_doi > 0
+        else f"  Removed (from DOI papers): {removed_count:,}"
     )
     logging.info(f"  Remaining: {len(df_filtered):,}")
 
@@ -990,14 +995,16 @@ def _fetch_citation_for_paper(
     cache_path=None,
     ss_citation_count=None,
     ss_reference_count=None,
+    crossref_mailto=None,
 ):
     """
-    Fetch citations for a single paper (thread-safe with three-tier strategy).
+    Fetch citations for a single paper (thread-safe with four-tier strategy).
 
-    Three-tier strategy: Cache → Semantic Scholar → OpenCitations
+    Four-tier strategy: Cache → Semantic Scholar → CrossRef → OpenCitations
     1. Check citation cache first (instant, no API call)
     2. If cache miss, check Semantic Scholar data (already in memory, no API call)
-    3. If SS data unavailable, call OpenCitations API
+    3. If SS data unavailable, call CrossRef API (~3 req/sec)
+    4. If CrossRef miss, call OpenCitations API (slowest, 1 req/sec)
 
     Args:
         index: Paper index in DataFrame
@@ -1011,12 +1018,14 @@ def _fetch_citation_for_paper(
         cache_path: Optional path to citation cache database
         ss_citation_count: Semantic Scholar citation count (if available)
         ss_reference_count: Semantic Scholar reference count (if available)
+        crossref_mailto: Email for CrossRef polite pool (optional)
 
     Returns:
         dict: Result with index and status
     """
     if not is_valid(doi):
-        stats["no_doi"] += 1
+        with _stats_lock:
+            stats["no_doi"] += 1
         return {"index": index, "status": "no_doi"}
 
     try:
@@ -1026,28 +1035,28 @@ def _fetch_citation_for_paper(
         cached_data = get_cached_citation(str(doi), cache_path)
         if cached_data is not None:
             # Cache hit - use cached data
-            stats["cache_hit"] += 1
             extras[index] = cached_data["citations"]
             nb_citeds[index] = cached_data["nb_cited"]
             nb_citations[index] = cached_data["nb_citations"]
 
             # Track API stats from cache
             api_stats = cached_data["api_stats"]
-            if (
-                api_stats["cit_status"] == "success"
-                and api_stats["ref_status"] == "success"
-            ):
-                stats["success"] += 1
+            with _stats_lock:
+                stats["cache_hit"] += 1
+                if (
+                    api_stats["cit_status"] == "success"
+                    and api_stats["ref_status"] == "success"
+                ):
+                    stats["success"] += 1
 
             return {"index": index, "status": "cache_hit"}
 
         # Cache miss - check Semantic Scholar data before calling OpenCitations
-        stats["cache_miss"] += 1
+        with _stats_lock:
+            stats["cache_miss"] += 1
 
         # Tier 2: Check if Semantic Scholar data is available (no API call needed)
         if ss_citation_count is not None or ss_reference_count is not None:
-            stats["ss_used"] += 1
-
             # Use SS data (already in memory)
             nb_cited = ss_reference_count if ss_reference_count is not None else 0
             nb_citation = ss_citation_count if ss_citation_count is not None else 0
@@ -1083,26 +1092,67 @@ def _fetch_citation_for_paper(
                 cache_path=cache_path,
             )
 
-            stats["success"] += 1
+            with _stats_lock:
+                stats["ss_used"] += 1
+                stats["success"] += 1
             return {"index": index, "status": "ss_used"}
 
-        # Tier 3: No SS data available - call OpenCitations API
-        stats["opencitations_used"] += 1
+        # Tier 3: Live CrossRef API call (~3 req/sec, much faster than OC)
+        cr_result = cit_tools.getCrossRefCitation(str(doi), mailto=crossref_mailto)
+        if cr_result is not None:
+            cr_cit, cr_ref = cr_result
+
+            citations = {
+                "citing_dois": [],
+                "cited_dois": [],
+                "nb_cited": cr_ref,
+                "nb_citations": cr_cit,
+                "source": "crossref",
+            }
+
+            extras[index] = str(citations)
+            nb_citeds[index] = cr_ref
+            nb_citations[index] = cr_cit
+
+            api_stats = {
+                "cit_status": "success",
+                "ref_status": "success",
+                "source": "crossref",
+            }
+
+            cache_citation(
+                doi=str(doi),
+                citations_json=str(citations),
+                nb_cited=cr_ref,
+                nb_citations=cr_cit,
+                api_stats=api_stats,
+                cache_path=cache_path,
+            )
+
+            with _stats_lock:
+                stats["cr_used"] += 1
+                stats["success"] += 1
+            return {"index": index, "status": "cr_used"}
+
+        # Tier 4: No SS or CrossRef data - call OpenCitations API (slowest)
+        with _stats_lock:
+            stats["opencitations_used"] += 1
         citations, api_stats = cit_tools.getRefandCitFormatted(str(doi))
 
         # Add source marker to api_stats
         api_stats["source"] = "opencitations"
 
         # Track statistics
-        if (
-            api_stats["cit_status"] == "success"
-            and api_stats["ref_status"] == "success"
-        ):
-            stats["success"] += 1
-        elif "timeout" in [api_stats["cit_status"], api_stats["ref_status"]]:
-            stats["timeout"] += 1
-        else:
-            stats["error"] += 1
+        with _stats_lock:
+            if (
+                api_stats["cit_status"] == "success"
+                and api_stats["ref_status"] == "success"
+            ):
+                stats["success"] += 1
+            elif "timeout" in [api_stats["cit_status"], api_stats["ref_status"]]:
+                stats["timeout"] += 1
+            else:
+                stats["error"] += 1
 
         # Calculate citation counts
         nb_ = cit_tools.countCitations(citations)
@@ -1141,7 +1191,8 @@ def _fetch_citation_for_paper(
 
     except Exception as e:
         logging.error(f"Unexpected error fetching citations for DOI {doi}: {e}")
-        stats["error"] += 1
+        with _stats_lock:
+            stats["error"] += 1
         return {"index": index, "status": "error"}
 
 
@@ -1207,6 +1258,7 @@ def _fetch_citations_parallel(
         "cache_hit": 0,
         "cache_miss": 0,
         "ss_used": 0,
+        "cr_used": 0,
         "opencitations_used": 0,
     }
 
@@ -1217,11 +1269,25 @@ def _fetch_citations_parallel(
         if checkpoint:
             start_index = checkpoint["last_index"] + 1
             stats = checkpoint["stats"]
-            # Restore already processed data
-            for i in range(start_index):
+            # Ensure new stats keys exist (for checkpoints saved before cr_used was added)
+            stats.setdefault("cr_used", 0)
+            stats.setdefault("opencitations_used", 0)
+            # Restore already processed data (with bounds check)
+            checkpoint_len = min(
+                start_index,
+                len(checkpoint.get("extras", [])),
+                len(checkpoint.get("nb_citeds", [])),
+                len(checkpoint.get("nb_citations", [])),
+            )
+            for i in range(checkpoint_len):
                 extras[i] = checkpoint["extras"][i]
                 nb_citeds[i] = checkpoint["nb_citeds"][i]
                 nb_citations[i] = checkpoint["nb_citations"][i]
+            if checkpoint_len < start_index:
+                logging.warning(
+                    f"Checkpoint data truncated: expected {start_index} entries, "
+                    f"found {checkpoint_len}. Re-fetching missing entries."
+                )
             logging.info(f"Resuming from paper {start_index}")
 
     papers_with_doi = df_clean["DOI"].apply(is_valid).sum()
@@ -1232,13 +1298,13 @@ def _fetch_citations_parallel(
         logging.info(
             "Using citation cache (30-day TTL) - expect ~60-80% cache hits on repeated runs"
         )
+    logging.info(f"Using {num_workers} parallel workers for citation fetching")
     logging.info(
-        f"Using {num_workers} parallel workers for citation fetching"
+        "Rate limits: CrossRef ~3 req/sec, OpenCitations 1 req/sec "
+        "(cache hits and Semantic Scholar data bypass API calls)"
     )
-    logging.info(
-        "Rate limits: OpenCitations API at 1 req/sec "
-        "(cache hits and Semantic Scholar data bypass this limit)"
-    )
+
+    crossref_mailto = api_config.get("CrossRef", {}).get("mailto")
 
     # Create progress bar and ThreadPoolExecutor for parallel fetching
     with (
@@ -1275,6 +1341,7 @@ def _fetch_citations_parallel(
                 cache_path,
                 ss_cit_count,
                 ss_ref_count,
+                crossref_mailto,
             )
             future_to_index[future] = position
 
@@ -1283,17 +1350,21 @@ def _fetch_citations_parallel(
             future.result()  # Wait for task completion (raises exceptions if any)
             pbar.update(1)
 
-            # Update progress bar with statistics (three-tier breakdown)
-            postfix = {
-                "✓": stats["success"],
-                "✗": stats["error"],
-                "⏱": stats["timeout"],
-                "⊘": stats["no_doi"],
-            }
-            if use_cache:
-                postfix["💾"] = stats["cache_hit"]  # Cache hits
-                postfix["🔬"] = stats["ss_used"]  # Semantic Scholar used
-                postfix["🔗"] = stats["opencitations_used"]  # OpenCitations API calls
+            # Update progress bar with statistics (four-tier breakdown)
+            with _stats_lock:
+                postfix = {
+                    "✓": stats["success"],
+                    "✗": stats["error"],
+                    "⏱": stats["timeout"],
+                    "⊘": stats["no_doi"],
+                }
+                if use_cache:
+                    postfix["💾"] = stats["cache_hit"]  # Cache hits
+                    postfix["🔬"] = stats["ss_used"]  # Semantic Scholar used
+                    postfix["📚"] = stats["cr_used"]  # CrossRef API used
+                    postfix["🔗"] = stats[
+                        "opencitations_used"
+                    ]  # OpenCitations API calls
             pbar.set_postfix(postfix)
 
     # Calculate statistics and percentages
@@ -1307,8 +1378,10 @@ def _fetch_citations_parallel(
             stats["cache_hit"] / (stats["cache_hit"] + stats["cache_miss"]) * 100
         )
 
+    cr_usage_rate = 0
     if total_with_doi > 0:
         ss_usage_rate = stats["ss_used"] / total_with_doi * 100
+        cr_usage_rate = stats["cr_used"] / total_with_doi * 100
         opencitations_rate = stats["opencitations_used"] / total_with_doi * 100
 
     logging.info(
@@ -1323,22 +1396,23 @@ def _fetch_citations_parallel(
             f"({cache_hit_rate:.1f}% hit rate)"
         )
 
-    # Three-tier strategy breakdown
+    # Four-tier strategy breakdown
     logging.info("Citation source breakdown (for papers with DOI):")
     logging.info(f"  💾 Cache hits: {stats['cache_hit']} papers")
     logging.info(
         f"  🔬 Semantic Scholar: {stats['ss_used']} papers ({ss_usage_rate:.1f}%)"
     )
+    logging.info(f"  📚 CrossRef: {stats['cr_used']} papers ({cr_usage_rate:.1f}%)")
     logging.info(
         f"  🔗 OpenCitations API: {stats['opencitations_used']} papers ({opencitations_rate:.1f}%)"
     )
 
-    # Calculate API call savings
-    api_calls_saved = stats["cache_hit"] + stats["ss_used"]
+    # Calculate API call savings (cache + SS + CrossRef all avoid OpenCitations calls)
+    api_calls_saved = stats["cache_hit"] + stats["ss_used"] + stats["cr_used"]
     if total_with_doi > 0:
         savings_rate = api_calls_saved / total_with_doi * 100
         logging.info(
-            f"  💰 API calls saved: {api_calls_saved}/{total_with_doi} ({savings_rate:.1f}%)"
+            f"  💰 OpenCitations calls saved: {api_calls_saved}/{total_with_doi} ({savings_rate:.1f}%)"
         )
 
     return extras, nb_citeds, nb_citations, stats
