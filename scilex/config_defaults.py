@@ -194,6 +194,7 @@ DEFAULT_RATE_LIMITS = {
     "DBLP": 1.0,  # No official limit, conservative default
     "Crossref": 3.0,  # Polite pool: 50 req/sec, conservative 3
     "Istex": 10.0,  # No official limit, conservative default
+    "PubMed": 3.0,  # 3 req/sec without key, 10 req/sec with key
 }
 """Rate limits for each API provider.
 These are CONSERVATIVE values. Premium/institutional access may allow higher limits."""

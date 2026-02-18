@@ -31,7 +31,7 @@ Zotero:
 # Springer:
 #   api_key: "YOUR_SPRINGER_API_KEY"
 # Springer:
-#   api_key: 
+#   api_key:
 #     meta_api_key: "YOUR_SPRINGER_OPEN_ACCESS_API_KEY"
 #     openaccess_api_key: "YOUR_SPRINGER_META_API_KEY"
 
@@ -52,10 +52,6 @@ HuggingFace:
 # Get key at: https://www.ncbi.nlm.nih.gov/account/settings/
 # PubMed:
 #   api_key: "YOUR_NCBI_API_KEY"  # Optional but recommended for better rate limits
-
-# Google Scholar (no API key needed, uses scholarly package with Tor/proxies)
-GoogleScholar:
-  enabled: false  # Set to true to enable web scraping of Google Scholar
 
 # ORCID integration (optional)
 # ORCID:
@@ -79,6 +75,11 @@ GoogleScholar:
 # Example: apis: [OpenAlex, Arxiv, HAL, DBLP, PubMed]
 #
 
+# OpenAlex - Free API key recommended (100k credits/day vs 100 without)
+# Get yours at: https://openalex.org/settings/api
+# OpenAlex:
+#   api_key: "YOUR_OPENALEX_API_KEY"
+
 # ============================================================================
 # RATE LIMITS (Optional - uses sensible defaults if not specified)
 # ============================================================================
@@ -96,5 +97,4 @@ GoogleScholar:
 #   Springer: 1.5
 #   HAL: 10.0
 #   DBLP: 1.0
-#   GoogleScholar: 2.0
 #   PubMed: 10.0              # With API key (3.0 without)

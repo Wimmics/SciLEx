@@ -275,8 +275,8 @@ class PubMed_collector(API_collector):
                     pmcid_number = pmcid_text.replace("PMC", "")
                     if pmcid_number.isdigit():
                         pmcid = f"PMC{pmcid_number}"
-                        # Construct HTTP landing page URL (no API call needed)
-                        pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+                        # Construct direct PDF URL (consistent with other collectors)
+                        pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/"
 
             # Extract title
             title_elem = article.find(".//ArticleTitle")

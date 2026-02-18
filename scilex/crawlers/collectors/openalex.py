@@ -8,98 +8,170 @@ class OpenAlex_collector(API_collector):
     """Class to collect publication data from the OpenAlex API."""
 
     def __init__(self, filter_param, data_path, api_key):
-        """
-        Initializes the OpenAlex collector with the given parameters.
+        """Initialize the OpenAlex collector with the given parameters.
 
         Args:
             filter_param (Filter_param): The parameters for filtering results (years, keywords, etc.).
-            save (int): Flag indicating whether to save the collected data.
             data_path (str): Path to save the collected data.
+            api_key: API key from api.config.yml (free, get at openalex.org/settings/api).
+                Without key: 100 credits/day. With key: 100,000 credits/day.
         """
         super().__init__(filter_param, data_path, api_key)
         self.rate_limit = 10  # Number of requests allowed per second
         self.max_by_page = 200  # Maximum number of results to retrieve per page
         self.api_name = "OpenAlex"
         self.api_url = "https://api.openalex.org/works"
-
-    # self.openalex_mail = openalex_mail  # Add your email for the OpenAlex API requests
+        self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
-        """
-        Parses the results from a response for a specific page.
+        """Parse the results from a response for a specific page.
 
         Args:
             response (requests.Response): The API response object containing the results.
             page (int): The page number of results being processed.
 
         Returns:
-            dict: A dictionary containing metadata about the collected results, including the total count and the results themselves.
+            tuple: A (page_data dict, next_cursor str or None) pair.
+                page_data contains metadata about the collected results.
+                next_cursor is the cursor for the next page, or None if no more pages.
         """
         page_data = {
-            "date_search": str(date.today()),  # Date of the search
-            "id_collect": self.get_collectId(),  # Unique identifier for this collection
-            "page": page,  # Current page number
-            "total": 0,  # Total number of results found
-            "results": [],  # List to hold the collected results
+            "date_search": str(date.today()),
+            "id_collect": self.get_collectId(),
+            "page": page,
+            "total": 0,
+            "results": [],
         }
 
-        # Parse the JSON response
         page_with_results = response.json()
 
-        # Extract the total number of hits from the results
-        total = page_with_results.get("meta", {}).get("count", 0)
+        meta = page_with_results.get("meta", {})
+        total = meta.get("count", 0)
         page_data["total"] = int(total)
+        next_cursor = meta.get("next_cursor")
         logging.debug(f"Total results found for page {page}: {page_data['total']}")
 
         if page_data["total"] > 0:
-            # Loop through the hits and append them to the results list
             for result in page_with_results.get("results", []):
                 page_data["results"].append(result)
 
-        return page_data
+        return page_data, next_cursor
 
     def get_configurated_url(self):
-        """
-        Constructs the API URL with the search query and filters based on the year and pagination.
+        """Construct the API URL with search query and filters.
+
+        Returns a base URL without pagination parameters — cursor pagination
+        is appended by runCollect().
 
         Returns:
             str: The formatted API URL for the request.
         """
-        # Create AND logic between keywords: each keyword must appear in title OR abstract
-        # For dual keyword groups, we need: (kw1 in title|abstract) AND (kw2 in title|abstract)
         keyword_filters = []
 
         for keyword_set in self.get_keywords():
-            # Use display_name.search (title) to enforce each keyword must be present
-            # OpenAlex searches abstracts by default when searching display names
-            keyword_filters.append(f"display_name.search:{keyword_set}")
+            # Use title_and_abstract.search to search both title AND abstract
+            keyword_filters.append(f"title_and_abstract.search:{keyword_set}")
 
-        # Join with commas for AND logic between keywords
         formatted_keyword_filters = ",".join(keyword_filters)
 
-        # Extract the min and max year from self.get_year() and create the range
-        years = self.get_year()  # Assuming this returns a list of years
-        # min_year = min(years)
-        # max_year = max(years)
+        years = self.get_year()
         year_filter = f"publication_year:{years}"
 
-        # Combine all filters into the final URL
+        # Base URL without pagination — cursor is appended in runCollect()
         api_url = (
             f"{self.api_url}?filter={formatted_keyword_filters},{year_filter}"
-            f"&per-page={self.max_by_page}&page={{}}"
+            f"&per-page={self.max_by_page}"
         )
 
-        logging.debug(f"Configured URL: {api_url}")
+        # Add API key if configured (free key: 100k credits/day vs 100 without)
+        if self.api_key:
+            api_url += f"&api_key={self.api_key}"
+
+        logging.debug(f"Configured URL: {self._sanitize_url(api_url)}")
         return api_url
 
-    def get_offset(self, page):
-        """
-        Returns the page number for OpenAlex pagination.
+    def runCollect(self):
+        """Run collection using OpenAlex cursor-based pagination.
 
-        Args:
-            page (int): The current page number.
-
-        Returns:
-            int: The offset for the API request, which in OpenAlex is the page number.
+        Cursor pagination has no 10k result limit (unlike page-based pagination).
+        See: https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging#cursor-paging
         """
-        return page
+        state_data = {
+            "state": self.state,
+            "last_page": self.lastpage,
+            "total_art": self.total_art,
+            "coll_art": self.nb_art_collected,
+            "update_date": str(date.today()),
+            "id_collect": self.collectId,
+        }
+
+        if self.state == 1:
+            logging.info("Collection already completed.")
+            return state_data
+
+        base_url = self.get_configurated_url()
+        cursor = "*"  # Initial cursor value for first request
+        page = int(self.get_lastpage()) + 1
+
+        logging.debug(f"Starting OpenAlex cursor-based collection from page {page}")
+
+        while cursor is not None:
+            # Check max articles limit before fetching
+            max_articles = self.filter_param.get_max_articles_per_query()
+            if max_articles > 0 and self.nb_art_collected >= max_articles:
+                logging.info(
+                    f"Reached max_articles_per_query limit ({max_articles}). "
+                    f"Already collected {self.nb_art_collected} articles. Stopping."
+                )
+                break
+
+            url = f"{base_url}&cursor={cursor}"
+            logging.debug(f"Fetching data from URL: {self._sanitize_url(url)}")
+
+            try:
+                response = self.api_call_decorator(url)
+                logging.debug(f"OpenAlex API call completed for page {page}")
+
+                page_data, next_cursor = self.parsePageResults(response, page)
+
+                # Log API usage statistics
+                self.log_api_usage(response, page, len(page_data.get("results", [])))
+
+                nb_results = len(page_data["results"])
+                self.nb_art_collected += nb_results
+
+                if nb_results == 0:
+                    logging.debug("No more results returned. Collection complete.")
+                    break
+
+                self.savePageResults(page_data, page)
+                self.set_lastpage(int(page) + 1)
+                page = self.get_lastpage()
+
+                state_data["last_page"] = page
+                state_data["total_art"] = page_data["total"]
+                state_data["coll_art"] = state_data["coll_art"] + nb_results
+
+                logging.debug(
+                    f"Processed page {page - 1}: {nb_results} results. "
+                    f"Total found: {page_data['total']}. "
+                    f"Collected so far: {self.nb_art_collected}"
+                )
+
+                # Advance cursor
+                cursor = next_cursor
+
+            except Exception as e:
+                logging.error(
+                    f"Error processing results on page {page} from OpenAlex API: {e}"
+                )
+                state_data["state"] = 0
+                state_data["last_page"] = page
+                self._flush_buffer()
+                return state_data
+
+        # Collection complete
+        logging.debug("OpenAlex collection complete. Marking as done.")
+        state_data["state"] = 1
+        self._flush_buffer()
+        return state_data

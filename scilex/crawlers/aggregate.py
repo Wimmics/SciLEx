@@ -9,7 +9,6 @@ Created on Fri Feb 10 10:57:49 2023
 """
 
 import logging
-import os
 
 import pandas as pd
 from pandas.core.dtypes.inference import is_dict_like
@@ -955,22 +954,36 @@ def OpenAlextoZoteroFormat(row):
                 row["biblio"]["first_page"] + "-" + row["biblio"]["last_page"]
             )
 
-    if "host_venue" in row:
-        if "publisher" in row["host_venue"] and row["host_venue"]["publisher"]:
-            zotero_temp["publisher"] = row["host_venue"]["publisher"]
+    # Extract publisher, journal, conference from primary_location.source
+    # (replaces deprecated host_venue which was removed from OpenAlex API)
+    primary_location = row.get("primary_location") or {}
+    source = primary_location.get("source") or {}
 
-        if "display_name" in row["host_venue"] and "type" in row["host_venue"]:
-            if row["host_venue"]["type"] == "conference":
-                zotero_temp["itemType"] = "conferencePaper"
-                zotero_temp["conferenceName"] = row["host_venue"]["display_name"]
+    if source.get("host_organization_name"):
+        zotero_temp["publisher"] = source["host_organization_name"]
 
-            elif row["host_venue"]["type"] == "journal":
-                zotero_temp["journalAbbreviation"] = row["host_venue"]["display_name"]
-                zotero_temp["itemType"] = "journalArticle"
-            else:
-                pass
+    if source.get("issn_l"):
+        zotero_temp["serie"] = source["issn_l"]
 
-            # print("NEED TO ADD FOLLOWING TYPE >",row["host_venue"]["type"])
+    source_type = source.get("type", "")
+    source_name = source.get("display_name", "")
+
+    if source_name:
+        if source_type == "conference":
+            zotero_temp["itemType"] = "conferencePaper"
+            zotero_temp["conferenceName"] = source_name
+        elif source_type == "journal":
+            zotero_temp["journalAbbreviation"] = source_name
+            zotero_temp["itemType"] = "journalArticle"
+        elif source_type == "repository":
+            # Preprint servers (arXiv, bioRxiv, medRxiv, etc.)
+            if not is_valid(zotero_temp.get("journalAbbreviation")):
+                zotero_temp["journalAbbreviation"] = source_name
+
+    # Extract citation count (available directly in OpenAlex response)
+    cited_by_count = row.get("cited_by_count")
+    if cited_by_count is not None:
+        zotero_temp["oa_citation_count"] = int(cited_by_count)
 
     # Default itemType if not set
     if not is_valid(zotero_temp.get("itemType")):
@@ -1310,6 +1323,7 @@ def PubMedCentraltoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "tags": MISSING_VALUE,
     }
 
     # Set archive name
@@ -1319,27 +1333,27 @@ def PubMedCentraltoZoteroFormat(row):
     zotero_temp["rights"] = "open-access"
 
     # Title
-    if row["title"] != "" and row["title"] is not None:
+    if is_valid(row.get("title")):
         zotero_temp["title"] = row["title"]
 
     # Authors - PMC returns list of "Surname GivenNames" strings
-    if "authors" in row and row["authors"]:
+    if is_valid(row.get("authors")):
         authors = row["authors"]
         if isinstance(authors, list) and len(authors) > 0:
             zotero_temp["authors"] = ";".join(authors)
-        elif isinstance(authors, str) and authors != "":
+        elif isinstance(authors, str):
             zotero_temp["authors"] = authors
 
     # Abstract
-    if row["abstract"] != "" and row["abstract"] is not None:
+    if is_valid(row.get("abstract")):
         zotero_temp["abstract"] = row["abstract"]
 
     # DOI
-    if row["doi"] != "" and row["doi"] is not None:
+    if is_valid(row.get("doi")):
         zotero_temp["DOI"] = row["doi"]
 
     # PMC ID (archiveID) - use PMID if PMC ID not available
-    if "pmc_id" in row and row["pmc_id"] != "" and row["pmc_id"] is not None:
+    if is_valid(row.get("pmc_id")):
         pmc_id = row["pmc_id"]
         zotero_temp["archiveID"] = pmc_id
 
@@ -1350,37 +1364,37 @@ def PubMedCentraltoZoteroFormat(row):
             zotero_temp["pdf_url"] = (
                 f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/pdf/"
             )
-    elif "pmid" in row and row["pmid"] != "" and row["pmid"] is not None:
+    elif is_valid(row.get("pmid")):
         # Fallback to PMID if no PMC ID
         zotero_temp["archiveID"] = row["pmid"]
         zotero_temp["url"] = f"https://pubmed.ncbi.nlm.nih.gov/{row['pmid']}/"
 
     # Publication date (YYYY-MM-DD format from collector)
-    if row["date"] != "" and row["date"] is not None:
+    if is_valid(row.get("date")):
         zotero_temp["date"] = row["date"]
 
     # Journal name
-    if row["journal"] != "" and row["journal"] is not None:
+    if is_valid(row.get("journal")):
         zotero_temp["journalAbbreviation"] = row["journal"]
 
     # Volume
-    if row["volume"] != "" and row["volume"] is not None:
+    if is_valid(row.get("volume")):
         zotero_temp["volume"] = row["volume"]
 
     # Issue
-    if row["issue"] != "" and row["issue"] is not None:
+    if is_valid(row.get("issue")):
         zotero_temp["issue"] = row["issue"]
 
     # Pages
-    if row["pages"] != "" and row["pages"] is not None:
+    if is_valid(row.get("pages")):
         zotero_temp["pages"] = row["pages"]
 
     # Publisher
-    if row["publisher"] != "" and row["publisher"] is not None:
+    if is_valid(row.get("publisher")):
         zotero_temp["publisher"] = row["publisher"]
 
     # Language
-    if row["language"] != "" and row["language"] is not None:
+    if is_valid(row.get("language")):
         zotero_temp["language"] = row["language"]
 
     # ItemType - Most PMC articles are journal articles

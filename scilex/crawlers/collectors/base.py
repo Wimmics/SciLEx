@@ -334,6 +334,7 @@ class API_collector:
         # Replace API keys in query parameters
         url = re.sub(r"([?&]api[Kk]ey=)[^&]+", r"\1***REDACTED***", url)
         url = re.sub(r"([?&]apikey=)[^&]+", r"\1***REDACTED***", url)
+        url = re.sub(r"([?&]api_key=)[^&]+", r"\1***REDACTED***", url)
         url = re.sub(r"([?&]key=)[^&]+", r"\1***REDACTED***", url)
         url = re.sub(r"([?&]token=)[^&]+", r"\1***REDACTED***", url)
         return url
@@ -358,7 +359,7 @@ class API_collector:
         Raises:
             CircuitBreakerOpenError: If circuit breaker is open (API endpoint failing repeatedly)
         """
-        logging.debug(f"API Request to: {configurated_url}")
+        logging.debug(f"API Request to: {self._sanitize_url(configurated_url)}")
 
         # Get circuit breaker for this API
         registry = CircuitBreakerRegistry()
