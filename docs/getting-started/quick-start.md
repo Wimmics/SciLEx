@@ -18,11 +18,7 @@ apis:
   - OpenAlex
   - Arxiv
 
-fields: ["title", "abstract"]
-
-collect: true
 collect_name: "test"
-max_results_per_api: 50
 EOF
 ```
 
@@ -45,13 +41,13 @@ Progress: 2/4 (50%) collections completed
 scilex-aggregate
 ```
 
-Results saved to `output/collect_*/aggregated_data.csv`
+Results saved to `output/{collect_name}/aggregated_results.csv`
 
 ### 4. View Results
 
 ```bash
 # View first few papers
-head output/collect_*/aggregated_data.csv
+head output/test/aggregated_results.csv
 ```
 
 Or open in spreadsheet software.
@@ -73,11 +69,8 @@ apis:
   - OpenAlex
   - Arxiv
 
-fields: ["title", "abstract"]
-
-aggregate_get_citations: true
-
 quality_filters:
+  aggregate_get_citations: true
   enable_itemtype_filter: true
   allowed_item_types:
     - journalArticle

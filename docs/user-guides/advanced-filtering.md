@@ -55,6 +55,16 @@ keywords:
   - ["prediction", "forecast"]     # Method
 ```
 
+### Bonus Keywords (Relevance Boost)
+
+Papers matching bonus keywords get higher relevance scores (0.5x weight) but are never excluded:
+
+```yaml
+bonus_keywords:
+  - "temporal reasoning"
+  - "multi-hop"
+```
+
 ## Phase 3: Quality Scoring
 
 Scores metadata completeness (0-100):
@@ -72,20 +82,18 @@ quality_filters:
 
 ## Phase 4: Citation Filtering
 
-Time-aware thresholds based on paper age:
+Time-aware thresholds based on paper age (from `config_defaults.py`):
 
-- 0-3 months: 0 citations required
-- 3-6 months: 1+ required
-- 6-12 months: 3+ required
-- 12-24 months: 5-8+ required
-- 24+ months: 10+ required
+- 0-18 months: 0 citations required (grace period)
+- 18-21 months: 1+ required
+- 21-24 months: 3+ required
+- 24-36 months: 5-8+ required (gradual increase)
+- 36+ months: 10+ required
 
 ```yaml
-aggregate_get_citations: true
-
 quality_filters:
+  aggregate_get_citations: true
   apply_citation_filter: true
-  min_citations_per_year: 2  # Average per year
 ```
 
 ## Phase 5: Relevance Ranking
@@ -115,13 +123,13 @@ keywords:
   - ["explainable AI", "XAI"]
   - ["healthcare", "medical"]
 
+bonus_keywords: ["interpretability", "transparency"]
+
 years: [2022, 2023, 2024]
 
 apis:
   - SemanticScholar
   - OpenAlex
-
-aggregate_get_citations: true
 
 quality_filters:
   # Phase 1
@@ -136,8 +144,8 @@ quality_filters:
   filter_by_abstract_quality: true
 
   # Phase 4
+  aggregate_get_citations: true
   apply_citation_filter: true
-  min_citations_per_year: 2
 
   # Phase 5
   apply_relevance_ranking: true

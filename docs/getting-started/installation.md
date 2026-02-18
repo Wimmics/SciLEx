@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- Python 3.13+
-- uv package manager (or pip)
+- Python >=3.10
+- uv package manager (recommended) or pip
 - 4GB RAM minimum
 
 ## Installation
@@ -12,12 +12,15 @@
 
 ```bash
 cd SciLEx
-uv sync
-```
 
-Or with pip:
-```bash
-pip install -r requirements.txt
+# Recommended: install with uv
+uv sync
+
+# Or with pip
+pip install -e .
+
+# For development (includes pytest, ruff, coverage)
+pip install -e ".[dev]"
 ```
 
 ### 2. Configure API Keys
@@ -27,30 +30,39 @@ cp scilex/api.config.yml.example scilex/api.config.yml
 nano scilex/api.config.yml
 ```
 
-Add your API keys:
+Add your API keys (PascalCase names required):
 
 ```yaml
 # Semantic Scholar (optional but recommended)
-semantic_scholar:
+SemanticScholar:
   api_key: "your-key-here"
 
 # IEEE (required if using)
-ieee:
+IEEE:
   api_key: "your-key"
 
 # Elsevier (required if using)
-elsevier:
+Elsevier:
   api_key: "your-key"
+  inst_token: null  # Optional institutional token
 
 # Springer (required if using)
-springer:
+Springer:
   api_key: "your-key"
 
+# PubMed (optional - boosts rate from 3 to 10 req/sec)
+PubMed:
+  api_key: "your-ncbi-key"
+
+# OpenAlex (optional - boosts daily quota from 100 to 100k)
+OpenAlex:
+  api_key: "your-openalex-key"
+
 # Zotero (for export)
-zotero:
+Zotero:
   api_key: "your-key"
   user_id: "your-id"
-  collection_id: "collection-id"
+  user_mode: "user"  # or "group"
 ```
 
 Get API keys from:
@@ -58,6 +70,8 @@ Get API keys from:
 - [IEEE](https://developer.ieee.org/getting_started)
 - [Elsevier](https://dev.elsevier.com/)
 - [Springer](https://dev.springernature.com/)
+- [PubMed / NCBI](https://www.ncbi.nlm.nih.gov/account/settings/)
+- [OpenAlex](https://openalex.org/settings/api)
 
 ### 3. Configure Search
 
@@ -77,8 +91,6 @@ years: [2023, 2024]
 apis:
   - OpenAlex
   - Arxiv
-
-fields: ["title", "abstract"]
 ```
 
 ## Verify Installation
@@ -94,17 +106,18 @@ scilex-collect
 ## Common Issues
 
 ### Python Version Error
-Install Python 3.13+ from [python.org](https://www.python.org)
+Install Python 3.10+ from [python.org](https://www.python.org)
 
 ### Module Not Found
 ```bash
 uv sync
 # or
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### API Key Invalid
 - Check for typos in `api.config.yml`
+- Ensure YAML keys use PascalCase (e.g., `SemanticScholar:`, not `semantic_scholar:`)
 - Verify key is active on API provider's dashboard
 
 ## Next Steps

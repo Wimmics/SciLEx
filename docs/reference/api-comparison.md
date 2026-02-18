@@ -4,18 +4,20 @@ Reference guide comparing all supported academic APIs.
 
 ## Quick Comparison
 
-| API | Coverage | API Key | Rate Limit | Abstracts | Citations | DOI | Best For |
-|-----|----------|---------|------------|-----------|-----------|-----|----------|
-| **Semantic Scholar** | 200M+ papers | Optional | 1 req/s | 95% | Yes | 85% | AI/CS research |
-| **OpenAlex** | 250M+ works | No | 10 req/s | 60% | Yes | 90% | Broad coverage |
-| **IEEE Xplore** | 5M+ docs | Required | 200/day | 100% | Limited | 95% | Engineering |
-| **Elsevier** | 18M+ articles | Required | Varies | 80% | No | 100% | Life sciences |
-| **Springer** | 13M+ docs | Required | 5000/day | 90% | No | 98% | Multidisciplinary |
-| **arXiv** | 2M+ preprints | No | 3 req/s | 100% | No | 60% | Physics/Math/CS |
-| **HAL** | 1M+ docs | No | 10 req/s | 70% | No | 40% | French research |
-| **DBLP** | 6M+ CS papers | No | 10 req/s | 0% | No | 95% | CS bibliography |
-| ~~**Google Scholar**~~ | Unknown | No | 2 req/s | Varies | Yes | 20% | ~~Comprehensive~~ **Deprecated** |
-| **ISTEX** | 25M+ docs | No | 10 req/s | 95% | No | 98% | French archives |
+Rate limits use a dual-value system (without_key / with_key) auto-selected based on whether an API key is configured. See `scilex/config_defaults.py` for all defaults.
+
+| API | Coverage | API Key | Rate Limit (no key / with key) | Abstracts | Citations | DOI | Best For |
+|-----|----------|---------|-------------------------------|-----------|-----------|-----|----------|
+| **Semantic Scholar** | 200M+ papers | Optional | 1.0 / 1.0 req/s | 95% | Yes | 85% | AI/CS research |
+| **OpenAlex** | 250M+ works | Optional | 10.0 / 10.0 req/s | 60% | Yes | 90% | Broad coverage |
+| **IEEE Xplore** | 5M+ docs | Required | 2.0 / 2.0 req/s | 100% | Limited | 95% | Engineering |
+| **Elsevier** | 18M+ articles | Required | 2.0 / 9.0 req/s | 80% | No | 100% | Life sciences |
+| **Springer** | 13M+ docs | Required | 1.67 / 1.67 req/s | 90% | No | 98% | Multidisciplinary |
+| **arXiv** | 2M+ preprints | No | 0.33 / 0.33 req/s | 100% | No | 60% | Physics/Math/CS |
+| **PubMed** | 35M+ papers | Optional | 3.0 / 10.0 req/s | 90% | No | 80% | Biomedical |
+| **HAL** | 1M+ docs | No | 10.0 / 10.0 req/s | 70% | No | 40% | French research |
+| **DBLP** | 6M+ CS papers | No | 1.0 / 1.0 req/s | 0% | No | 95% | CS bibliography |
+| **ISTEX** | 25M+ docs | No | 5.0 / 5.0 req/s | 95% | No | 98% | French archives |
 
 ## API Details
 
@@ -67,13 +69,11 @@ Reference guide comparing all supported academic APIs.
 - **Weaknesses**: No abstracts (copyright policy), CS-only
 - **Use for**: CS conference papers, bibliographic data
 
-### Google Scholar (Deprecated)
+### PubMed
 
-**⚠️ This API is deprecated and is no longer recommended for use.**
-
-- **Strengths**: Broadest coverage, includes grey literature
-- **Weaknesses**: Web scraping (slow), low DOI coverage (20%), unreliable, requires Tor proxy setup
-- **Use for**: ~~Maximum coverage, finding obscure papers~~ Not recommended - Use OpenAlex or Semantic Scholar instead
+- **Strengths**: 35M+ biomedical papers, MeSH subject headings, PMC landing page URLs
+- **Weaknesses**: Biomedical focus only, no citation data
+- **Use for**: Biomedical and life sciences research, systematic reviews
 
 ### ISTEX
 
@@ -94,6 +94,7 @@ apis:
 ### For Biomedical Research
 ```yaml
 apis:
+  - PubMed
   - Elsevier
   - OpenAlex
   - Springer
@@ -125,31 +126,34 @@ Get keys from:
 - [IEEE](https://developer.ieee.org/getting_started)
 - [Elsevier](https://dev.elsevier.com/)
 - [Springer](https://dev.springernature.com/)
+- [PubMed / NCBI](https://www.ncbi.nlm.nih.gov/account/settings/) (optional, 3x rate boost)
+- [OpenAlex](https://openalex.org/settings/api) (optional, 1000x daily quota boost)
 
 ### Rate Limits
 
-Conservative defaults in `api.config.yml`:
+Defaults are in `scilex/config_defaults.py` with dual-value system (without_key / with_key).
+Override in `api.config.yml` only if you have special access:
 ```yaml
 rate_limits:
-  SemanticScholar: 1.0
-  OpenAlex: 10.0
-  IEEE: 10.0
-  Elsevier: 6.0
-  Springer: 1.5
-  Arxiv: 3.0
+  SemanticScholar: 1.0   # Same with or without key
+  OpenAlex: 10.0          # Same with or without key
+  Arxiv: 0.33             # 1 request per 3 seconds
+  IEEE: 2.0
+  Elsevier: 9.0           # 9 req/sec with key (2 without)
+  Springer: 1.67          # 100 req/min
+  PubMed: 10.0            # 10 req/sec with key (3 without)
   HAL: 10.0
-  DBLP: 10.0
-  GoogleScholar: 2.0  # Deprecated - not recommended
-  Istex: 10.0
+  DBLP: 1.0
+  Istex: 5.0
 ```
 
 ## Coverage by Field
 
 - **Computer Science**: SemanticScholar, DBLP, Arxiv, IEEE
-- **Life Sciences**: Elsevier, OpenAlex, Springer
+- **Life Sciences**: PubMed, Elsevier, OpenAlex, Springer
 - **Engineering**: IEEE, Springer, Arxiv
 - **Physics/Math**: Arxiv, OpenAlex, Springer
-- **Social Sciences**: OpenAlex, ~~Google Scholar~~, Springer
+- **Social Sciences**: OpenAlex, Springer
 
 ## Known Limitations
 
@@ -168,10 +172,10 @@ rate_limits:
 - 95%: IEEE, DBLP
 - 90%: OpenAlex
 - 85%: Semantic Scholar
+- 80%: PubMed
 - 60%: Arxiv
 - 40%: HAL
-- 20%: Google Scholar
 
 ### Citation Data Available
 - Yes: Semantic Scholar, OpenAlex
-- No: All others (including deprecated Google Scholar)
+- No: All others

@@ -36,7 +36,7 @@ developer-guides/adding-collectors
 reference/api-comparison
 ```
 
-## Supported APIs
+## Supported APIs (10)
 
 - **Semantic Scholar** - AI/CS papers with citations
 - **OpenAlex** - Open catalog, broad coverage
@@ -44,9 +44,9 @@ reference/api-comparison
 - **Elsevier** - Scientific journals
 - **Springer** - Academic books and journals
 - **arXiv** - Preprints in physics, CS, math
+- **PubMed** - Biomedical literature (35M+ papers)
 - **HAL** - French open archive
 - **DBLP** - Computer science bibliography
-- ~~**Google Scholar**~~ - Deprecated (unreliable, requires Tor)
 - **ISTEX** - French scientific archives
 
 ## Key Features
@@ -89,7 +89,7 @@ scilex-push-zotero
 
 ## System Requirements
 
-- Python 3.13+
+- Python >=3.10
 - uv or pip
 - 4GB RAM minimum
 - Internet connection

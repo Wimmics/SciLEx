@@ -4,10 +4,11 @@ This guide explains how to configure SciLEx for your research needs.
 
 ## Configuration Files
 
-SciLEx uses two main configuration files:
+SciLEx uses up to three configuration files:
 
-1. **`scilex/scilex.config.yml`** - Search and collection settings
-2. **`scilex/api.config.yml`** - API credentials and rate limits
+1. **`scilex/scilex.config.yml`** - Search and collection settings (required)
+2. **`scilex/api.config.yml`** - API credentials and rate limits (required)
+3. **`scilex/scilex.advanced.yml`** - Advanced overrides (optional, for power users)
 
 ## Basic Configuration
 
@@ -25,8 +26,11 @@ keywords:
   - ["knowledge graph", "ontology"]      # Group 1
   - ["large language model", "LLM"]      # Group 2
 
+# Optional: Bonus keywords boost relevance without filtering
+bonus_keywords: ["temporal reasoning", "multi-hop"]
+
 # Years to search
-years: [2022, 2023, 2024]
+years: [2023, 2024, 2025]
 
 # APIs to use (see API guide for options)
 apis:
@@ -34,48 +38,65 @@ apis:
   - OpenAlex
   - Arxiv
 
-# Fields to search in
-fields: ["title", "abstract"]
-
 # Collection settings
-collect: true
 collect_name: "my_collection"
-output_dir: "output"
+semantic_scholar_mode: "regular"  # or "bulk" (requires special access)
 ```
 
 ### API Configuration (api.config.yml)
 
+YAML keys must use PascalCase to match API names:
+
 ```yaml
 # Semantic Scholar (optional key improves rate limits)
-semantic_scholar:
+SemanticScholar:
   api_key: "your-key-here"
 
 # IEEE (required)
-ieee:
+IEEE:
   api_key: "your-ieee-key"
 
 # Elsevier (required)
-elsevier:
+Elsevier:
   api_key: "your-elsevier-key"
-  inst_token: "optional-institutional-token"
+  inst_token: null  # Optional institutional token
 
 # Springer (required)
-springer:
+Springer:
   api_key: "your-springer-key"
 
+# PubMed (optional - 3 req/sec free, 10 req/sec with key)
+PubMed:
+  api_key: "your-ncbi-key"
+
+# OpenAlex (optional - 100 req/day free, 100k/day with key)
+OpenAlex:
+  api_key: "your-openalex-key"
+
 # Zotero (for export)
-zotero:
+Zotero:
   api_key: "your-zotero-key"
   user_id: "your-user-id"
-  collection_id: "target-collection"
+  user_mode: "user"  # or "group"
+```
 
-# Rate limits (requests per second)
+Rate limits use a dual-value system (without_key / with_key) and are auto-selected
+based on whether an API key is configured. Override only if needed:
+
+```yaml
+# Optional rate limit overrides (requests per second)
 rate_limits:
   SemanticScholar: 1.0
   OpenAlex: 10.0
-  IEEE: 10.0
-  Arxiv: 3.0
+  Arxiv: 0.33
+  PubMed: 10.0  # With key (3.0 without)
 ```
+
+### Advanced Configuration (scilex.advanced.yml)
+
+For power users. Copy `scilex/scilex.advanced.yml.example` and uncomment settings to override.
+Covers: custom relevance weights, itemtype bypass, abstract quality validation, open-access
+filtering, max_articles_per_query.
 
 ## Keyword Configuration
 
@@ -99,6 +120,20 @@ keywords:
   - ["prediction", "forecast", "model"]       # Method
 ```
 
+### Bonus Keywords (Relevance Boost)
+
+Boost relevance scores without filtering. Papers matching bonus keywords score higher
+but are not excluded if they don't match:
+
+```yaml
+bonus_keywords:
+  - "temporal reasoning"
+  - "multi-hop"
+  - "context windows"
+```
+
+Bonus keyword matches are weighted at 0.5x compared to mandatory keywords.
+
 ## Filtering Configuration
 
 ### Basic Quality Filters
@@ -120,13 +155,10 @@ quality_filters:
 ### Citation Filtering
 
 ```yaml
-# Enable citation fetching
-aggregate_get_citations: true
-
 quality_filters:
-  # Filter by citations (time-aware)
+  # Citation fetching and filtering
+  aggregate_get_citations: true
   apply_citation_filter: true
-  min_citations_per_year: 2
 ```
 
 ### Relevance Ranking
@@ -153,7 +185,8 @@ quality_filters:
 keywords: [["test"], []]
 years: [2024]
 apis: ["OpenAlex"]
-max_results_per_api: 10
+quality_filters:
+  max_papers: 10
 ```
 
 ### Comprehensive Search
@@ -168,8 +201,8 @@ apis:
   - OpenAlex
   - IEEE
   - Arxiv
-aggregate_get_citations: true
 quality_filters:
+  aggregate_get_citations: true
   apply_relevance_ranking: true
   max_papers: 1000
 ```
@@ -191,11 +224,12 @@ quality_filters:
 ### APIs Without Keys
 
 These APIs work without configuration:
-- OpenAlex
+- OpenAlex (key optional but recommended for higher quota)
 - Arxiv
 - DBLP
 - HAL
-- ~~GoogleScholar~~ (deprecated - unreliable, requires Tor proxy)
+- PubMed (key optional but recommended for higher rate)
+- Istex
 
 ### APIs Requiring Keys
 

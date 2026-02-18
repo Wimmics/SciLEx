@@ -8,7 +8,7 @@ Common issues and solutions when using SciLEx.
 
 **Problem**:
 ```
-Error: Python 3.13+ required
+Error: Python >=3.10 required
 ```
 
 **Solution**:
@@ -16,10 +16,10 @@ Error: Python 3.13+ required
 # Check your Python version
 python --version
 
-# Install Python 3.13+ from python.org
+# Install Python 3.10+ from python.org
 # Or use pyenv
-pyenv install 3.13
-pyenv local 3.13
+pyenv install 3.12
+pyenv local 3.12
 ```
 
 ### Module Not Found
@@ -34,7 +34,7 @@ ModuleNotFoundError: No module named 'pandas'
 # Reinstall dependencies
 uv sync
 # Or with pip
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ### uv Command Not Found
@@ -49,7 +49,7 @@ bash: uv: command not found
 # Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 # Or use pip instead
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ## API Issues
@@ -79,7 +79,7 @@ HTTP 429: Too Many Requests
 # Lower rate limits in api.config.yml
 rate_limits:
   SemanticScholar: 0.5  # Reduce from 1.0
-  IEEE: 5.0  # Reduce from 10.0
+  IEEE: 1.0  # Reduce from 2.0
 ```
 
 ### Connection Timeout
@@ -121,10 +121,7 @@ pip install --upgrade certifi
 2. Try broader search terms
 3. Try different years
 4. Try different APIs
-5. Search only in titles first:
-   ```yaml
-   fields: ["title"]
-   ```
+5. Use more specific keywords or dual-group mode
 
 ### Too Many Results
 
@@ -319,11 +316,10 @@ LOG_LEVEL=DEBUG scilex-collect
 
 Look for errors in console output or check the collection directory for state files.
 
-### Test Individual APIs
+### Run Tests
 
 ```bash
-python "scilex/API tests/SemanticScholarAPI.py"
-python "scilex/API tests/OpenAlexAPI.py"
+uv run python -m pytest tests/ -v
 ```
 
 ### Verify Configuration

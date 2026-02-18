@@ -1,12 +1,13 @@
 # Basic Workflow Guide
 
-Standard workflow for collecting and aggregating papers.
+Standard workflow for collecting, aggregating, enriching, and exporting papers.
 
 ## Workflow Steps
 
 1. **Collection** - Query APIs and download metadata
 2. **Aggregation** - Deduplicate and filter
-3. **Export** - Push to Zotero (optional)
+3. **Enrichment** - Add HuggingFace ML metadata (optional)
+4. **Export** - Push to Zotero or export to BibTeX
 
 ## Step 1: Collection
 
@@ -24,8 +25,6 @@ years: [2023, 2024]
 apis:
   - SemanticScholar
   - OpenAlex
-
-fields: ["title", "abstract"]
 ```
 
 ### Run Collection
@@ -34,11 +33,11 @@ fields: ["title", "abstract"]
 scilex-collect
 ```
 
-Results saved to `output/collect_YYYYMMDD_HHMMSS/`
+Results saved to `output/{collect_name}/` (name from config).
 
 Output structure:
 ```
-output/collect_20241113_143022/
+output/my_research_project/
 ├── config_used.yml
 ├── SemanticScholar/
 │   ├── 0/              # Query 0: keyword[0] + year[0]
@@ -71,14 +70,15 @@ Process:
 
 Enable in config:
 ```yaml
-aggregate_get_citations: true
+quality_filters:
+  aggregate_get_citations: true
 ```
 
 Then run aggregation. Citations fetched from cache → Semantic Scholar → OpenCitations.
 
 ### Output
 
-CSV saved to `output/collect_*/aggregated_data.csv`
+CSV saved to `output/{collect_name}/aggregated_results.csv`
 
 Columns:
 - `title`, `authors`, `year`, `DOI`, `abstract`
@@ -88,26 +88,46 @@ Columns:
 - `quality_score` - Metadata completeness (0-100)
 - `relevance_score` - Relevance (0-10)
 
-## Step 3: Export to Zotero
+## Step 3: Enrichment (Optional)
 
-### Configure
+Add HuggingFace ML metadata to papers before export:
 
-Edit `scilex/api.config.yml`:
+```bash
+# Full enrichment (updates CSV in-place)
+scilex-enrich
 
-```yaml
-zotero:
-  api_key: "your-key"
-  user_id: "your-id"
-  collection_id: "collection-id"
+# Preview matches first
+scilex-enrich --dry-run --limit 10
 ```
 
-### Run Export
+Adds columns: `tags` (ML tags), `hf_url` (HF paper URL), `github_repo` (GitHub link).
+
+## Step 4: Export
+
+### Option A: Push to Zotero
+
+Configure `scilex/api.config.yml`:
+
+```yaml
+Zotero:
+  api_key: "your-key"
+  user_id: "your-id"
+  user_mode: "user"
+```
 
 ```bash
 scilex-push-zotero
 ```
 
 Papers uploaded in batches. Duplicates skipped by URL.
+
+### Option B: Export to BibTeX
+
+```bash
+scilex-export-bibtex
+```
+
+Generates `aggregated_results.bib` in the collection directory.
 
 ## Filtering Pipeline
 
@@ -136,9 +156,8 @@ apis:
   - SemanticScholar
   - OpenAlex
 
-aggregate_get_citations: true
-
 quality_filters:
+  aggregate_get_citations: true
   enable_itemtype_filter: true
   allowed_item_types:
     - journalArticle
@@ -151,7 +170,8 @@ Run:
 ```bash
 scilex-collect
 scilex-aggregate
-scilex-push-zotero
+scilex-enrich          # Optional: add HF metadata
+scilex-push-zotero     # Or: scilex-export-bibtex
 ```
 
 ## Analyze Results
@@ -159,13 +179,13 @@ scilex-push-zotero
 ```python
 import pandas as pd
 
-df = pd.read_csv('output/collect_*/aggregated_data.csv')
+df = pd.read_csv('output/my_research_project/aggregated_results.csv', delimiter=';')
 
 print(f"Total papers: {len(df)}")
 print(f"\nPapers by year:")
 print(df['year'].value_counts().sort_index())
 print(f"\nTop cited:")
-print(df.nlargest(10, 'citation_count')[['title', 'citation_count']])
+print(df.nlargest(10, 'nb_citation')[['title', 'nb_citation']])
 ```
 
 ## Log Levels

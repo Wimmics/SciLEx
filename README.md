@@ -4,7 +4,7 @@
 
 [![Docs](https://img.shields.io/badge/Docs-Read%20the%20docs-blue?logo=readthedocs)](https://scilex.readthedocs.io/en/latest/)
 
-**SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 9+ academic APIs, deduplicate papers, analyze citation networks, and push to Zotero with advanced quality filtering.
+**SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 10 academic APIs, deduplicate papers, analyze citation networks, and push to Zotero with advanced quality filtering.
 
 
 ## Cite this work:
@@ -52,12 +52,12 @@ Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit
 ## Installation
 
 ```bash
-# Install with pip (or uv)
+# Install with uv (recommended)
+uv sync
+# OR with pip
 pip install -e .
-# OR
-uv pip install -e .
 
-# For development (includes pytest, ruff)
+# For development (includes pytest, ruff, coverage)
 pip install -e ".[dev]"
 ```
 
@@ -82,13 +82,6 @@ scilex-enrich                                # Add ML models, datasets, GitHub s
 scilex-push-zotero                           # Push to Zotero (with HF tags if enriched)
 # OR
 scilex-export-bibtex                         # Export to BibTeX (with HF keywords)
-
-# Alternative: use python -m
-python -m scilex collect
-python -m scilex aggregate
-python -m scilex enrich
-python -m scilex push-zotero
-python -m scilex export-bibtex
 ```
 
 ---
@@ -141,22 +134,24 @@ uvx ruff check --fix .
 
 ## Supported APIs
 
-| API | Key Required | Rate Limit | Abstract | Citations | Best For |
-|-----|--------------|------------|----------|-----------|----------|
-| **SemanticScholar** | Optional | 1/sec (100/page regular, 1000/page bulk) | ✓ | ✓ | CS/AI papers, citation networks |
-| **OpenAlex** | No | 10/sec, 100k/day | ~60% | ✓ | Broad coverage, ORCID data |
-| **IEEE** | Yes | 10/sec, 200/day | ✓ | ✓ | Engineering, CS conferences |
-| **Arxiv** | No | 3/sec | ✓ | ✗ | Preprints, physics, CS |
-| **Springer** | Yes | 1.5/sec | ✓ | Partial | Journals, books |
-| **Elsevier** | Yes | 6/sec | Partial | ✓ | Medical, life sciences |
-| **HAL** | No | 10/sec | ✓ | ✗ | French research, theses |
-| **DBLP** | No | 10/sec | ✗ (copyright) | ✗ | CS bibliography, 95%+ DOI coverage |
-| **Istex** | No | Conservative | ✓ | ✗ | French institutional access |
+| API | Key Required | Rate Limit (no key / with key) | Abstract | Citations | Best For |
+|-----|--------------|-------------------------------|----------|-----------|----------|
+| **SemanticScholar** | Optional | 1.0 / 1.0 req/sec | ✓ | ✓ | CS/AI papers, citation networks |
+| **OpenAlex** | Optional | 10.0 / 10.0 req/sec | ~60% | ✓ | Broad coverage, ORCID data |
+| **IEEE** | Yes | 2.0 / 2.0 req/sec | ✓ | ✓ | Engineering, CS conferences |
+| **Arxiv** | No | 0.33 / 0.33 req/sec | ✓ | ✗ | Preprints, physics, CS |
+| **Springer** | Yes | 1.67 / 1.67 req/sec | ✓ | Partial | Journals, books |
+| **Elsevier** | Yes | 2.0 / 9.0 req/sec | Partial | ✓ | Medical, life sciences |
+| **PubMed** | Optional | 3.0 / 10.0 req/sec | ✓ | ✗ | 35M biomedical papers |
+| **HAL** | No | 10.0 / 10.0 req/sec | ✓ | ✗ | French research, theses |
+| **DBLP** | No | 1.0 / 1.0 req/sec | ✗ (copyright) | ✗ | CS bibliography, 95%+ DOI |
+| **Istex** | No | 5.0 / 5.0 req/sec | ✓ | ✗ | French institutional access |
 
 **Notes:**
-- **SemanticScholar bulk mode**: 10x faster collection but requires higher-tier API access
+- **SemanticScholar bulk mode**: 10x faster collection (1000/page vs 100/page) but requires higher-tier API access
 - **DBLP**: No abstracts by design (copyright restrictions), but excellent bibliographic metadata
-- Rate limits are configurable in `api.config.yml`
+- **OpenAlex**: Free API key recommended (100k req/day vs 100 without) — get at [openalex.org/settings/api](https://openalex.org/settings/api)
+- Rate limits auto-selected based on API key presence; configurable in `api.config.yml`
 
 ---
 
@@ -168,7 +163,7 @@ Export aggregated papers to BibTeX format for LaTeX, Overleaf, and citation mana
 scilex-export-bibtex
 ```
 
-**Output**: `output/collect_YYYYMMDD_HHMMSS/aggregated_results.bib`
+**Output**: `output/{collect_name}/aggregated_results.bib`
 
 ### PDF Download Links
 
@@ -208,7 +203,7 @@ The aggregation step transforms raw API results into a curated, high-quality dat
 
 ```mermaid
 flowchart TB
-    A[("🔍 9 APIs<br/>200,000 papers")] --> B
+    A[("🔍 10 APIs<br/>200,000 papers")] --> B
     B["⚡ Deduplication<br/>-160,000 duplicates"] --> C
     C[("📄 40,000 unique")] --> D
     D["📋 ItemType Filter<br/>-5,000 invalid types"] --> E
@@ -360,7 +355,7 @@ The top N papers (configurable, default 500) are selected for the final output.
 
 ## Documentation & Contributing
 
-- **Output structure**: `output/collect_YYYYMMDD_HHMMSS/` with timestamped collections
+- **Output structure**: `output/{collect_name}/` — named by `collect_name` in config
 - **Idempotent design**: Safe re-runs automatically skip completed queries
 - **Built for**: Systematic reviews in AI/ML research (PhD context)
 
