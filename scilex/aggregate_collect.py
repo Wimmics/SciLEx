@@ -1648,6 +1648,7 @@ def _fetch_citations_parallel(
                 except Exception as e:
                     logging.debug(f"CrossRef batch request failed: {e}")
                     cr_results = {}
+                cr_results = cr_results or {}
 
                 cache_entries = []
                 for pos, doi in batch:

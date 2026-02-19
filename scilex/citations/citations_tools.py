@@ -153,7 +153,7 @@ CROSSREF_BATCH_SIZE = 20
     ),
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    reraise=False,
+    reraise=True,
 )
 @sleep_and_retry
 @limits(calls=3, period=1)  # Conservative: 3 req/sec (each covers ~20 DOIs)
