@@ -38,7 +38,7 @@ MAX_ABSTRACT_WORDS = 1000
 """Maximum abstract length in words. Detects copy-paste errors or non-abstracts.
 Typical range: 500-1000 words. Set to 0 to disable."""
 
-MIN_ABSTRACT_QUALITY_SCORE = 50
+MIN_ABSTRACT_QUALITY_SCORE = 60
 """Minimum acceptable quality score for abstracts (0-100 scale).
 Used when validate_abstracts is enabled."""
 
@@ -135,12 +135,9 @@ DEFAULT_GENERATE_QUALITY_REPORT = True
 Reports show: papers filtered, reasons, data completeness stats."""
 
 DEFAULT_VALIDATE_ABSTRACTS = False
-"""Validate abstract quality (detect truncation, boilerplate, encoding issues).
-Set to True to get detailed abstract quality reports."""
-
-DEFAULT_FILTER_BY_ABSTRACT_QUALITY = False
-"""Filter out papers with poor abstract quality.
-Only applies if validate_abstracts is True."""
+"""Validate abstract quality and filter out poor abstracts.
+When True, detects truncation, boilerplate, and encoding issues,
+then removes papers below the min_abstract_quality_score threshold."""
 
 # ============================================================================
 # CITATION AND RELEVANCE FEATURES
@@ -226,7 +223,6 @@ QUALITY_FILTER_SCHEMA = {
     "validate_year_range": bool,
     "validate_abstracts": bool,
     "min_abstract_quality_score": int,
-    "filter_by_abstract_quality": bool,
     "generate_quality_report": bool,
     "apply_citation_filter": bool,
     "use_semantic_scholar_citations": bool,
@@ -256,7 +252,6 @@ def get_default_quality_filters():
         "validate_year_range": DEFAULT_VALIDATE_YEAR_RANGE,
         "validate_abstracts": DEFAULT_VALIDATE_ABSTRACTS,
         "min_abstract_quality_score": MIN_ABSTRACT_QUALITY_SCORE,
-        "filter_by_abstract_quality": DEFAULT_FILTER_BY_ABSTRACT_QUALITY,
         "generate_quality_report": DEFAULT_GENERATE_QUALITY_REPORT,
         "apply_citation_filter": DEFAULT_APPLY_CITATION_FILTER,
         "use_semantic_scholar_citations": DEFAULT_USE_SEMANTIC_SCHOLAR_CITATIONS,

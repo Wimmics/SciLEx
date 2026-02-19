@@ -120,11 +120,10 @@
 #
 # Advanced abstract quality checking (detect truncation, boilerplate, encoding issues)
 #
-# Example: Enable detailed quality checking
+# Example: Enable abstract quality validation and filtering
 # quality_filters:
-#   validate_abstracts: true
-#   min_abstract_quality_score: 60        # Stricter threshold
-#   filter_by_abstract_quality: true      # Actually filter
+#   validate_abstracts: true              # Validate and filter poor abstracts
+#   min_abstract_quality_score: 60        # 0-100 scale (default: 60)
 
 # ============================================================================
 # OPEN ACCESS FILTERING

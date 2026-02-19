@@ -1729,9 +1729,9 @@ def _fetch_citations_parallel(
         opencitations_rate = stats["opencitations_used"] / total_with_doi * 100
 
     logging.info(
-        f"Citation fetching complete: {stats['success']} successful, "
-        f"{stats['error']} errors, {stats['timeout']} timeouts, "
-        f"{stats['no_doi']} without DOI"
+        f"Citation fetching complete: ✓ {stats['success']} successful, "
+        f"✗ {stats['error']} errors, ⏱ {stats['timeout']} timeouts, "
+        f"⊘ {stats['no_doi']} without DOI"
     )
 
     if use_cache:
@@ -1740,7 +1740,7 @@ def _fetch_citations_parallel(
             f"({cache_hit_rate:.1f}% hit rate)"
         )
 
-    logging.info("Citation source breakdown (for papers with DOI):")
+    logging.info("Citation resolution by phase (sequential fallthrough):")
     logging.info(f"  💾 Cache hits: {stats['cache_hit']} papers")
     logging.info(
         f"  🔬 Semantic Scholar: {stats['ss_used']} papers ({ss_usage_rate:.1f}%)"
@@ -1757,7 +1757,7 @@ def _fetch_citations_parallel(
     if total_with_doi > 0:
         savings_rate = api_calls_saved / total_with_doi * 100
         logging.info(
-            f"  💰 OpenCitations calls saved: {api_calls_saved}/{total_with_doi} ({savings_rate:.1f}%)"
+            f"  💰 OpenCitations API calls avoided: {api_calls_saved}/{total_with_doi} ({savings_rate:.1f}%)"
         )
 
     return extras, nb_citeds, nb_citations, stats
@@ -1783,7 +1783,7 @@ def main():
         "--workers",
         type=int,
         default=2,
-        help="Number of parallel workers for citation fetching (default: 1)",
+        help="Number of parallel workers for citation fetching (default: 2)",
     )
     parser.add_argument(
         "--checkpoint-interval",
@@ -2075,7 +2075,7 @@ def main():
         )
         logging.info(keyword_report)
 
-    # Abstract quality validation (Phase 2)
+    # Abstract quality validation and filtering (Phase 2)
     if quality_filters.get("validate_abstracts", False):
         logging.info("Validating abstract quality...")
         min_quality_score = quality_filters.get(
@@ -2087,21 +2087,19 @@ def main():
             generate_report=quality_filters.get("generate_quality_report", True),
         )
 
-        # Optionally filter by abstract quality
-        if quality_filters.get("filter_by_abstract_quality", False):
-            df_clean = filter_by_abstract_quality(
-                df_clean, min_quality_score=min_quality_score
-            )
-            logging.info(
-                f"After abstract quality filtering: {len(df_clean)} papers remaining"
-            )
+        df_clean = filter_by_abstract_quality(
+            df_clean, min_quality_score=min_quality_score
+        )
+        logging.info(
+            f"After abstract quality filtering: {len(df_clean)} papers remaining"
+        )
 
-            # Track abstract quality filtering stage
-            filtering_tracker.add_stage(
-                "Abstract Quality Filter",
-                len(df_clean),
-                f"Abstracts meeting quality threshold (min score: {min_quality_score})",
-            )
+        # Track abstract quality filtering stage
+        filtering_tracker.add_stage(
+            "Abstract Quality Filter",
+            len(df_clean),
+            f"Abstracts meeting quality threshold (min score: {min_quality_score})",
+        )
 
     if get_citation and len(df_clean) > 0:
         # Set up checkpoint path
