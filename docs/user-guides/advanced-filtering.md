@@ -1,8 +1,46 @@
 # Advanced Filtering Guide
 
-SciLEx applies a 5-phase filtering pipeline to refine paper collections.
+SciLEx applies a 5-phase filtering pipeline that transforms raw API results into a curated, high-quality dataset. From **200,000 raw papers** down to **500 final papers** (99.75% reduction).
 
-## Filtering Pipeline
+## Pipeline Overview
+
+```mermaid
+flowchart TB
+    A[("🔍 10 APIs<br/>200,000 papers")] --> B
+    B["⚡ Deduplication<br/>-160,000 duplicates"] --> C
+    C[("📄 40,000 unique")] --> D
+    D["📋 ItemType Filter<br/>-5,000 invalid types"] --> E
+    E[("📄 35,000 valid")] --> F
+    F["🔑 Keyword Filter<br/>-20,000 no match"] --> G
+    G[("📄 15,000 matched")] --> H
+    H["✅ Quality Filter<br/>-7,000 low quality"] --> I
+    I[("📄 8,000 quality")] --> J
+    J["📊 Citation Filter<br/>-6,000 low citations"] --> K
+    K[("📄 2,000 cited")] --> L
+    L["🏆 Relevance Ranking<br/>Top 500 selected"] --> M
+    M[("✨ 500 Final Papers")]
+
+    style A fill:#e1f5fe
+    style M fill:#c8e6c9
+    style B fill:#ffecb3
+    style D fill:#ffecb3
+    style F fill:#ffecb3
+    style H fill:#ffecb3
+    style J fill:#ffecb3
+    style L fill:#ffecb3
+```
+
+| Stage | Papers In | Removed | Papers Out | Description |
+|-------|-----------|---------|------------|-------------|
+| **API Collection** | — | — | 200,000 | Raw results from 10 academic APIs |
+| **Deduplication** | 200,000 | 160,000 (80%) | 40,000 | Merge duplicates via DOI + fuzzy title matching |
+| **ItemType Filter** | 40,000 | 5,000 | 35,000 | Keep only valid publication types |
+| **Keyword Filter** | 35,000 | 20,000 | 15,000 | Enforce dual-group keyword matching |
+| **Quality Filter** | 15,000 | 7,000 | 8,000 | Score metadata completeness |
+| **Citation Filter** | 8,000 | 6,000 | 2,000 | Time-aware citation thresholds |
+| **Relevance Ranking** | 2,000 | 1,500 | **500** | Select top papers by composite score |
+
+## Filtering Phases
 
 1. **ItemType Filter** - Keep specific publication types
 2. **Keyword Match** - Verify search term relevance
@@ -67,17 +105,42 @@ bonus_keywords:
 
 ## Phase 3: Quality Scoring
 
-Scores metadata completeness (0-100):
+This phase applies two independent scoring mechanisms:
 
-- Critical fields (5 pts each): DOI, title, authors, year
-- Important fields (3 pts each): abstract, journal, volume, issue
-- Nice-to-have (1 pt each): pages, URL, keywords
+### 3a. Metadata Completeness Score
+
+Scores how complete a paper's metadata is, using weighted fields:
+
+- **Critical fields** (5 pts each): DOI, title, authors, date
+- **Important fields** (3 pts each): abstract, journal, volume, issue, publisher
+- **All other fields** (1 pt each): pages, URL, language, rights, etc.
+- **Bonus**: +1 point if both volume and issue are present
+
+The score is open-ended (typically 0-50) and is used as one component
+of the [relevance ranking](#phase-5-relevance-ranking) (25% weight by default).
+It does not directly filter papers.
+
+### 3b. Abstract Quality Score
+
+Separately, abstracts are validated for content quality on a 0-100 scale.
+The score starts at 100 and deducts points for detected issues:
+
+| Issue | Severity | Deduction | Example |
+|-------|----------|-----------|---------|
+| Truncated text | Critical | -40 pts | Ends with "..." or cut-off mid-sentence |
+| Missing/empty | Critical | -40 pts | No abstract available |
+| Boilerplate text | Warning | -15 pts | Generic publisher placeholder |
+| Too short | Warning | -15 pts | Under 30 words |
+| Too long | Warning | -15 pts | Over 1000 words (likely full text) |
+| Incomplete sentence | Warning | -15 pts | Ends with preposition/conjunction |
+| Formatting issues | Info | -5 pts | Minor formatting problems |
+
+Papers below the threshold (default: 60) are removed:
 
 ```yaml
 quality_filters:
-  validate_abstracts: true
-  min_abstract_quality_score: 60
-  filter_by_abstract_quality: true
+  validate_abstracts: true             # Validate and filter poor abstracts
+  min_abstract_quality_score: 60       # 0-100 scale (default: 60)
 ```
 
 ## Phase 4: Citation Filtering
@@ -141,7 +204,6 @@ quality_filters:
   # Phase 3
   validate_abstracts: true
   min_abstract_quality_score: 60
-  filter_by_abstract_quality: true
 
   # Phase 4
   aggregate_get_citations: true
@@ -202,3 +264,9 @@ df = pd.read_csv('aggregated_data.csv')
 top = df.nlargest(10, 'relevance_score')
 print(top[['title', 'relevance_score', 'quality_score', 'citation_count']])
 ```
+
+## See Also
+
+- [Basic Workflow](basic-workflow.md) — Step-by-step pipeline guide
+- [Configuration](../getting-started/configuration.md) — Filter configuration reference
+- [Troubleshooting](../getting-started/troubleshooting.md) — Common issues and fixes

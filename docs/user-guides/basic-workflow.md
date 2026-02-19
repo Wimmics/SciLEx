@@ -131,48 +131,9 @@ Generates `aggregated_results.bib` in the collection directory.
 
 ## Filtering Pipeline
 
-Aggregation applies filters:
+Aggregation applies a 5-phase filtering pipeline — deduplication, itemType, keyword, quality, citation, and relevance ranking. Check logs to see papers filtered at each step.
 
-1. **ItemType** - Keep allowed publication types
-2. **Keywords** - Match search terms
-3. **Deduplication** - Remove duplicates
-4. **Quality** - Remove low-quality metadata
-5. **Citations** - Time-aware thresholds
-6. **Relevance** - Score and limit to top N
-
-Check logs to see papers filtered at each step.
-
-## Complete Example
-
-```yaml
-# scilex/scilex.config.yml
-keywords:
-  - ["knowledge graph"]
-  - ["LLM", "large language model"]
-
-years: [2023, 2024]
-
-apis:
-  - SemanticScholar
-  - OpenAlex
-
-quality_filters:
-  aggregate_get_citations: true
-  enable_itemtype_filter: true
-  allowed_item_types:
-    - journalArticle
-    - conferencePaper
-  apply_relevance_ranking: true
-  max_papers: 300
-```
-
-Run:
-```bash
-scilex-collect
-scilex-aggregate
-scilex-enrich          # Optional: add HF metadata
-scilex-push-zotero     # Or: scilex-export-bibtex
-```
+See [Advanced Filtering](advanced-filtering.md) for the full pipeline flowchart, per-phase configuration, and citation threshold details.
 
 ## Analyze Results
 

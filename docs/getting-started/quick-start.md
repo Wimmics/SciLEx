@@ -150,20 +150,9 @@ scilex-push-zotero                # Export to Zotero
 # or: scilex-export-bibtex        # Export to BibTeX
 ```
 
-## CSV Output Columns
-
-- `title` - Paper title
-- `authors` - Author list
-- `year` - Publication year
-- `DOI` - Digital Object Identifier
-- `abstract` - Full abstract
-- `itemType` - Publication type
-- `citation_count` - Citations (if enabled)
-- `quality_score` - Metadata completeness (0-100)
-- `relevance_score` - Relevance (0-10)
-
 ## Next Steps
 
-- [Configuration Guide](configuration.md) - All config options
-- [Basic Workflow](../user-guides/basic-workflow.md) - Detailed workflow
-- [Advanced Filtering](../user-guides/advanced-filtering.md) - Filtering options
+- [Configuration Guide](configuration.md) — All config options and API keys
+- [Basic Workflow](../user-guides/basic-workflow.md) — Detailed pipeline walkthrough with CSV column reference
+- [Advanced Filtering](../user-guides/advanced-filtering.md) — Full filtering pipeline with flowchart
+- [BibTeX Export](../reference/bibtex-export.md) — BibTeX field reference and PDF link sources

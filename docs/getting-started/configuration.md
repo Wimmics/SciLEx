@@ -140,46 +140,23 @@ Bonus keyword matches are weighted at 0.5x compared to mandatory keywords.
 
 ## Filtering Configuration
 
-### Basic Quality Filters
+Key `quality_filters` options:
 
 ```yaml
 quality_filters:
-  # Filter by publication type
-  enable_itemtype_filter: true
+  enable_itemtype_filter: true           # Keep only specified publication types
   allowed_item_types:
     - journalArticle
     - conferencePaper
-
-  # Abstract quality
-  validate_abstracts: true
-  min_abstract_quality_score: 60
-  filter_by_abstract_quality: true
+  validate_abstracts: true               # Remove papers with poor/truncated abstracts
+  min_abstract_quality_score: 60        # 0-100 scale (default: 60)
+  aggregate_get_citations: true          # Fetch citation counts via CrossRef/OpenCitations
+  apply_citation_filter: true           # Apply time-aware citation thresholds
+  apply_relevance_ranking: true         # Score and limit to top N papers
+  max_papers: 500                        # Keep top 500 papers
 ```
 
-### Citation Filtering
-
-```yaml
-quality_filters:
-  # Citation fetching and filtering
-  aggregate_get_citations: true
-  apply_citation_filter: true
-```
-
-### Relevance Ranking
-
-```yaml
-quality_filters:
-  # Rank and limit results
-  apply_relevance_ranking: true
-  max_papers: 500  # Keep top 500 papers
-
-  # Scoring weights (must sum to 1.0)
-  relevance_weights:
-    keywords: 0.45
-    quality: 0.25
-    itemtype: 0.20
-    citations: 0.10
-```
+See [Advanced Filtering](../user-guides/advanced-filtering.md) for a detailed explanation of each phase, citation thresholds, scoring weights, and the full pipeline flowchart.
 
 ## Common Configurations
 
