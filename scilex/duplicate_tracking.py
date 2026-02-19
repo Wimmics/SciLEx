@@ -165,7 +165,7 @@ class DuplicateSourceAnalyzer:
                 (unique_papers / total_papers * 100) if total_papers > 0 else 0.0
             )
             coverage_percentage = (
-                (total_papers / self.total_unique_papers * 100)
+                (unique_papers / self.total_unique_papers * 100)
                 if self.total_unique_papers > 0
                 else 0.0
             )
@@ -202,7 +202,7 @@ class DuplicateSourceAnalyzer:
         stats = self.get_api_statistics()
 
         report_lines.append(
-            f"{'API':<20} {'Total':>8} {'Unique':>8} {'Unique %':>10} {'Coverage':>10}"
+            f"{'API':<20} {'Total':>8} {'Unique':>8} {'Unique %':>10} {'Exclusive':>10}"
         )
         report_lines.append("-" * 70)
 
@@ -224,7 +224,7 @@ class DuplicateSourceAnalyzer:
                 "  Total: Number of papers found by this API",
                 "  Unique: Papers found ONLY by this API",
                 "  Unique %: Percentage of this API's papers that are unique",
-                "  Coverage: Percentage of all unique papers found by this API",
+                "  Exclusive: Percentage of all unique papers found ONLY by this API",
                 "",
                 "=" * 70,
                 "API OVERLAP ANALYSIS",

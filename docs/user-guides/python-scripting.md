@@ -123,7 +123,7 @@ enrich_main()
 from scilex.export_to_bibtex import main as bibtex_main
 
 bibtex_main()
-# Creates: output/collect_*/aggregated_results.bib
+# Creates: output/{collect_name}/aggregated_results.bib
 ```
 
 ### Granular control with `format_bibtex_entry()`
@@ -302,7 +302,7 @@ print(f"Years: {df['year'].value_counts().sort_index().to_dict()}")
 
 - **Config files**: The `aggregate_collect` and `enrich_with_hf` modules load config at import time via `load_all_configs()`. Make sure your YAML config files exist in the `scilex/` directory before importing these modules.
 - **Working directory**: `load_all_configs()` looks for config files relative to the current working directory. Run scripts from the project root.
-- **Multiprocessing**: Collection uses spawn mode. Always run collection code inside an `if __name__ == "__main__":` guard.
+- **Threading**: Collection uses threading (1 thread per API). Safe to call without `__main__` guard, but recommended for scripts.
 - **sys.argv**: Modules that use `argparse` parse `sys.argv` in their `main()`. Set `sys.argv` before calling `main()` to pass arguments programmatically.
 
 ## Next Steps

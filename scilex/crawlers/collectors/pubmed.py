@@ -30,7 +30,6 @@ class PubMed_collector(API_collector):
         super().__init__(filter_param, data_path, api_key)
         self.api_name = "PubMed"
         self.base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-        self.rate_limit = 10 if api_key else 3  # 10 req/sec with API key
         self.max_by_page = 100  # ESearch maximum retmax
         self.batch_size = 50  # Number of IDs to fetch per EFetch call
         self.load_rate_limit_from_config()
@@ -275,8 +274,10 @@ class PubMed_collector(API_collector):
                     pmcid_number = pmcid_text.replace("PMC", "")
                     if pmcid_number.isdigit():
                         pmcid = f"PMC{pmcid_number}"
-                        # Construct HTTP landing page URL (no API call needed)
-                        pdf_url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/"
+                        # Construct direct PDF URL (consistent with other collectors)
+                        pdf_url = (
+                            f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmcid}/pdf/"
+                        )
 
             # Extract title
             title_elem = article.find(".//ArticleTitle")

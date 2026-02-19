@@ -1,0 +1,102 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "scilex"
+version = "0.1.0"
+description = "Science Literature Exploration - systematic literature review toolkit"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4>=4.13",
+    "bibtexparser>=1.4",
+    "fake-useragent>=2.0",
+    "huggingface-hub>=1.2.1",
+    "httpx<0.28.0",
+    "lxml>=6.0",
+    "numpy>=2.0",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "rapidfuzz>=3.14",
+    "ratelimit>=2.2",
+    "requests>=2.32",
+    "simplejson>=3.19",
+    "tenacity>=9.0",
+    "tqdm>=4.66",
+    "python-dateutil>=2.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.1.0",
+]
+
+[project.scripts]
+scilex-collect = "scilex.run_collection:main"
+scilex-aggregate = "scilex.aggregate_collect:main"
+scilex-enrich = "scilex.enrich_with_hf:main"
+scilex-push-zotero = "scilex.push_to_zotero:main"
+scilex-export-bibtex = "scilex.export_to_bibtex:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+pythonpath = ["."]
+markers = [
+    "live: tests that require network access and local data (deselect with '-m \"not live\"')",
+]
+
+[tool.coverage.run]
+source = ["scilex"]
+omit = [
+    "scilex/__main__.py",
+    "scilex/tagging/*",
+    "scilex/HuggingFace/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 35
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "if TYPE_CHECKING:",
+]
+
+[tool.ruff]
+line-length = 88
+fix = true
+indent-width = 4
+exclude = [
+    ".venv",
+    "__pycache__",
+    "*.pyc",
+    ".DS_Store",
+    ".vscode",
+    "*.egg-info",
+    "dist",
+    "build",
+    ".deprecated",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # Pyflakes
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "I",    # isort
+]
+ignore = [
+    "E501",    # Line too long (handled by formatter)
+    "SIM103",  # Return negated condition directly (style preference)
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]

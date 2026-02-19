@@ -28,7 +28,6 @@ class PubMedCentral_collector(API_collector):
         super().__init__(filter_param, data_path, api_key)
         self.api_name = "PubMedCentral"
         self.base_url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
-        self.rate_limit = 10 if api_key else 3  # 10 req/sec with API key
         self.max_by_page = 100  # ESearch maximum retmax
         self.batch_size = 50  # Number of IDs to fetch per EFetch call
         self.load_rate_limit_from_config()

@@ -11,36 +11,6 @@ import pandas as pd
 MISSING_VALUE = "NA"
 
 
-# API limits and configuration
-class APILimits:
-    """API-related constants."""
-
-    PAGE_SIZE = 100
-    MAX_RESULTS = 10000
-    RATE_LIMIT_CALLS = 10
-    RATE_LIMIT_PERIOD = 1  # second
-
-
-# Zotero constants
-class ZoteroConstants:
-    """Zotero-related constants."""
-
-    DEFAULT_COLLECTION_NAME = "new_models"
-    API_BASE_URL = "https://api.zotero.org"
-    WRITE_TOKEN_LENGTH = 32
-
-
-# Item type mappings
-class ItemTypes:
-    """Document type constants."""
-
-    JOURNAL_ARTICLE = "journalArticle"
-    CONFERENCE_PAPER = "conferencePaper"
-    BOOK_SECTION = "bookSection"
-    MANUSCRIPT = "Manuscript"
-    BOOK = "book"
-
-
 # Circuit breaker configuration
 class CircuitBreakerConfig:
     """Circuit breaker pattern configuration for API resilience."""
@@ -88,6 +58,14 @@ class CitationFilterConfig:
 
     # Warning threshold for zero-citation rate
     HIGH_ZERO_CITATION_RATE = 80  # Warn if >80% of papers have 0 citations
+
+
+class ZoteroConstants:
+    """Zotero-related constants."""
+
+    DEFAULT_COLLECTION_NAME = "new_models"
+    API_BASE_URL = "https://api.zotero.org"
+    WRITE_TOKEN_LENGTH = 32
 
 
 def is_valid(value) -> bool:

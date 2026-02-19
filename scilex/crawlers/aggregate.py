@@ -9,7 +9,6 @@ Created on Fri Feb 10 10:57:49 2023
 """
 
 import logging
-import os
 
 import pandas as pd
 from pandas.core.dtypes.inference import is_dict_like
@@ -77,7 +76,6 @@ def getquality(df_row, column_names):
     - Nice-to-have fields (pages, rights, language, url, etc.): 1 point each
 
     Special rules:
-    - Penalize Google Scholar records without DOI (-2 points)
     - Bonus for having both volume and issue (+1 point)
     """
     # Define field importance weights
@@ -94,17 +92,12 @@ def getquality(df_row, column_names):
     quality = 0
     has_volume = False
     has_issue = False
-    is_google_scholar = False
-    has_doi = False
-
     for col in column_names:
         value = df_row.get(col)
         if is_valid(value):
             # Apply weighted scoring
             if col in critical_fields:
                 quality += 5
-                if col == "DOI":
-                    has_doi = True
             elif col in important_fields:
                 quality += 3
                 if col == "volume":
@@ -114,22 +107,12 @@ def getquality(df_row, column_names):
             else:
                 quality += 1
 
-            # Track if this is a Google Scholar record
-            if col == "archive" and "GoogleScholar" in str(value):
-                is_google_scholar = True
-
-    # Apply bonuses and penalties
+    # Apply bonuses
     if has_volume and has_issue:
         quality += 1  # Bonus for complete bibliographic info
 
-    if is_google_scholar and not has_doi:
-        quality = max(0, quality - 2)  # Penalize GScholar without DOI
-
     return quality
 
-
-def filter_data(df_input, filter_):
-    return df_input[df_input["abstract"].str.contains("triple", case=False, na=False)]
 
 
 def _find_best_duplicate_index(duplicates_df, column_names):
@@ -526,6 +509,13 @@ def IstextoZoteroFormat(row):
     if "url" in row and row["url"] != "" and row["url"] is not None:
         zotero_temp["url"] = row["url"]
 
+    # Extract PDF URL from fulltext array
+    if "fulltext" in row and isinstance(row["fulltext"], list):
+        for ft in row["fulltext"]:
+            if isinstance(ft, dict) and ft.get("extension") == "pdf" and ft.get("uri"):
+                zotero_temp["pdf_url"] = ft["uri"]
+                break
+
     if "accessCondition" in row:
         if row["accessCondition"] != "" and row["accessCondition"] is not None:
             if (
@@ -583,6 +573,14 @@ def ArxivtoZoteroFormat(row):
         # Handle full URLs or just IDs
         if arxiv_id.startswith("http"):
             zotero_temp["url"] = arxiv_id
+            # Extract arXiv ID from URL for PDF link
+            # Handles: https://arxiv.org/abs/2301.12345, http://arxiv.org/abs/cs/0601078v1
+            url_id = arxiv_id.rstrip("/")
+            if "/abs/" in url_id:
+                url_id = url_id.split("/abs/")[-1]
+            elif "/pdf/" in url_id:
+                url_id = url_id.split("/pdf/")[-1].replace(".pdf", "")
+            zotero_temp["pdf_url"] = f"https://arxiv.org/pdf/{url_id}.pdf"
         else:
             # Clean the ID if it contains the full path
             if "/" in arxiv_id:
@@ -901,6 +899,8 @@ def OpenAlextoZoteroFormat(row):
         primary = row["primary_location"]
         if "landing_page_url" in primary and primary["landing_page_url"]:
             zotero_temp["url"] = primary["landing_page_url"]
+        if "pdf_url" in primary and primary["pdf_url"]:
+            zotero_temp["pdf_url"] = primary["pdf_url"]
     # Fallback: construct URL from DOI if available
     elif is_valid(row.get("doi")):
         doi = row["doi"]
@@ -968,22 +968,36 @@ def OpenAlextoZoteroFormat(row):
                 row["biblio"]["first_page"] + "-" + row["biblio"]["last_page"]
             )
 
-    if "host_venue" in row:
-        if "publisher" in row["host_venue"] and row["host_venue"]["publisher"]:
-            zotero_temp["publisher"] = row["host_venue"]["publisher"]
+    # Extract publisher, journal, conference from primary_location.source
+    # (replaces deprecated host_venue which was removed from OpenAlex API)
+    primary_location = row.get("primary_location") or {}
+    source = primary_location.get("source") or {}
 
-        if "display_name" in row["host_venue"] and "type" in row["host_venue"]:
-            if row["host_venue"]["type"] == "conference":
-                zotero_temp["itemType"] = "conferencePaper"
-                zotero_temp["conferenceName"] = row["host_venue"]["display_name"]
+    if source.get("host_organization_name"):
+        zotero_temp["publisher"] = source["host_organization_name"]
 
-            elif row["host_venue"]["type"] == "journal":
-                zotero_temp["journalAbbreviation"] = row["host_venue"]["display_name"]
-                zotero_temp["itemType"] = "journalArticle"
-            else:
-                pass
+    if source.get("issn_l"):
+        zotero_temp["serie"] = source["issn_l"]
 
-            # print("NEED TO ADD FOLLOWING TYPE >",row["host_venue"]["type"])
+    source_type = source.get("type", "")
+    source_name = source.get("display_name", "")
+
+    if source_name:
+        if source_type == "conference":
+            zotero_temp["itemType"] = "conferencePaper"
+            zotero_temp["conferenceName"] = source_name
+        elif source_type == "journal":
+            zotero_temp["journalAbbreviation"] = source_name
+            zotero_temp["itemType"] = "journalArticle"
+        elif source_type == "repository":
+            # Preprint servers (arXiv, bioRxiv, medRxiv, etc.)
+            if not is_valid(zotero_temp.get("journalAbbreviation")):
+                zotero_temp["journalAbbreviation"] = source_name
+
+    # Extract citation count (available directly in OpenAlex response)
+    cited_by_count = row.get("cited_by_count")
+    if cited_by_count is not None:
+        zotero_temp["oa_citation_count"] = int(cited_by_count)
 
     # Default itemType if not set
     if not is_valid(zotero_temp.get("itemType")):
@@ -1121,19 +1135,27 @@ def SpringertoZoteroFormat(row):
     if row["abstract"] != "" and row["abstract"] is not None:
         zotero_temp["abstract"] = row["abstract"]
 
-    # Extract URL from Springer API - try multiple possible field names
-    if "url" in row and is_valid(row["url"]):
+    # Extract URL and PDF URL from Springer API
+    if "url" in row and row["url"]:
         # url can be a list of URL objects in Springer API
         if isinstance(row["url"], list) and len(row["url"]) > 0:
-            # Get the first URL or look for HTML format
             for url_obj in row["url"]:
                 if isinstance(url_obj, dict):
-                    if url_obj.get("format") == "html" or "value" in url_obj:
-                        zotero_temp["url"] = url_obj.get("value", "")
-                        break
+                    fmt = url_obj.get("format", "")
+                    val = url_obj.get("value", "")
+                    if fmt == "html" and val:
+                        zotero_temp["url"] = val
+                    elif fmt == "pdf" and val:
+                        zotero_temp["pdf_url"] = val
                 elif isinstance(url_obj, str):
-                    zotero_temp["url"] = url_obj
-                    break
+                    if not is_valid(zotero_temp.get("url")):
+                        zotero_temp["url"] = url_obj
+            # Fallback: if no html URL found, use first available value
+            if not is_valid(zotero_temp.get("url")):
+                for url_obj in row["url"]:
+                    if isinstance(url_obj, dict) and url_obj.get("value"):
+                        zotero_temp["url"] = url_obj["value"]
+                        break
         elif isinstance(row["url"], str):
             zotero_temp["url"] = row["url"]
 
@@ -1291,111 +1313,6 @@ def ElseviertoZoteroFormat(row):
     return zotero_temp
 
 
-def GoogleScholartoZoteroFormat(row):
-    """
-    Convert Google Scholar (scholarly package) results to Zotero format.
-
-    Note: Google Scholar data from scholarly package can be incomplete.
-    Many fields may be missing (DOI, publisher, volume, etc.).
-    """
-    zotero_temp = {
-        "title": MISSING_VALUE,
-        "publisher": MISSING_VALUE,
-        "itemType": MISSING_VALUE,
-        "authors": MISSING_VALUE,
-        "language": MISSING_VALUE,
-        "abstract": MISSING_VALUE,
-        "archiveID": MISSING_VALUE,
-        "archive": MISSING_VALUE,
-        "date": MISSING_VALUE,
-        "DOI": MISSING_VALUE,
-        "url": MISSING_VALUE,
-        "rights": MISSING_VALUE,
-        "pages": MISSING_VALUE,
-        "journalAbbreviation": MISSING_VALUE,
-        "volume": MISSING_VALUE,
-        "serie": MISSING_VALUE,
-        "issue": MISSING_VALUE,
-        "pdf_url": MISSING_VALUE,
-    }
-
-    zotero_temp["archive"] = "GoogleScholar"
-
-    # Title
-    if safe_get(row, "title"):
-        zotero_temp["title"] = row["title"]
-
-    # Authors - scholarly returns authors as a list of names
-    if safe_get(row, "authors"):
-        authors = row["authors"]
-        if isinstance(authors, list):
-            # Filter out empty author names
-            auth_list = [auth for auth in authors if auth and auth != ""]
-            if len(auth_list) > 0:
-                zotero_temp["authors"] = ";".join(auth_list)
-        elif isinstance(authors, str):
-            # Sometimes it might be a string
-            zotero_temp["authors"] = authors
-
-    # Abstract
-    if safe_get(row, "abstract"):
-        zotero_temp["abstract"] = row["abstract"]
-
-    # Venue - try to determine item type from venue
-    if safe_get(row, "venue"):
-        venue = row["venue"].lower()
-        # Try to infer type from venue name
-        if any(keyword in venue for keyword in ["journal", "ieee", "acm", "springer"]):
-            zotero_temp["itemType"] = "journalArticle"
-            zotero_temp["journalAbbreviation"] = row["venue"]
-        elif any(
-            keyword in venue
-            for keyword in ["conference", "proceedings", "workshop", "symposium"]
-        ):
-            zotero_temp["itemType"] = "conferencePaper"
-            zotero_temp["conferenceName"] = row["venue"]
-        elif any(keyword in venue for keyword in ["book", "chapter"]):
-            zotero_temp["itemType"] = "bookSection"
-        else:
-            # Default to journal article if venue exists but type unclear
-            zotero_temp["itemType"] = "journalArticle"
-            zotero_temp["journalAbbreviation"] = row["venue"]
-
-    # If no venue or item type still not set, default to Manuscript
-    if not is_valid(zotero_temp.get("itemType")):
-        zotero_temp["itemType"] = "Manuscript"
-
-    # Year/Date
-    if safe_get(row, "year"):
-        zotero_temp["date"] = str(row["year"])
-
-    # URL - prefer eprint_url (full text) over regular url
-    if safe_get(row, "eprint_url"):
-        zotero_temp["url"] = row["eprint_url"]
-        # If eprint_url exists, it means the paper has open access
-        zotero_temp["rights"] = "open_access"
-    elif safe_get(row, "url"):
-        zotero_temp["url"] = row["url"]
-        zotero_temp["rights"] = "restricted"
-
-    # Scholar ID (use as archive ID)
-    if safe_get(row, "scholar_id"):
-        scholar_id = row["scholar_id"]
-        if isinstance(scholar_id, list) and len(scholar_id) > 0:
-            zotero_temp["archiveID"] = scholar_id[0]
-        elif isinstance(scholar_id, str):
-            zotero_temp["archiveID"] = scholar_id
-
-    # Note: Google Scholar (via scholarly) typically does not provide:
-    # - DOI (rarely available)
-    # - Publisher information
-    # - Volume/Issue numbers
-    # - Page numbers
-    # These fields will remain as MISSING_VALUE
-
-    return zotero_temp
-
-
 def PubMedCentraltoZoteroFormat(row):
     """Convert PubMed Central (PMC) results to Zotero format.
 
@@ -1428,6 +1345,7 @@ def PubMedCentraltoZoteroFormat(row):
         "volume": MISSING_VALUE,
         "serie": MISSING_VALUE,
         "issue": MISSING_VALUE,
+        "tags": MISSING_VALUE,
     }
 
     # Set archive name
@@ -1437,27 +1355,27 @@ def PubMedCentraltoZoteroFormat(row):
     zotero_temp["rights"] = "open-access"
 
     # Title
-    if row["title"] != "" and row["title"] is not None:
+    if is_valid(row.get("title")):
         zotero_temp["title"] = row["title"]
 
     # Authors - PMC returns list of "Surname GivenNames" strings
-    if "authors" in row and row["authors"]:
+    if is_valid(row.get("authors")):
         authors = row["authors"]
         if isinstance(authors, list) and len(authors) > 0:
             zotero_temp["authors"] = ";".join(authors)
-        elif isinstance(authors, str) and authors != "":
+        elif isinstance(authors, str):
             zotero_temp["authors"] = authors
 
     # Abstract
-    if row["abstract"] != "" and row["abstract"] is not None:
+    if is_valid(row.get("abstract")):
         zotero_temp["abstract"] = row["abstract"]
 
     # DOI
-    if row["doi"] != "" and row["doi"] is not None:
+    if is_valid(row.get("doi")):
         zotero_temp["DOI"] = row["doi"]
 
     # PMC ID (archiveID) - use PMID if PMC ID not available
-    if "pmc_id" in row and row["pmc_id"] != "" and row["pmc_id"] is not None:
+    if is_valid(row.get("pmc_id")):
         pmc_id = row["pmc_id"]
         zotero_temp["archiveID"] = pmc_id
 
@@ -1468,37 +1386,37 @@ def PubMedCentraltoZoteroFormat(row):
             zotero_temp["pdf_url"] = (
                 f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/pdf/"
             )
-    elif "pmid" in row and row["pmid"] != "" and row["pmid"] is not None:
+    elif is_valid(row.get("pmid")):
         # Fallback to PMID if no PMC ID
         zotero_temp["archiveID"] = row["pmid"]
         zotero_temp["url"] = f"https://pubmed.ncbi.nlm.nih.gov/{row['pmid']}/"
 
     # Publication date (YYYY-MM-DD format from collector)
-    if row["date"] != "" and row["date"] is not None:
+    if is_valid(row.get("date")):
         zotero_temp["date"] = row["date"]
 
     # Journal name
-    if row["journal"] != "" and row["journal"] is not None:
+    if is_valid(row.get("journal")):
         zotero_temp["journalAbbreviation"] = row["journal"]
 
     # Volume
-    if row["volume"] != "" and row["volume"] is not None:
+    if is_valid(row.get("volume")):
         zotero_temp["volume"] = row["volume"]
 
     # Issue
-    if row["issue"] != "" and row["issue"] is not None:
+    if is_valid(row.get("issue")):
         zotero_temp["issue"] = row["issue"]
 
     # Pages
-    if row["pages"] != "" and row["pages"] is not None:
+    if is_valid(row.get("pages")):
         zotero_temp["pages"] = row["pages"]
 
     # Publisher
-    if row["publisher"] != "" and row["publisher"] is not None:
+    if is_valid(row.get("publisher")):
         zotero_temp["publisher"] = row["publisher"]
 
     # Language
-    if row["language"] != "" and row["language"] is not None:
+    if is_valid(row.get("language")):
         zotero_temp["language"] = row["language"]
 
     # ItemType - Most PMC articles are journal articles

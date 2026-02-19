@@ -357,7 +357,6 @@ def _process_batch_worker(
         ArxivtoZoteroFormat,
         DBLPtoZoteroFormat,
         ElseviertoZoteroFormat,
-        GoogleScholartoZoteroFormat,
         HALtoZoteroFormat,
         IEEEtoZoteroFormat,
         IstextoZoteroFormat,
@@ -378,7 +377,6 @@ def _process_batch_worker(
         "DBLP": DBLPtoZoteroFormat,
         "Istex": IstextoZoteroFormat,
         "Arxiv": ArxivtoZoteroFormat,
-        "GoogleScholar": GoogleScholartoZoteroFormat,
         "PubMed": PubMedtoZoteroFormat,
         "PubMedCentral": PubMedCentraltoZoteroFormat,
     }
@@ -499,6 +497,34 @@ def parallel_process_papers(
 # ============================================================================
 
 
+def _compute_dedup_quality(df: pd.DataFrame) -> pd.Series:
+    """Fast metadata completeness score for dedup selection.
+
+    Computes a lightweight quality score per row based on whether key fields
+    contain valid (non-missing) values. Used to sort duplicates so that
+    `drop_duplicates(keep="first")` keeps the most complete record.
+
+    Args:
+        df: DataFrame with paper records.
+
+    Returns:
+        Series of integer scores (higher = more complete metadata).
+    """
+    score = pd.Series(0, index=df.index)
+    for field, weight in [
+        ("DOI", 5),
+        ("abstract", 3),
+        ("authors", 3),
+        ("date", 2),
+        ("journalAbbreviation", 1),
+        ("url", 1),
+        ("pdf_url", 1),
+    ]:
+        if field in df.columns:
+            score += df[field].apply(is_valid).astype(int) * weight
+    return score
+
+
 def _merge_archives_for_duplicates(archives: list[str], winner_archive: str) -> str:
     """Merge archive list with winner marked by asterisk.
 
@@ -544,6 +570,9 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     initial_count = len(df)
     df_output = df.copy()
 
+    # Compute quality once — used to sort before drop_duplicates so "first" = best
+    df_output["_dedup_quality"] = _compute_dedup_quality(df_output)
+
     # ========================================================================
     # STEP 1: DOI-based deduplication
     # ========================================================================
@@ -557,6 +586,13 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
     # Create DOI → archives mapping BEFORE dedup (to track which APIs found each paper)
     doi_to_archives = papers_with_doi.groupby("DOI")["archive"].apply(list).to_dict()
+
+    # Sort by quality descending so drop_duplicates(keep="first") keeps the best record
+    papers_with_doi = papers_with_doi.sort_values("_dedup_quality", ascending=False)
+    logging.info(
+        f"DOI dedup: sorted {len(papers_with_doi):,} papers by metadata quality "
+        f"(range {papers_with_doi['_dedup_quality'].min()}-{papers_with_doi['_dedup_quality'].max()})"
+    )
 
     # Drop duplicates ONLY among papers with valid DOIs
     doi_before = len(papers_with_doi)
@@ -605,6 +641,13 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     # Create title → archives mapping BEFORE dedup (to track which APIs found each paper)
     title_to_archives = (
         papers_with_title.groupby("title_normalized")["archive"].apply(list).to_dict()
+    )
+
+    # Sort by quality descending so drop_duplicates(keep="first") keeps the best record
+    papers_with_title = papers_with_title.sort_values("_dedup_quality", ascending=False)
+    logging.info(
+        f"Title dedup: sorted {len(papers_with_title):,} papers by metadata quality "
+        f"(range {papers_with_title['_dedup_quality'].min()}-{papers_with_title['_dedup_quality'].max()})"
     )
 
     # Drop duplicates ONLY among papers with valid titles
@@ -672,6 +715,10 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     logging.info(
         f"Deduplication took {elapsed:.2f}s ({stats['papers_per_second']:.1f} papers/sec)"
     )
+
+    # Drop temporary quality column
+    if "_dedup_quality" in df_output.columns:
+        df_output = df_output.drop(columns=["_dedup_quality"])
 
     # Reset index
     df_output = df_output.reset_index(drop=True)

@@ -38,7 +38,7 @@ MAX_ABSTRACT_WORDS = 1000
 """Maximum abstract length in words. Detects copy-paste errors or non-abstracts.
 Typical range: 500-1000 words. Set to 0 to disable."""
 
-MIN_ABSTRACT_QUALITY_SCORE = 50
+MIN_ABSTRACT_QUALITY_SCORE = 60
 """Minimum acceptable quality score for abstracts (0-100 scale).
 Used when validate_abstracts is enabled."""
 
@@ -135,12 +135,9 @@ DEFAULT_GENERATE_QUALITY_REPORT = True
 Reports show: papers filtered, reasons, data completeness stats."""
 
 DEFAULT_VALIDATE_ABSTRACTS = False
-"""Validate abstract quality (detect truncation, boilerplate, encoding issues).
-Set to True to get detailed abstract quality reports."""
-
-DEFAULT_FILTER_BY_ABSTRACT_QUALITY = False
-"""Filter out papers with poor abstract quality.
-Only applies if validate_abstracts is True."""
+"""Validate abstract quality and filter out poor abstracts.
+When True, detects truncation, boilerplate, and encoding issues,
+then removes papers below the min_abstract_quality_score threshold."""
 
 # ============================================================================
 # CITATION AND RELEVANCE FEATURES
@@ -184,19 +181,28 @@ Options: 'regular' (default, recommended) or 'bulk' (requires special access).""
 # ============================================================================
 
 DEFAULT_RATE_LIMITS = {
-    "SemanticScholar": 1.0,  # With API key: 1 req/sec
-    "OpenAlex": 10.0,  # Free tier: 10 req/sec, 100k/day
-    "Arxiv": 3.0,  # Recommended: 3 req/sec
-    "IEEE": 2.0,  # Conservative default
-    "Elsevier": 6.0,  # Varies by subscription tier
-    "Springer": 1.5,  # Basic tier: 1.67 req/sec
-    "HAL": 10.0,  # No official limit, conservative default
-    "DBLP": 1.0,  # No official limit, conservative default
-    "Crossref": 3.0,  # Polite pool: 50 req/sec, conservative 3
-    "Istex": 10.0,  # No official limit, conservative default
+    "SemanticScholar": {"without_key": 1.0, "with_key": 1.0},
+    "OpenAlex": {"without_key": 10.0, "with_key": 10.0},
+    "Arxiv": {"without_key": 0.33, "with_key": 0.33},  # 1 req per 3 seconds
+    "IEEE": {"without_key": 2.0, "with_key": 2.0},
+    "Elsevier": {"without_key": 2.0, "with_key": 9.0},  # Scopus: 9 req/sec with key
+    "Springer": {"without_key": 1.67, "with_key": 1.67},  # 100 req/min
+    "HAL": {"without_key": 10.0, "with_key": 10.0},  # No documented limit
+    "DBLP": {"without_key": 1.0, "with_key": 1.0},  # 1-2s between requests
+    "Crossref": {
+        "without_key": 5.0,
+        "with_key": 10.0,
+    },  # public: 5 req/sec, polite pool (mailto): 10 req/sec
+    "Istex": {"without_key": 5.0, "with_key": 5.0},  # No documented limit
+    "PubMed": {
+        "without_key": 3.0,
+        "with_key": 10.0,
+    },  # NCBI: 3/sec free, 10/sec with key
+    "PubMedCentral": {"without_key": 3.0, "with_key": 10.0},  # Same NCBI limits
 }
-"""Rate limits for each API provider.
-These are CONSERVATIVE values. Premium/institutional access may allow higher limits."""
+"""Rate limits for each API provider (requests per second).
+Each entry has without_key/with_key values. The correct rate is auto-selected
+based on whether the collector has an API key configured."""
 
 # ============================================================================
 # QUALITY FILTER CONFIGURATION SCHEMA (for reference)
@@ -217,7 +223,6 @@ QUALITY_FILTER_SCHEMA = {
     "validate_year_range": bool,
     "validate_abstracts": bool,
     "min_abstract_quality_score": int,
-    "filter_by_abstract_quality": bool,
     "generate_quality_report": bool,
     "apply_citation_filter": bool,
     "use_semantic_scholar_citations": bool,
@@ -247,7 +252,6 @@ def get_default_quality_filters():
         "validate_year_range": DEFAULT_VALIDATE_YEAR_RANGE,
         "validate_abstracts": DEFAULT_VALIDATE_ABSTRACTS,
         "min_abstract_quality_score": MIN_ABSTRACT_QUALITY_SCORE,
-        "filter_by_abstract_quality": DEFAULT_FILTER_BY_ABSTRACT_QUALITY,
         "generate_quality_report": DEFAULT_GENERATE_QUALITY_REPORT,
         "apply_citation_filter": DEFAULT_APPLY_CITATION_FILTER,
         "use_semantic_scholar_citations": DEFAULT_USE_SEMANTIC_SCHOLAR_CITATIONS,
@@ -259,13 +263,20 @@ def get_default_quality_filters():
     }
 
 
-def get_rate_limit(api_name: str) -> float:
-    """Get rate limit for a specific API, or default to 5.0 req/sec.
+def get_rate_limit(api_name: str, has_api_key: bool = False) -> float:
+    """Get rate limit for a specific API, selecting with_key/without_key rate.
 
     Args:
         api_name: Name of the API (e.g., 'SemanticScholar', 'IEEE')
+        has_api_key: Whether the collector has an API key configured
 
     Returns:
         Rate limit in requests per second
     """
-    return DEFAULT_RATE_LIMITS.get(api_name, 5.0)
+    entry = DEFAULT_RATE_LIMITS.get(api_name)
+    if entry is None:
+        return 5.0
+    if isinstance(entry, dict):
+        return entry["with_key"] if has_api_key else entry["without_key"]
+    # Backward compat: if someone passes a plain float
+    return float(entry)  # type: ignore[arg-type]
