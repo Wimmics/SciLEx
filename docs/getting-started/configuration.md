@@ -143,6 +143,8 @@ Bonus keyword matches are weighted at 0.5x compared to mandatory keywords.
 Key `quality_filters` options:
 
 ```yaml
+aggregate_get_citations: true          # Fetch citation counts via CrossRef/OpenCitations
+
 quality_filters:
   enable_itemtype_filter: true           # Keep only specified publication types
   allowed_item_types:
@@ -150,7 +152,6 @@ quality_filters:
     - conferencePaper
   validate_abstracts: true               # Remove papers with poor/truncated abstracts
   min_abstract_quality_score: 60        # 0-100 scale (default: 60)
-  aggregate_get_citations: true          # Fetch citation counts via CrossRef/OpenCitations
   apply_citation_filter: true           # Apply time-aware citation thresholds
   apply_relevance_ranking: true         # Score and limit to top N papers
   max_papers: 500                        # Keep top 500 papers
@@ -182,8 +183,8 @@ apis:
   - OpenAlex
   - IEEE
   - Arxiv
+aggregate_get_citations: true
 quality_filters:
-  aggregate_get_citations: true
   apply_relevance_ranking: true
   max_papers: 1000
 ```

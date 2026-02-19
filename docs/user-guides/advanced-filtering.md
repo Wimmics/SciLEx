@@ -154,8 +154,8 @@ Time-aware thresholds based on paper age (from `config_defaults.py`):
 - 36+ months: 10+ required
 
 ```yaml
+aggregate_get_citations: true
 quality_filters:
-  aggregate_get_citations: true
   apply_citation_filter: true
 ```
 
@@ -194,6 +194,8 @@ apis:
   - SemanticScholar
   - OpenAlex
 
+aggregate_get_citations: true   # Top-level key (not under quality_filters)
+
 quality_filters:
   # Phase 1
   enable_itemtype_filter: true
@@ -206,7 +208,6 @@ quality_filters:
   min_abstract_quality_score: 60
 
   # Phase 4
-  aggregate_get_citations: true
   apply_citation_filter: true
 
   # Phase 5

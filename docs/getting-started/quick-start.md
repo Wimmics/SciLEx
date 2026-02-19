@@ -123,8 +123,8 @@ apis:
   - OpenAlex
   - Arxiv
 
+aggregate_get_citations: true
 quality_filters:
-  aggregate_get_citations: true
   enable_itemtype_filter: true
   allowed_item_types:
     - journalArticle

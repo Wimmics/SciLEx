@@ -19,7 +19,6 @@ from scilex.abstract_validation import (
 )
 from scilex.config_defaults import (
     DEFAULT_AGGREGATED_FILENAME,
-    DEFAULT_ENABLE_TEXT_FILTER,
     DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_RELEVANCE_WEIGHTS,
@@ -1813,10 +1812,8 @@ def main():
     # Log aggregation start
     log_section(logger, "SciLEx Data Aggregation")
 
-    txt_filters = main_config.get("aggregate_txt_filter", DEFAULT_ENABLE_TEXT_FILTER)
-    get_citation = (
-        main_config.get("aggregate_get_citations", True) and not args.skip_citations
-    )
+    txt_filters = True  # Text filtering is always enabled (False path unimplemented)
+    get_citation = main_config.get("aggregate_get_citations", True) and not args.skip_citations
     output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
     collect_name = normalize_path_component(main_config.get("collect_name"))
     dir_collect = os.path.join(output_dir, collect_name)

@@ -70,8 +70,7 @@ Process:
 
 Enable in config:
 ```yaml
-quality_filters:
-  aggregate_get_citations: true
+aggregate_get_citations: true
 ```
 
 Then run aggregation. Citations fetched from cache → Semantic Scholar → OpenAlex → CrossRef → OpenCitations.
