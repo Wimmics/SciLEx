@@ -14,65 +14,99 @@ Steps to add a collector:
 
 ## Collector Class
 
-Create in `scilex/crawlers/collectors.py`:
+Create `scilex/crawlers/collectors/your_api.py`:
 
 ```python
+from .base import API_collector
+
+
 class YourAPI_collector(API_collector):
     """Collector for YourAPI."""
 
-    def __init__(self, config=None):
-        super().__init__()
-        self.api_name = "YourAPI"  # Must match config
-        self.base_url = "https://api.yourapi.com"
-        self.rate_limit = 2.0  # requests/second
+    def __init__(self, data_query, data_path, api_key):
+        super().__init__(data_query, data_path, api_key)
+        self.api_name = "YourAPI"  # Must match config and api_collectors dict exactly
+        self.api_url = "https://api.yourapi.com/search"
+        self.max_by_page = 100  # Results per page
 
-        if config:
-            self.api_key = config.get('yourapi', {}).get('api_key')
+        # Load rate limit from api.config.yml (must be called after self.api_name is set)
+        self.load_rate_limit_from_config()
 
-    def query_build(self, keywords, year, fields):
-        """Build API query string."""
-        # Single group mode
-        if not keywords[1]:
-            query = " OR ".join(keywords[0])
-        # Dual group mode
-        else:
-            g1 = "(" + " OR ".join(keywords[0]) + ")"
-            g2 = "(" + " OR ".join(keywords[1]) + ")"
-            query = f"{g1} AND {g2}"
+    def get_configurated_url(self):
+        """Build the full API URL with query parameters.
 
-        return f"{query} AND year:{year}"
+        Returns a URL with a `{}` placeholder for the pagination offset,
+        which the base class will format before each page request.
+        """
+        keywords = self.get_keywords()
+        year = self.get_year()
 
-    def run(self, keywords, nb_res, year, fields):
-        """Execute collection with pagination."""
-        papers = []
-        query = self.query_build(keywords, year, fields)
+        # Build query string from keywords
+        query = " OR ".join(keywords)
 
-        page = 1
-        while len(papers) < nb_res:
-            self._apply_rate_limit()
-            response = self._make_request(query, page)
-
-            if not response or not response.get('results'):
-                break
-
-            papers.extend(response['results'])
-            page += 1
-
-        return papers[:nb_res]
-
-    def _make_request(self, query, page):
-        """Make HTTP request with timeout."""
-        params = {'query': query, 'page': page}
-        if self.api_key:
-            params['api_key'] = self.api_key
-
-        response = requests.get(
-            f"{self.base_url}/search",
-            params=params,
-            timeout=30
+        return (
+            f"{self.api_url}"
+            f"?query={query}"
+            f"&year={year}"
+            f"&limit={self.max_by_page}"
+            f"&offset={{}}"  # Placeholder filled by base class
         )
-        response.raise_for_status()
-        return response.json()
+
+    def parsePageResults(self, response, page):
+        """Parse one page of API results.
+
+        Args:
+            response: requests.Response object from the API.
+            page: Current page number (1-indexed).
+
+        Returns:
+            dict with keys:
+                - "total": int — total number of results available
+                - "results": list — raw paper dicts for this page
+        """
+        data = response.json()
+
+        return {
+            "total": data.get("totalResults", 0),
+            "results": data.get("items", []),
+        }
+```
+
+### Key Points
+
+- **Constructor**: Always call `super().__init__(data_query, data_path, api_key)` first, then set `self.api_name`, then call `self.load_rate_limit_from_config()`.
+- **`get_configurated_url()`**: Builds the full URL. Include `{}` as a placeholder where the pagination offset should go — the base class calls `.format(offset)` before each request.
+- **`parsePageResults(response, page)`**: Parse one page. Must return a dict with `"total"` (int) and `"results"` (list). The base class calls this and handles saving, buffering, and pagination.
+- **Rate limiting**: Do NOT implement rate limiting manually. Call `self.load_rate_limit_from_config()` in `__init__`. The base class `_rate_limit_wait()` handles it automatically before every request.
+- **HTTP calls**: Do NOT call `requests.get()` directly. The base class `api_call_decorator()` wraps every request with circuit breaker, retry logic, and 30-second timeout. It is called by `runCollect()` automatically.
+- **Pagination**: The base class `runCollect()` handles pagination for offset-based APIs. Only override `runCollect()` if your API uses a fundamentally different pagination mechanism (e.g., cursor-based with state across requests).
+
+### Custom Pagination (Advanced)
+
+If your API uses cursor-based pagination or another non-offset scheme, override `runCollect()`:
+
+```python
+def runCollect(self):
+    """Override for cursor-based pagination."""
+    cursor = None
+    page = 1
+
+    while True:
+        url = self.get_configurated_url(cursor)
+        response = self.api_call_decorator(url)
+        page_data = self.parsePageResults(response, page)
+
+        self.savePageResults(page_data, page)
+        self.nb_art_collected += len(page_data["results"])
+
+        cursor = page_data.get("next_cursor")
+        if not cursor or not page_data["results"]:
+            break
+        page += 1
+
+    self._flush_buffer()
+    return {"state": 1, "last_page": page, "total_art": self.total_art,
+            "coll_art": self.nb_art_collected, "id_collect": self.collectId}
 ```
 
 ## Format Converter
@@ -83,7 +117,7 @@ Add to `scilex/crawlers/aggregate.py`:
 from scilex.constants import MISSING_VALUE, is_valid
 
 def YourAPItoZoteroFormat(paper):
-    """Convert YourAPI format to Zotero."""
+    """Convert YourAPI format to unified Zotero/SciLEx format."""
 
     # Determine item type
     item_type = 'journalArticle'  # Default
@@ -95,7 +129,7 @@ def YourAPItoZoteroFormat(paper):
 
     # Format authors
     authors = paper.get('authors', [])
-    author_str = ', '.join(authors) if authors else MISSING_VALUE
+    author_str = '; '.join(authors) if authors else MISSING_VALUE
 
     return {
         'itemType': item_type,
@@ -105,36 +139,41 @@ def YourAPItoZoteroFormat(paper):
         'date': str(paper.get('year', MISSING_VALUE)),
         'DOI': paper.get('doi', MISSING_VALUE),
         'url': paper.get('url', MISSING_VALUE),
+        'pdf_url': MISSING_VALUE,  # Populate if API provides open-access PDFs
         'publicationTitle': paper.get('journal', MISSING_VALUE),
         'volume': str(paper.get('volume', MISSING_VALUE)),
         'issue': str(paper.get('issue', MISSING_VALUE)),
         'pages': paper.get('pages', MISSING_VALUE),
         'year': str(paper.get('year', MISSING_VALUE)),
         'citation_count': paper.get('citations', 0),
+        'archive': 'YourAPI',
+        'archiveID': paper.get('id', MISSING_VALUE),
     }
 ```
 
 ## Registration
 
-In `scilex/crawlers/collector_collection.py`:
+### 1. Import and register in `scilex/crawlers/collector_collection.py`
 
 ```python
+from scilex.crawlers.collectors.your_api import YourAPI_collector
+
 api_collectors = {
     'SemanticScholar': SemanticScholar_collector,
     'OpenAlex': OpenAlex_collector,
-    # Add your collector
-    'YourAPI': YourAPI_collector,
+    # ...existing collectors...
+    'YourAPI': YourAPI_collector,  # Add here
 }
 ```
 
-In `scilex/crawlers/aggregate.py`:
+### 2. Register format converter in `scilex/crawlers/aggregate.py`
 
 ```python
 format_converters = {
     'SemanticScholar': SemanticScholarToZoteroFormat,
     'OpenAlex': OpenAlexToZoteroFormat,
-    # Add your converter
-    'YourAPI': YourAPItoZoteroFormat,
+    # ...existing converters...
+    'YourAPI': YourAPItoZoteroFormat,  # Add here
 }
 ```
 
@@ -143,13 +182,8 @@ format_converters = {
 Add to `scilex/api.config.yml.example`:
 
 ```yaml
-# YourAPI Configuration
-yourapi:
-  api_key: "your-key-here"
-
-# Rate limits
-rate_limits:
-  YourAPI: 2.0  # requests/second
+YourAPI:
+  api_key: "your-key-here"  # Omit if no key required
 ```
 
 Add to `scilex/scilex.config.yml.example`:
@@ -161,116 +195,125 @@ apis:
   - YourAPI  # Add here
 ```
 
+Rate limits are defined in `scilex/config_defaults.py` under `DEFAULT_RATE_LIMITS`. Add an entry for your API:
+
+```python
+DEFAULT_RATE_LIMITS = {
+    # ...existing APIs...
+    "YourAPI": (2.0, 5.0),  # (without_key req/sec, with_key req/sec)
+}
+```
+
 ## Testing
 
-Create `scilex/API tests/YourAPITest.py`:
+Create `tests/test_your_api.py` using pytest:
 
 ```python
-import sys
-from pathlib import Path
+import pytest
+from unittest.mock import MagicMock, patch
+from scilex.crawlers.collectors.your_api import YourAPI_collector
+from scilex.crawlers.aggregate import YourAPItoZoteroFormat
+from scilex.constants import MISSING_VALUE
 
-sys.path.append(str(Path(__file__).parent.parent))
 
-from crawlers.collectors import YourAPI_collector
-from crawlers.aggregate import YourAPItoZoteroFormat
-import yaml
+DATA_QUERY = {
+    "year": 2024,
+    "keyword": ["machine learning"],
+    "id_collect": 0,
+    "total_art": 0,
+    "last_page": 0,
+    "coll_art": 0,
+    "state": 0,
+    "max_articles_per_query": -1,
+}
 
-def test_collector():
-    # Load config
-    with open('scilex/api.config.yml', 'r') as f:
-        config = yaml.safe_load(f)
 
-    # Test collection
-    collector = YourAPI_collector(config)
-    papers = collector.run([["test"]], 10, 2024, ["title"])
+@pytest.fixture
+def collector(tmp_path):
+    return YourAPI_collector(DATA_QUERY, str(tmp_path), api_key=None)
 
-    print(f"Retrieved {len(papers)} papers")
 
-    if papers:
-        # Test converter
-        zotero_item = YourAPItoZoteroFormat(papers[0])
-        print(f"Title: {zotero_item['title']}")
+def test_collector_api_name(collector):
+    assert collector.api_name == "YourAPI"
 
-if __name__ == "__main__":
-    test_collector()
+
+def test_get_configurated_url(collector):
+    url = collector.get_configurated_url()
+    assert "machine learning" in url
+    assert "2024" in url
+    assert "{}" in url  # Pagination placeholder must be present
+
+
+def test_parse_page_results(collector):
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "totalResults": 42,
+        "items": [{"title": "Test Paper", "doi": "10.1234/test"}],
+    }
+
+    result = collector.parsePageResults(mock_response, page=1)
+
+    assert result["total"] == 42
+    assert len(result["results"]) == 1
+
+
+def test_format_converter():
+    paper = {
+        "title": "Test Paper",
+        "authors": ["Alice", "Bob"],
+        "year": 2024,
+        "doi": "10.1234/test",
+    }
+    item = YourAPItoZoteroFormat(paper)
+
+    assert item["title"] == "Test Paper"
+    assert item["authors"] == "Alice; Bob"
+    assert item["year"] == "2024"
+    assert item["archive"] == "YourAPI"
+
+
+def test_format_converter_missing_fields():
+    item = YourAPItoZoteroFormat({})
+    assert item["title"] == MISSING_VALUE
+    assert item["authors"] == MISSING_VALUE
 ```
 
-Run: `python "scilex/API tests/YourAPITest.py"`
+Run tests:
 
-## Key Points
-
-### Rate Limiting
-
-```python
-from time import time, sleep
-
-def _apply_rate_limit(self):
-    if not hasattr(self, '_last_request'):
-        self._last_request = 0
-
-    elapsed = time() - self._last_request
-    interval = 1.0 / self.rate_limit
-
-    if elapsed < interval:
-        sleep(interval - elapsed)
-
-    self._last_request = time()
-```
-
-### Error Handling
-
-```python
-try:
-    response = self._make_request(query, page)
-except requests.Timeout:
-    print(f"Timeout on page {page}")
-    break
-except requests.HTTPError as e:
-    if e.response.status_code == 429:
-        print("Rate limited")
-        sleep(60)
-    else:
-        raise
-```
-
-### Pagination Strategies
-
-```python
-# Offset-based
-params = {'offset': page * page_size, 'limit': page_size}
-
-# Page-based
-params = {'page': page, 'per_page': page_size}
-
-# Cursor-based
-params = {'cursor': next_cursor}
+```bash
+uv run python -m pytest tests/test_your_api.py -v
 ```
 
 ## Checklist
 
 Before submitting:
 
-- [ ] Collector inherits from `API_collector`
-- [ ] Implements all required methods
-- [ ] Handles dual keyword logic correctly
-- [ ] Rate limiting implemented
-- [ ] Format converter uses `MISSING_VALUE`
-- [ ] Registered in both dictionaries
-- [ ] Config examples added
-- [ ] Test script created
-- [ ] Code formatted with `ruff format`
+- [ ] Collector file at `scilex/crawlers/collectors/your_api.py`
+- [ ] Inherits from `API_collector` with correct constructor signature
+- [ ] `self.api_name` set before `self.load_rate_limit_from_config()`
+- [ ] `get_configurated_url()` returns URL with `{}` offset placeholder
+- [ ] `parsePageResults()` returns `{"total": int, "results": list}`
+- [ ] Format converter uses `MISSING_VALUE` for all missing fields
+- [ ] Registered in `api_collectors` dict in `collector_collection.py`
+- [ ] Format converter registered in `aggregate.py`
+- [ ] Rate limit added to `DEFAULT_RATE_LIMITS` in `config_defaults.py`
+- [ ] Config examples added (`api.config.yml.example`, `scilex.config.yml.example`)
+- [ ] Tests written in `tests/test_your_api.py` and passing
+- [ ] Code formatted with `uvx ruff format .` and linted with `uvx ruff check --fix .`
 
 ## Common Issues
 
 ### Case Sensitivity
-Ensure `api_name` matches config exactly.
+`api_name` must match the key in `api_collectors` and the value in `scilex.config.yml` exactly. A mismatch causes papers to be excluded silently.
 
 ### Missing Data
-Always use `MISSING_VALUE` for missing fields, never leave as `None`.
+Always use `MISSING_VALUE` from `scilex.constants` for missing fields. Never use `None` or empty string `""` — the quality scoring and deduplication logic depends on `MISSING_VALUE` for correct behavior.
 
 ### Rate Limits
-Start conservative, test with small batches first.
+Start conservative. Test with `--limit` flags and small keyword sets before full collection runs.
 
-## Next Steps
+## See Also
 
-See [Architecture](architecture.md) for system design details.
+- [Architecture](architecture.md) — System design and data flow
+- `scilex/crawlers/collectors/semantic_scholar.py` — Canonical reference implementation
+- `scilex/crawlers/collectors/base.py` — `API_collector` base class

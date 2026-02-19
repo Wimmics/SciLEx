@@ -130,7 +130,7 @@ The score starts at 100 and deducts points for detected issues:
 | Truncated text | Critical | -40 pts | Ends with "..." or cut-off mid-sentence |
 | Missing/empty | Critical | -40 pts | No abstract available |
 | Boilerplate text | Warning | -15 pts | Generic publisher placeholder |
-| Too short | Warning | -15 pts | Under 30 words |
+| Too short | Warning | -15 pts | Under 50 words |
 | Too long | Warning | -15 pts | Over 1000 words (likely full text) |
 | Incomplete sentence | Warning | -15 pts | Ends with preposition/conjunction |
 | Formatting issues | Info | -5 pts | Minor formatting problems |
