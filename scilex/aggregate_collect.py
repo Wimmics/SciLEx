@@ -936,6 +936,54 @@ def _use_semantic_scholar_citations_fallback(df):
     return df
 
 
+def _use_openalex_citations_fallback(df):
+    """Use OpenAlex citation data as fallback when citation count is still missing or zero.
+
+    OpenAlex provides cited_by_count (nb_citation only — no reference count).
+    Applied after the SS fallback so it only fills gaps SS could not cover.
+
+    Args:
+        df: DataFrame with OpenAlex citation data
+
+    Returns:
+        pd.DataFrame: DataFrame with nb_citation filled from OpenAlex where needed
+    """
+    if "oa_citation_count" not in df.columns:
+        logging.info(
+            "OpenAlex citation data not available (only papers from OpenAlex API have this)"
+        )
+        return df
+
+    has_oa_data = df["oa_citation_count"].notna().sum()
+    logging.info(f"Found OpenAlex citation data for {has_oa_data:,} papers")
+
+    if has_oa_data == 0:
+        return df
+
+    initial_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
+
+    # Fill nb_citation from OpenAlex when still 0 or missing
+    df["nb_citation"] = df.apply(
+        lambda row: row["oa_citation_count"]
+        if (pd.isna(row["nb_citation"]) or row["nb_citation"] == 0)
+        and pd.notna(row["oa_citation_count"])
+        else row["nb_citation"],
+        axis=1,
+    )
+
+    final_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
+    improved_count = initial_zero_count - final_zero_count
+
+    logging.info("OpenAlex fallback applied:")
+    logging.info(f"  Papers with 0 citations before: {initial_zero_count:,}")
+    logging.info(f"  Papers with 0 citations after: {final_zero_count:,}")
+    logging.info(
+        f"  Improved: {improved_count:,} papers ({improved_count / has_oa_data * 100:.1f}% of papers with OA data)"
+    )
+
+    return df
+
+
 def _load_checkpoint(checkpoint_path):
     """Load checkpoint data if exists."""
     if os.path.exists(checkpoint_path):
@@ -2132,6 +2180,12 @@ def main():
                 "Using Semantic Scholar citations as fallback for missing/zero OpenCitations data..."
             )
             df_clean = _use_semantic_scholar_citations_fallback(df_clean)
+
+        if quality_filters.get("use_openalex_citations", True):
+            logging.info(
+                "Using OpenAlex citations as fallback for missing/zero citation data..."
+            )
+            df_clean = _use_openalex_citations_fallback(df_clean)
 
         # Apply time-aware citation filtering if enabled in config
         if quality_filters.get("apply_citation_filter", True):
