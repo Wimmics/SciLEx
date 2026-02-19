@@ -8,29 +8,64 @@
 
 ## Installation
 
-### 1. Install Dependencies
+### 1. Clone the Repository
 
 ```bash
+git clone https://github.com/your-org/SciLEx.git
 cd SciLEx
+```
 
-# Recommended: install with uv
-uv sync
+### 2. Install Dependencies
 
-# Or with pip
-pip install -e .
+Choose **one** of the two methods below.
 
-# For development (includes pytest, ruff, coverage)
+#### Option A: uv (recommended)
+
+```bash
+uv sync                        # Install deps + project into .venv
+```
+
+Commands are run via `uv run` (no venv activation needed):
+
+```bash
+uv run scilex-collect           # Example: run collection
+```
+
+For developers (adds pytest, ruff, coverage):
+
+```bash
+uv sync --dev
+```
+
+#### Option B: pip
+
+```bash
+python -m venv .venv            # Create virtual environment
+source .venv/bin/activate       # Activate it (macOS/Linux)
+# .venv\Scripts\activate        # Windows
+
+pip install -e .                # Install SciLEx
+```
+
+After activation, commands are available directly:
+
+```bash
+scilex-collect                  # Example: run collection
+```
+
+For developers (adds pytest, ruff, coverage):
+
+```bash
 pip install -e ".[dev]"
 ```
 
-### 2. Configure API Keys
+### 3. Configure API Keys
 
 ```bash
 cp scilex/api.config.yml.example scilex/api.config.yml
-nano scilex/api.config.yml
 ```
 
-Add your API keys (PascalCase names required):
+Edit `scilex/api.config.yml` and add your API keys:
 
 ```yaml
 # Semantic Scholar (optional but recommended)
@@ -73,14 +108,14 @@ Get API keys from:
 - [PubMed / NCBI](https://www.ncbi.nlm.nih.gov/account/settings/)
 - [OpenAlex](https://openalex.org/settings/api)
 
-### 3. Configure Search
+### 4. Configure Search
 
 ```bash
 cp scilex/scilex.config.yml.example scilex/scilex.config.yml
-nano scilex/scilex.config.yml
 ```
 
-Basic configuration:
+Edit `scilex/scilex.config.yml` with a minimal search:
+
 ```yaml
 keywords:
   - ["machine learning"]
@@ -96,10 +131,12 @@ apis:
 ## Verify Installation
 
 ```bash
-# Test that dependencies are installed
-python -c "import pandas, requests, yaml; print('OK')"
+# With uv
+uv run python -c "import pandas, requests, yaml; print('OK')"
+uv run scilex-collect
 
-# Run a test collection
+# With pip (venv must be activated)
+python -c "import pandas, requests, yaml; print('OK')"
 scilex-collect
 ```
 
@@ -108,10 +145,28 @@ scilex-collect
 ### Python Version Error
 Install Python 3.10+ from [python.org](https://www.python.org)
 
-### Module Not Found
+### Command Not Found
+
+**uv users:** Always prefix commands with `uv run`:
 ```bash
+uv run scilex-collect
+```
+
+**pip users:** Make sure your virtual environment is activated:
+```bash
+source .venv/bin/activate       # macOS/Linux
+# .venv\Scripts\activate        # Windows
+scilex-collect
+```
+
+### Module Not Found
+
+Reinstall the project:
+```bash
+# uv
 uv sync
-# or
+
+# pip (with venv activated)
 pip install -e .
 ```
 

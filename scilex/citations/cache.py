@@ -196,6 +196,111 @@ def cache_citation(
     logging.debug(f"Cached citation data for DOI: {doi}")
 
 
+def get_cached_citations_batch(dois: list[str], cache_path: Path | None = None) -> dict:
+    """Retrieve cached citations for multiple DOIs in one SQL query.
+
+    Uses WHERE doi IN (...) with chunking to stay within SQLite's parameter
+    limit (~999). Much faster than N individual queries for large DOI lists.
+
+    Args:
+        dois: List of DOI strings to look up.
+        cache_path: Optional path to cache database.
+
+    Returns:
+        dict: {doi: {"citations": ..., "nb_cited": ..., "nb_citations": ...,
+               "api_stats": {...}}} for found DOIs. DOIs not in cache (or
+               expired) are omitted.
+    """
+    if not dois:
+        return {}
+
+    if cache_path is None:
+        cache_path = get_cache_path()
+
+    conn = _get_connection(cache_path)
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+
+    results = {}
+    chunk_size = 500  # SQLite parameter limit safety margin
+
+    for i in range(0, len(dois), chunk_size):
+        chunk = dois[i : i + chunk_size]
+        placeholders = ",".join("?" for _ in chunk)
+        cursor.execute(
+            f"""
+            SELECT doi, citations_json, nb_cited, nb_citations, cit_status, ref_status
+            FROM citations
+            WHERE doi IN ({placeholders}) AND expires_at > ?
+            """,
+            (*chunk, now),
+        )
+        for row in cursor.fetchall():
+            results[row[0]] = {
+                "citations": row[1],
+                "nb_cited": row[2],
+                "nb_citations": row[3],
+                "api_stats": {"cit_status": row[4], "ref_status": row[5]},
+            }
+
+    logging.debug(f"Batch cache lookup: {len(results)}/{len(dois)} hits")
+    return results
+
+
+def cache_citations_batch(
+    entries: list[dict],
+    cache_path: Path | None = None,
+    ttl_days: int = DEFAULT_TTL_DAYS,
+) -> None:
+    """Store multiple citation results in one transaction.
+
+    Uses executemany() with INSERT OR REPLACE for efficient bulk writes.
+
+    Args:
+        entries: List of dicts, each with keys:
+            doi, citations_json, nb_cited, nb_citations, api_stats
+        cache_path: Optional path to cache database.
+        ttl_days: Time to live in days (default: 30).
+    """
+    if not entries:
+        return
+
+    if cache_path is None:
+        cache_path = get_cache_path()
+
+    conn = _get_connection(cache_path)
+    cursor = conn.cursor()
+
+    now = datetime.now()
+    expires_at = (now + timedelta(days=ttl_days)).isoformat()
+    now_iso = now.isoformat()
+
+    rows = [
+        (
+            e["doi"],
+            e["citations_json"],
+            e["nb_cited"],
+            e["nb_citations"],
+            e["api_stats"].get("cit_status", "unknown"),
+            e["api_stats"].get("ref_status", "unknown"),
+            now_iso,
+            expires_at,
+        )
+        for e in entries
+    ]
+
+    cursor.executemany(
+        """
+        INSERT OR REPLACE INTO citations
+        (doi, citations_json, nb_cited, nb_citations, cit_status, ref_status, cached_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+    logging.debug(f"Batch cached {len(entries)} citation entries")
+
+
 def cleanup_expired_cache(cache_path: Path | None = None) -> int:
     """Remove expired entries from cache.
 

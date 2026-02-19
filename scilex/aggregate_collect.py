@@ -983,6 +983,27 @@ def _get_ss_citations_if_available(row):
     return (None, None)
 
 
+def _get_oa_citations_if_available(row):
+    """Extract OpenAlex citation data from a paper row.
+
+    OpenAlex provides cited_by_count (how many papers cite this one) but
+    not a reference count. Returns citation count only; reference count
+    is set to 0 (unknown).
+
+    Args:
+        row: Pandas Series representing a paper with potential OA citation fields
+
+    Returns:
+        int or None: Citation count if available, None otherwise
+    """
+    oa_citation_count = row.get("oa_citation_count")
+
+    if pd.notna(oa_citation_count):
+        return int(oa_citation_count)
+
+    return None
+
+
 def _fetch_citation_for_paper(
     index,
     doi,
@@ -1196,6 +1217,42 @@ def _fetch_citation_for_paper(
         return {"index": index, "status": "error"}
 
 
+def _store_citation_result(
+    index, extras, nb_citeds, nb_citations, citations_data, nb_cited, nb_citation
+):
+    """Store citation result into the result arrays.
+
+    Args:
+        index: Paper index in the arrays.
+        extras: List to store citation data strings.
+        nb_citeds: List to store cited counts.
+        nb_citations: List to store citing counts.
+        citations_data: Citation data (dict or string) to store.
+        nb_cited: Number of cited papers.
+        nb_citation: Number of citing papers.
+    """
+    extras[index] = str(citations_data)
+    nb_citeds[index] = nb_cited
+    nb_citations[index] = nb_citation
+
+
+def _update_pbar_postfix(pbar, stats, use_cache):
+    """Update progress bar postfix with current statistics."""
+    postfix = {
+        "✓": stats["success"],
+        "✗": stats["error"],
+        "⏱": stats["timeout"],
+        "⊘": stats["no_doi"],
+    }
+    if use_cache:
+        postfix["💾"] = stats["cache_hit"]
+        postfix["🔬"] = stats["ss_used"]
+        postfix["🅰"] = stats["oa_used"]
+        postfix["📚"] = stats["cr_used"]
+        postfix["🔗"] = stats["opencitations_used"]
+    pbar.set_postfix(postfix)
+
+
 def _fetch_citations_parallel(
     df_clean,
     num_workers=3,
@@ -1204,12 +1261,22 @@ def _fetch_citations_parallel(
     resume_from=None,
     use_cache=True,
 ):
-    """
-    Fetch citations in parallel using ThreadPoolExecutor with caching.
+    """Fetch citations using phase-based batch processing.
+
+    Processes papers through five sequential phases, each resolving a subset.
+    Unresolved papers flow to the next phase. Much faster than per-paper
+    processing because phases 1-2b use bulk/in-memory operations.
+
+    Phases:
+        1.  Batch cache lookup (1 SQL query, instant)
+        2.  Semantic Scholar check (in-memory, instant)
+        2b. OpenAlex citation count (in-memory, instant)
+        3.  CrossRef batch API (N/20 HTTP requests, ~3 req/sec per batch)
+        4.  OpenCitations fallback (ThreadPoolExecutor, 1 req/sec per DOI)
 
     Args:
         df_clean: DataFrame with papers
-        num_workers: Number of parallel workers
+        num_workers: Number of parallel workers (used for Phase 4)
         checkpoint_interval: Save checkpoint every N papers
         checkpoint_path: Path to checkpoint file
         resume_from: Index to resume from (if resuming)
@@ -1232,14 +1299,12 @@ def _fetch_citations_parallel(
         cache_path = initialize_cache()
         logging.info(f"Citation cache initialized at {cache_path}")
 
-        # Show cache stats
         cache_stats = get_cache_stats(cache_path)
         logging.info(
             f"Cache stats: {cache_stats['active_entries']} active entries, "
             f"{cache_stats['expired_entries']} expired"
         )
 
-        # Clean up expired entries
         if cache_stats["expired_entries"] > 0:
             removed = cleanup_expired_cache(cache_path)
             logging.info(f"Cleaned up {removed} expired cache entries")
@@ -1249,7 +1314,7 @@ def _fetch_citations_parallel(
     nb_citeds = [""] * total_papers
     nb_citations = [""] * total_papers
 
-    # Initialize statistics (thread-safe using dict)
+    # Initialize statistics
     stats = {
         "success": 0,
         "timeout": 0,
@@ -1258,6 +1323,7 @@ def _fetch_citations_parallel(
         "cache_hit": 0,
         "cache_miss": 0,
         "ss_used": 0,
+        "oa_used": 0,
         "cr_used": 0,
         "opencitations_used": 0,
     }
@@ -1269,10 +1335,9 @@ def _fetch_citations_parallel(
         if checkpoint:
             start_index = checkpoint["last_index"] + 1
             stats = checkpoint["stats"]
-            # Ensure new stats keys exist (for checkpoints saved before cr_used was added)
             stats.setdefault("cr_used", 0)
+            stats.setdefault("oa_used", 0)
             stats.setdefault("opencitations_used", 0)
-            # Restore already processed data (with bounds check)
             checkpoint_len = min(
                 start_index,
                 len(checkpoint.get("extras", [])),
@@ -1295,82 +1360,361 @@ def _fetch_citations_parallel(
         f"Fetching citation data for {papers_with_doi}/{total_papers} papers with valid DOIs"
     )
     if use_cache:
-        logging.info(
-            "Using citation cache (30-day TTL) - expect ~60-80% cache hits on repeated runs"
-        )
-    logging.info(f"Using {num_workers} parallel workers for citation fetching")
+        logging.info("Using citation cache (30-day TTL) — batch mode for phases 1-3")
+    logging.info(f"Using {num_workers} workers for OpenCitations fallback (phase 4)")
     logging.info(
-        "Rate limits: CrossRef ~3 req/sec, OpenCitations 1 req/sec "
-        "(cache hits and Semantic Scholar data bypass API calls)"
+        "Phase strategy: Cache → SS → OpenAlex → CrossRef (batch) → OpenCitations (threaded)"
     )
 
     crossref_mailto = api_config.get("CrossRef", {}).get("mailto")
 
-    # Create progress bar and ThreadPoolExecutor for parallel fetching
-    with (
-        tqdm(
-            total=total_papers,
-            initial=start_index,
-            desc="Fetching citations",
-            unit="paper",
-            position=0,
-            leave=True,
-        ) as pbar,
-        ThreadPoolExecutor(max_workers=num_workers) as executor,
+    # ========================================================================
+    # Prepare paper data: collect citation metadata for each paper
+    # ========================================================================
+    paper_data = []  # (position, doi, ss_cit, ss_ref, oa_cit)
+    for position, (_df_index, row) in enumerate(
+        df_clean.iloc[start_index:].iterrows(), start=start_index
     ):
-        # Submit all tasks
-        future_to_index = {}
-        for position, (_df_index, row) in enumerate(
-            df_clean.iloc[start_index:].iterrows(), start=start_index
-        ):
-            doi = row.get("DOI")
+        doi = row.get("DOI")
+        ss_cit_count, ss_ref_count = _get_ss_citations_if_available(row)
+        oa_cit_count = _get_oa_citations_if_available(row)
+        paper_data.append((position, doi, ss_cit_count, ss_ref_count, oa_cit_count))
 
-            # Extract Semantic Scholar citation data if available
-            ss_cit_count, ss_ref_count = _get_ss_citations_if_available(row)
+    # Separate papers: has_doi vs no_doi
+    papers_no_doi = []
+    papers_with_valid_doi = []
+    for pos, doi, ss_cit, ss_ref, oa_cit in paper_data:
+        if is_valid(doi):
+            papers_with_valid_doi.append((pos, str(doi), ss_cit, ss_ref, oa_cit))
+        else:
+            papers_no_doi.append(pos)
 
-            future = executor.submit(
-                _fetch_citation_for_paper,
-                position,
-                doi,
-                stats,
-                checkpoint_interval,
-                checkpoint_path,
-                extras,
-                nb_citeds,
-                nb_citations,
-                cache_path,
-                ss_cit_count,
-                ss_ref_count,
-                crossref_mailto,
-            )
-            future_to_index[future] = position
-
-        # Process completed tasks
-        for future in as_completed(future_to_index):
-            future.result()  # Wait for task completion (raises exceptions if any)
+    # ========================================================================
+    # Single tqdm progress bar spanning all phases
+    # ========================================================================
+    with tqdm(
+        total=total_papers,
+        initial=start_index,
+        desc="Citations [init]",
+        unit="paper",
+        position=0,
+        leave=True,
+    ) as pbar:
+        # Resolve no-DOI papers immediately
+        for _pos in papers_no_doi:
+            stats["no_doi"] += 1
             pbar.update(1)
+        _update_pbar_postfix(pbar, stats, use_cache)
 
-            # Update progress bar with statistics (four-tier breakdown)
-            with _stats_lock:
-                postfix = {
-                    "✓": stats["success"],
-                    "✗": stats["error"],
-                    "⏱": stats["timeout"],
-                    "⊘": stats["no_doi"],
-                }
-                if use_cache:
-                    postfix["💾"] = stats["cache_hit"]  # Cache hits
-                    postfix["🔬"] = stats["ss_used"]  # Semantic Scholar used
-                    postfix["📚"] = stats["cr_used"]  # CrossRef API used
-                    postfix["🔗"] = stats[
-                        "opencitations_used"
-                    ]  # OpenCitations API calls
-            pbar.set_postfix(postfix)
+        # Track which papers still need resolution
+        # Key: position, Value: (doi, ss_cit, ss_ref, oa_cit)
+        remaining = {
+            pos: (doi, ss_cit, ss_ref, oa_cit)
+            for pos, doi, ss_cit, ss_ref, oa_cit in papers_with_valid_doi
+        }
 
-    # Calculate statistics and percentages
+        # ====================================================================
+        # PHASE 1: Batch cache lookup
+        # ====================================================================
+        if use_cache and cache_path and remaining:
+            pbar.set_description("Citations [cache]")
+            from scilex.citations.cache import get_cached_citations_batch
+
+            all_dois = [doi for doi, _, _, _ in remaining.values()]
+            cached = get_cached_citations_batch(all_dois, cache_path)
+
+            resolved_positions = []
+            for pos, (doi, _ss_cit, _ss_ref, _oa_cit) in remaining.items():
+                if doi in cached:
+                    data = cached[doi]
+                    _store_citation_result(
+                        pos,
+                        extras,
+                        nb_citeds,
+                        nb_citations,
+                        data["citations"],
+                        data["nb_cited"],
+                        data["nb_citations"],
+                    )
+                    api_stats = data["api_stats"]
+                    stats["cache_hit"] += 1
+                    if (
+                        api_stats["cit_status"] == "success"
+                        and api_stats["ref_status"] == "success"
+                    ):
+                        stats["success"] += 1
+                    resolved_positions.append(pos)
+                    pbar.update(1)
+
+            for pos in resolved_positions:
+                del remaining[pos]
+            stats["cache_miss"] += len(remaining)
+            _update_pbar_postfix(pbar, stats, use_cache)
+            logging.debug(
+                f"Phase 1 (cache): {len(resolved_positions)} hits, "
+                f"{len(remaining)} remaining"
+            )
+
+        # ====================================================================
+        # PHASE 2: Semantic Scholar (in-memory, no API call)
+        # ====================================================================
+        if remaining:
+            pbar.set_description("Citations [SS]")
+            from scilex.citations.cache import cache_citations_batch
+
+            resolved_positions = []
+            cache_entries = []
+            for pos, (doi, ss_cit, ss_ref, _oa_cit) in remaining.items():
+                if ss_cit is not None or ss_ref is not None:
+                    nb_cited = ss_ref if ss_ref is not None else 0
+                    nb_citation = ss_cit if ss_cit is not None else 0
+                    citations = {
+                        "citing_dois": [],
+                        "cited_dois": [],
+                        "nb_cited": nb_cited,
+                        "nb_citations": nb_citation,
+                        "source": "semantic_scholar",
+                    }
+                    _store_citation_result(
+                        pos,
+                        extras,
+                        nb_citeds,
+                        nb_citations,
+                        citations,
+                        nb_cited,
+                        nb_citation,
+                    )
+                    stats["ss_used"] += 1
+                    stats["success"] += 1
+                    resolved_positions.append(pos)
+                    pbar.update(1)
+
+                    # Prepare for batch caching
+                    if use_cache and cache_path:
+                        cache_entries.append(
+                            {
+                                "doi": doi,
+                                "citations_json": str(citations),
+                                "nb_cited": nb_cited,
+                                "nb_citations": nb_citation,
+                                "api_stats": {
+                                    "cit_status": "success",
+                                    "ref_status": "success",
+                                    "source": "semantic_scholar",
+                                },
+                            }
+                        )
+
+            for pos in resolved_positions:
+                del remaining[pos]
+
+            # Batch cache SS results
+            if cache_entries and use_cache and cache_path:
+                cache_citations_batch(cache_entries, cache_path)
+
+            _update_pbar_postfix(pbar, stats, use_cache)
+            logging.debug(
+                f"Phase 2 (SS): {len(resolved_positions)} resolved, "
+                f"{len(remaining)} remaining"
+            )
+
+        # ====================================================================
+        # PHASE 2b: OpenAlex citation count (in-memory, no API call)
+        # ====================================================================
+        if remaining:
+            pbar.set_description("Citations [OpenAlex]")
+            from scilex.citations.cache import cache_citations_batch
+
+            resolved_positions = []
+            cache_entries = []
+            for pos, (doi, _ss_cit, _ss_ref, oa_cit) in remaining.items():
+                if oa_cit is not None:
+                    nb_cited = 0  # OpenAlex doesn't provide reference count
+                    nb_citation = oa_cit
+                    citations = {
+                        "citing_dois": [],
+                        "cited_dois": [],
+                        "nb_cited": nb_cited,
+                        "nb_citations": nb_citation,
+                        "source": "openalex",
+                    }
+                    _store_citation_result(
+                        pos,
+                        extras,
+                        nb_citeds,
+                        nb_citations,
+                        citations,
+                        nb_cited,
+                        nb_citation,
+                    )
+                    stats["oa_used"] += 1
+                    stats["success"] += 1
+                    resolved_positions.append(pos)
+                    pbar.update(1)
+
+                    # Prepare for batch caching
+                    if use_cache and cache_path:
+                        cache_entries.append(
+                            {
+                                "doi": doi,
+                                "citations_json": str(citations),
+                                "nb_cited": nb_cited,
+                                "nb_citations": nb_citation,
+                                "api_stats": {
+                                    "cit_status": "success",
+                                    "ref_status": "success",
+                                    "source": "openalex",
+                                },
+                            }
+                        )
+
+            for pos in resolved_positions:
+                del remaining[pos]
+
+            # Batch cache OA results
+            if cache_entries and use_cache and cache_path:
+                cache_citations_batch(cache_entries, cache_path)
+
+            _update_pbar_postfix(pbar, stats, use_cache)
+            logging.debug(
+                f"Phase 2b (OpenAlex): {len(resolved_positions)} resolved, "
+                f"{len(remaining)} remaining"
+            )
+
+        # ====================================================================
+        # PHASE 3: CrossRef batch API (N/20 HTTP requests)
+        # ====================================================================
+        if remaining:
+            pbar.set_description("Citations [CrossRef]")
+
+            remaining_dois = [(pos, doi) for pos, (doi, _, _, _) in remaining.items()]
+            batch_size = cit_tools.CROSSREF_BATCH_SIZE
+
+            for batch_start in range(0, len(remaining_dois), batch_size):
+                batch = remaining_dois[batch_start : batch_start + batch_size]
+                batch_dois = [doi for _, doi in batch]
+
+                try:
+                    cr_results = cit_tools.getCrossRefCitationsBatch(
+                        batch_dois, mailto=crossref_mailto
+                    )
+                except Exception as e:
+                    logging.debug(f"CrossRef batch request failed: {e}")
+                    cr_results = {}
+
+                cache_entries = []
+                for pos, doi in batch:
+                    doi_lower = doi.lower()
+                    if doi_lower in cr_results:
+                        cr_cit, cr_ref = cr_results[doi_lower]
+                        citations = {
+                            "citing_dois": [],
+                            "cited_dois": [],
+                            "nb_cited": cr_ref,
+                            "nb_citations": cr_cit,
+                            "source": "crossref",
+                        }
+                        _store_citation_result(
+                            pos,
+                            extras,
+                            nb_citeds,
+                            nb_citations,
+                            citations,
+                            cr_ref,
+                            cr_cit,
+                        )
+                        stats["cr_used"] += 1
+                        stats["success"] += 1
+                        # Remove from remaining
+                        if pos in remaining:
+                            del remaining[pos]
+                        pbar.update(1)
+
+                        if use_cache and cache_path:
+                            cache_entries.append(
+                                {
+                                    "doi": doi,
+                                    "citations_json": str(citations),
+                                    "nb_cited": cr_ref,
+                                    "nb_citations": cr_cit,
+                                    "api_stats": {
+                                        "cit_status": "success",
+                                        "ref_status": "success",
+                                        "source": "crossref",
+                                    },
+                                }
+                            )
+
+                # Batch cache CrossRef results
+                if cache_entries and use_cache and cache_path:
+                    from scilex.citations.cache import cache_citations_batch
+
+                    cache_citations_batch(cache_entries, cache_path)
+
+                # Checkpoint after each CrossRef batch
+                if checkpoint_path:
+                    checkpoint_data = {
+                        "last_index": max(pos for pos, _ in batch),
+                        "stats": dict(stats),
+                        "extras": extras[: max(pos for pos, _ in batch) + 1],
+                        "nb_citeds": nb_citeds[: max(pos for pos, _ in batch) + 1],
+                        "nb_citations": nb_citations[
+                            : max(pos for pos, _ in batch) + 1
+                        ],
+                    }
+                    _save_checkpoint(checkpoint_path, checkpoint_data)
+
+                # Update postfix after each batch so stats refresh live
+                _update_pbar_postfix(pbar, stats, use_cache)
+
+            logging.debug(
+                f"Phase 3 (CrossRef): {stats['cr_used']} resolved, "
+                f"{len(remaining)} remaining for OpenCitations"
+            )
+
+        # ====================================================================
+        # PHASE 4: OpenCitations fallback (threaded, 1 req/sec per DOI)
+        # ====================================================================
+        if remaining:
+            pbar.set_description("Citations [OpenCitations]")
+
+            oc_papers = list(remaining.items())  # [(pos, (doi, ...)), ...]
+
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                future_to_pos = {}
+                for pos, (doi, _, _, _) in oc_papers:
+                    future = executor.submit(
+                        _fetch_citation_for_paper,
+                        pos,
+                        doi,
+                        stats,
+                        checkpoint_interval,
+                        checkpoint_path,
+                        extras,
+                        nb_citeds,
+                        nb_citations,
+                        cache_path,
+                        None,  # ss_citation_count — already checked in phase 2
+                        None,  # ss_reference_count
+                        None,  # crossref_mailto — already checked in phase 3
+                    )
+                    future_to_pos[future] = pos
+
+                for future in as_completed(future_to_pos):
+                    future.result()
+                    pbar.update(1)
+                    _update_pbar_postfix(pbar, stats, use_cache)
+
+        pbar.set_description("Citations [done]")
+
+    # ========================================================================
+    # Log statistics
+    # ========================================================================
     total_with_doi = total_papers - stats["no_doi"]
     cache_hit_rate = 0
     ss_usage_rate = 0
+    oa_usage_rate = 0
+    cr_usage_rate = 0
     opencitations_rate = 0
 
     if use_cache and (stats["cache_hit"] + stats["cache_miss"]) > 0:
@@ -1378,9 +1722,9 @@ def _fetch_citations_parallel(
             stats["cache_hit"] / (stats["cache_hit"] + stats["cache_miss"]) * 100
         )
 
-    cr_usage_rate = 0
     if total_with_doi > 0:
         ss_usage_rate = stats["ss_used"] / total_with_doi * 100
+        oa_usage_rate = stats["oa_used"] / total_with_doi * 100
         cr_usage_rate = stats["cr_used"] / total_with_doi * 100
         opencitations_rate = stats["opencitations_used"] / total_with_doi * 100
 
@@ -1396,19 +1740,20 @@ def _fetch_citations_parallel(
             f"({cache_hit_rate:.1f}% hit rate)"
         )
 
-    # Four-tier strategy breakdown
     logging.info("Citation source breakdown (for papers with DOI):")
     logging.info(f"  💾 Cache hits: {stats['cache_hit']} papers")
     logging.info(
         f"  🔬 Semantic Scholar: {stats['ss_used']} papers ({ss_usage_rate:.1f}%)"
     )
+    logging.info(f"  🅰 OpenAlex: {stats['oa_used']} papers ({oa_usage_rate:.1f}%)")
     logging.info(f"  📚 CrossRef: {stats['cr_used']} papers ({cr_usage_rate:.1f}%)")
     logging.info(
         f"  🔗 OpenCitations API: {stats['opencitations_used']} papers ({opencitations_rate:.1f}%)"
     )
 
-    # Calculate API call savings (cache + SS + CrossRef all avoid OpenCitations calls)
-    api_calls_saved = stats["cache_hit"] + stats["ss_used"] + stats["cr_used"]
+    api_calls_saved = (
+        stats["cache_hit"] + stats["ss_used"] + stats["oa_used"] + stats["cr_used"]
+    )
     if total_with_doi > 0:
         savings_rate = api_calls_saved / total_with_doi * 100
         logging.info(
