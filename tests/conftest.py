@@ -102,3 +102,78 @@ def sample_dataframe(sample_paper_record):
 def pubmed_fixtures_dir():
     """Path to PubMed XML fixtures directory."""
     return Path(__file__).parent / "fixtures" / "pubmed"
+
+
+@pytest.fixture
+def minimal_paper_df():
+    """Single-row DataFrame with all required columns."""
+    return pd.DataFrame([{
+        "DOI": "10.1234/test.001",
+        "title": "A Test Paper",
+        "authors": "Alice Smith",
+        "date": "2024-01-01",
+        "abstract": "A short abstract for testing purposes.",
+        "archive": "SemanticScholar",
+        "itemType": "journalArticle",
+        "nb_citation": "5",
+        "url": "https://example.com/paper",
+        "pdf_url": "NA",
+        "language": "en",
+        "rights": "CC-BY",
+        "journalAbbreviation": "J. Test",
+        "volume": "1",
+        "issue": "1",
+        "pages": "1-10",
+        "publisher": "Test Publisher",
+        "archiveID": "abc123",
+        "serie": "NA",
+        "conferenceName": "NA",
+        "tags": "NA",
+        "hf_url": "NA",
+        "github_repo": "NA",
+    }])
+
+
+@pytest.fixture
+def dblp_row():
+    """Minimal valid DBLP API response row."""
+    return {
+        "@id": "https://dblp.org/rec/journals/test/Smith24",
+        "info": {
+            "title": "Knowledge Graph Completion",
+            "year": "2024",
+            "type": "Journal Articles",
+            "authors": {
+                "author": [
+                    {"text": "Alice Smith", "@pid": "1"},
+                    {"text": "Bob Jones", "@pid": "2"},
+                ]
+            },
+        },
+    }
+
+
+@pytest.fixture
+def hal_row():
+    """Minimal valid HAL API response row."""
+    return {
+        "halId_s": "hal-12345678",
+        "docType_s": "ART",
+        "title_s": ["Knowledge Graph Methods"],
+        "abstract_s": ["We present a study on knowledge graph methods."],
+        "submittedDateY_i": 2024,
+    }
+
+
+@pytest.fixture
+def ieee_row():
+    """Minimal valid IEEE API response row."""
+    return {
+        "article_number": "IEEE123456",
+        "title": "Graph Neural Networks for KG",
+        "abstract": "We study graph neural networks for knowledge graphs.",
+        "authors": [{"full_name": "Alice Smith"}],
+        "content_type": "Journals",
+        "access_type": "Open Access",
+        "publication_date": "2024",
+    }

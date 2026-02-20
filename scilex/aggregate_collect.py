@@ -430,9 +430,14 @@ def _apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="
     initial_count = len(df)
 
     # Calculate zero-citation statistics (only for papers with DOI)
-    zero_citation_count = (
-        df_filtered[df_filtered["DOI"].apply(is_valid)][citation_col] == 0
-    ).sum()
+    # Guard against empty df_filtered: apply() on empty Series returns float64,
+    # which causes pandas to drop all columns during boolean indexing.
+    if len(df_filtered) > 0:
+        zero_citation_count = (
+            df_filtered[df_filtered["DOI"].apply(is_valid)][citation_col] == 0
+        ).sum()
+    else:
+        zero_citation_count = 0
     zero_citation_rate = (
         (zero_citation_count / initial_with_doi * 100) if initial_with_doi > 0 else 0.0
     )

@@ -782,7 +782,7 @@ def HALtoZoteroFormat(row):
                     break
 
     # Extract language
-    if "language_s" in row and is_valid(row["language_s"]):
+    if "language_s" in row and row["language_s"]:
         if isinstance(row["language_s"], list) and len(row["language_s"]) > 0:
             zotero_temp["language"] = row["language_s"][0]
         elif isinstance(row["language_s"], str):

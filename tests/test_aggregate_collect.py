@@ -223,3 +223,57 @@ class TestFilteringTracker:
         report = tracker.generate_report()
         assert "300" in report
         assert "Retention rate" in report
+
+
+# -------------------------------------------------------------------------
+# _apply_time_aware_citation_filter
+# -------------------------------------------------------------------------
+class TestApplyTimeAwareCitationFilter:
+    def _get_filter(self):
+        from scilex.aggregate_collect import _apply_time_aware_citation_filter
+
+        return _apply_time_aware_citation_filter
+
+    def _make_df(self, papers):
+        import pandas as pd
+
+        return pd.DataFrame(papers)
+
+    def test_recent_paper_passes_with_zero_citations(self):
+        """Papers <18 months old should not be filtered."""
+        from datetime import date, timedelta
+
+        recent_date = (date.today() - timedelta(days=6 * 30)).strftime("%Y-%m-%d")
+        df = self._make_df([
+            {"DOI": "10.1/a", "nb_citation": "0", "date": recent_date},
+        ])
+        fn = self._get_filter()
+        result = fn(df)
+        assert len(result) == 1
+
+    def test_old_paper_with_zero_citations_filtered(self):
+        """Papers >36 months old with 0 citations should be removed."""
+        df = self._make_df([
+            {"DOI": "10.1/a", "nb_citation": "0", "date": "2020-01-01"},
+        ])
+        fn = self._get_filter()
+        result = fn(df)
+        assert len(result) == 0
+
+    def test_no_doi_bypasses_filter(self):
+        """Papers without DOI should not be filtered regardless of citations."""
+        df = self._make_df([
+            {"DOI": "NA", "nb_citation": "0", "date": "2018-01-01"},
+        ])
+        fn = self._get_filter()
+        result = fn(df)
+        assert len(result) == 1
+
+    def test_citation_threshold_column_added(self):
+        """The citation_threshold column must be present in output."""
+        df = self._make_df([
+            {"DOI": "10.1/a", "nb_citation": "100", "date": "2024-01-01"},
+        ])
+        fn = self._get_filter()
+        result = fn(df)
+        assert "citation_threshold" in result.columns
