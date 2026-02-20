@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-blue?logo=python)](https://www.python.org/)
 [![Issues](https://img.shields.io/github/issues/Wimmics/SciLEx)](https://github.com/Wimmics/SciLEx/issues)
+[![Tests](https://github.com/Wimmics/SciLEx/actions/workflows/tests.yml/badge.svg)](https://github.com/Wimmics/SciLEx/actions/workflows/tests.yml)
 
 **SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 10 academic APIs, deduplicate papers, analyze citation networks, and push to Zotero with advanced quality filtering.
 
