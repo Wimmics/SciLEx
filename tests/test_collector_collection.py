@@ -75,7 +75,10 @@ class TestQueryCompositor:
         assert "SemanticScholar" in result
         queries = result["SemanticScholar"]
         assert len(queries) == 1
-        assert queries[0]["keyword"] == ["machine learning"]
+        q = queries[0]
+        assert q["keyword"] == ["machine learning"]
+        assert q["year"] == 2024
+        assert "max_articles_per_query" in q
 
     def test_dual_keyword_cartesian_product(self):
         coll = _make_collection(main_config={
@@ -144,6 +147,22 @@ class TestQueryCompositor:
         result = coll.queryCompositor()
         for query in result["SemanticScholar"]:
             assert query["year"] == 2024
+
+    def test_all_required_fields_present_in_every_query(self):
+        """Every query dict must contain keyword, year and max_articles_per_query."""
+        coll = _make_collection(main_config={
+            "keywords": [["a", "b"], []],
+            "years": [2023, 2024],
+            "apis": ["SemanticScholar", "OpenAlex"],
+            "max_articles_per_query": 200,
+        })
+        result = coll.queryCompositor()
+        for api, queries in result.items():
+            for q in queries:
+                assert "keyword" in q, f"Missing 'keyword' in {api} query"
+                assert "year" in q, f"Missing 'year' in {api} query"
+                assert "max_articles_per_query" in q, f"Missing 'max_articles_per_query' in {api} query"
+                assert q["max_articles_per_query"] == 200
 
 
 # -------------------------------------------------------------------------

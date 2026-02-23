@@ -243,7 +243,8 @@ class TestApplyTimeAwareCitationFilter:
         """Papers <18 months old should not be filtered."""
         from datetime import date, timedelta
 
-        recent_date = (date.today() - timedelta(days=6 * 30)).strftime("%Y-%m-%d")
+        # Use 90 days ago — unambiguously within the 18-month (≈540-day) grace period
+        recent_date = (date.today() - timedelta(days=90)).strftime("%Y-%m-%d")
         df = self._make_df([
             {"DOI": "10.1/a", "nb_citation": "0", "date": recent_date},
         ])
@@ -277,3 +278,12 @@ class TestApplyTimeAwareCitationFilter:
         fn = self._get_filter()
         result = fn(df)
         assert "citation_threshold" in result.columns
+
+    def test_citation_threshold_value_for_established_paper(self):
+        """Papers >36 months old must have threshold >= ESTABLISHED_BASE_CITATIONS."""
+        df = self._make_df([
+            {"DOI": "10.1/a", "nb_citation": "100", "date": "2020-01-01"},
+        ])
+        fn = self._get_filter()
+        result = fn(df)
+        assert result["citation_threshold"].iloc[0] >= CitationFilterConfig.ESTABLISHED_BASE_CITATIONS

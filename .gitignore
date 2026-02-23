@@ -457,3 +457,4 @@ docs/plans/
 
 # Deprecated code (tracked in git for history)
 # .deprecated/ is intentionally committed
+docs/enhancement-proposals.md

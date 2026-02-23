@@ -8,6 +8,7 @@ When a configuration value is not specified in scilex.config.yml, the system
 will use the corresponding default from this module.
 """
 
+import copy
 import os
 
 # ============================================================================
@@ -237,7 +238,7 @@ QUALITY_FILTER_SCHEMA = {
 
 def get_default_quality_filters():
     """Return all default quality filter settings as a dictionary."""
-    return {
+    return copy.deepcopy({
         "enable_itemtype_bypass": DEFAULT_ENABLE_ITEMTYPE_BYPASS,
         "bypass_item_types": DEFAULT_BYPASS_ITEM_TYPES,
         "enable_itemtype_filter": DEFAULT_ENABLE_ITEMTYPE_FILTER,
@@ -260,7 +261,7 @@ def get_default_quality_filters():
         "itemtype_relevance_weights": DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
         "max_papers": DEFAULT_MAX_PAPERS,
         "track_duplicate_sources": DEFAULT_TRACK_DUPLICATE_SOURCES,
-    }
+    })
 
 
 def get_rate_limit(api_name: str, has_api_key: bool = False) -> float:

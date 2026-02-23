@@ -327,6 +327,32 @@ class TestApiCallDecoratorErrorPaths:
         # Should have slept for 45 seconds (from Retry-After header)
         assert any(s == 45 for s in sleep_calls)
 
+    def test_429_with_non_numeric_retry_after_falls_back(self):
+        """Non-numeric Retry-After header should not crash; falls back to default."""
+        collector = _make_collector()
+        mock_registry, mock_breaker = _make_mock_cb()
+        _, error = _make_http_error(429, headers={"Retry-After": "invalid"})
+        mock_success = MagicMock()
+        mock_success.raise_for_status.return_value = None
+        collector.session.get.side_effect = [error, mock_success]
+
+        sleep_calls = []
+        with (
+            patch(
+                "scilex.crawlers.collectors.base.CircuitBreakerRegistry",
+                return_value=mock_registry,
+            ),
+            patch(
+                "scilex.crawlers.collectors.base.time.sleep",
+                side_effect=lambda t: sleep_calls.append(t),
+            ),
+        ):
+            result = collector.api_call_decorator(self.URL, max_retries=3)
+
+        # Must succeed and have slept (not crashed on invalid header)
+        assert result is mock_success
+        assert len(sleep_calls) > 0
+
     def test_429_without_retry_after_uses_api_specific_backoff(self):
         """DBLP uses fixed 30s backoff (no exponential)."""
         collector = _make_collector("DBLP")

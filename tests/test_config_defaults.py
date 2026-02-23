@@ -41,6 +41,15 @@ class TestGetDefaultQualityFilters:
         d1["require_abstract"] = False
         assert d2["require_abstract"] is True
 
+    def test_nested_dict_not_shared_between_calls(self):
+        """Mutating a nested dict in one call's return value must not affect another."""
+        d1 = get_default_quality_filters()
+        d2 = get_default_quality_filters()
+        original = d2["relevance_weights"].copy()
+        first_key = next(iter(d1["relevance_weights"]))
+        d1["relevance_weights"][first_key] = 0.0
+        assert d2["relevance_weights"][first_key] == original[first_key]
+
 
 # -------------------------------------------------------------------------
 # TestDefaultRelevanceWeights

@@ -136,6 +136,13 @@ class TestDBLPtoZoteroFormat:
         result = DBLPtoZoteroFormat(_make_dblp_row(publisher="Springer"))
         assert result["publisher"] == "Springer"
 
+    def test_single_author_dict_without_pid(self):
+        """Single author dict missing @pid must not raise; name still extracted."""
+        row = _make_dblp_row()
+        row["info"]["authors"] = {"author": {"text": "Solo Author"}}
+        result = DBLPtoZoteroFormat(row)
+        assert result["authors"] == "Solo Author"
+
     @pytest.mark.parametrize(
         "type_str,expected",
         [
@@ -237,6 +244,24 @@ class TestHALtoZoteroFormat:
             )
         )
         assert result["authors"] == "Alice Smith;Bob Jones"
+
+    def test_title_s_empty_list_returns_missing(self):
+        """title_s=[] (empty list) must not crash and must return MISSING_VALUE."""
+        result = HALtoZoteroFormat(_make_hal_row(title_s=[]))
+        assert result["title"] == MISSING_VALUE
+
+    def test_author_name_with_facetsep_collision(self):
+        """Author names containing the _FacetSep_ separator must not corrupt output."""
+        result = HALtoZoteroFormat(
+            _make_hal_row(
+                authFullNameIdHal_fs=[
+                    "Alice_FacetSep_Smith_FacetSep_alice-s",
+                    "Bob Jones_FacetSep_bob-j",
+                ]
+            )
+        )
+        # "Bob Jones" should always be present; "Alice" name extraction is best-effort
+        assert "Bob Jones" in result["authors"]
 
     def test_doc_type_art_is_journal_article(self):
         result = HALtoZoteroFormat(_make_hal_row(docType_s="ART"))

@@ -204,8 +204,8 @@ class TestSimpleDeduplicate:
         ])
         result, _ = simple_deduplicate(df)
         archive_val = result.iloc[0]["archive"]
-        # Both sources should be mentioned
-        assert "SemanticScholar" in archive_val or "OpenAlex" in archive_val
+        # Both sources must be merged into the kept record
+        assert "SemanticScholar" in archive_val and "OpenAlex" in archive_val
 
     def test_title_duplicates_removed(self):
         df = pd.DataFrame([

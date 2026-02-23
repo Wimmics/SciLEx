@@ -55,7 +55,8 @@ class TestGetWriteToken:
     def test_token_is_alphanumeric(self):
         api = _make_api()
         token = api._get_write_token()
-        assert token.isalpha() or token.isalnum()
+        assert token.isalnum()
+        assert any(c.isalpha() for c in token)
 
     def test_two_tokens_differ(self):
         api = _make_api()

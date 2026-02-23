@@ -1,6 +1,7 @@
 """Tests for pure functions in scilex.abstract_validation module."""
 
 import pandas as pd
+import pytest
 
 from scilex.abstract_validation import (
     AbstractQualityIssue,
@@ -363,6 +364,18 @@ class TestValidateAbstractQuality:
         lang_issues = [i for i in quality.issues if i.issue_type == "LANGUAGE"]
         assert len(lang_issues) == 0
 
+    def test_expected_language_fr_no_mismatch(self):
+        # French abstract with expected_language="fr" must not raise a LANGUAGE issue
+        french = (
+            "Ce papier présente une nouvelle approche pour compléter les graphes "
+            "de connaissances en utilisant l'apprentissage profond. "
+            "Nous évaluons la méthode sur des benchmarks standards et obtenons "
+            "des résultats à l'état de l'art sur la prédiction de liens."
+        )
+        quality = validate_abstract_quality(french, expected_language="fr")
+        lang_issues = [i for i in quality.issues if i.issue_type == "LANGUAGE"]
+        assert len(lang_issues) == 0
+
 
 # -------------------------------------------------------------------------
 # validate_dataframe_abstracts
@@ -402,7 +415,8 @@ class TestValidateDataframeAbstracts:
         df = self._make_df(["NA"])
         _, stats = validate_dataframe_abstracts(df)
         assert "average_score" in stats
-        assert isinstance(stats["average_score"], float)
+        # "NA" normalizes to "" → MISSING (CRITICAL, -40) → score = 60
+        assert stats["average_score"] == pytest.approx(60.0)
 
 
 # -------------------------------------------------------------------------
