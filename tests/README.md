@@ -2,6 +2,14 @@
 
 ## Running Tests
 
+Install dev dependencies first (pytest is not included in the default install):
+
+```bash
+uv sync --extra dev
+```
+
+Then run the tests:
+
 ```bash
 uv run python -m pytest tests/ -v                          # All tests
 uv run python -m pytest tests/ --cov=scilex --cov-report=term-missing  # With coverage

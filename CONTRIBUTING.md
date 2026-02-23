@@ -3,7 +3,7 @@
 ## Setup
 
 ```bash
-uv sync
+uv sync --extra dev
 cp scilex/api.config.yml.example scilex/api.config.yml
 cp scilex/scilex.config.yml.example scilex/scilex.config.yml
 uv run python -m pytest tests/
