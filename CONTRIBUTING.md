@@ -11,10 +11,11 @@ uv run python -m pytest tests/
 
 ## Workflow
 
-1. Branch off `main`: `git checkout -b feature/your-feature`
-2. Make changes, add tests
-3. Format and lint: `uvx ruff format . && uvx ruff check --fix .`
-4. Open a pull request with a clear description
+1. Fork the repository and clone your fork locally
+2. Branch off `main`: `git checkout -b feature/your-feature`
+3. Make changes, add tests
+4. Format and lint: `uvx ruff format . && uvx ruff check --fix .`
+5. Open a pull request against `main` with a clear description of your changes
 
 ## Code Style
 

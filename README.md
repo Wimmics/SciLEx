@@ -1,107 +1,70 @@
+<div align="center">
+<br>
 
-![Scilex](img/projectLogoScilex.png)
-# SciLEx
+<img src="img/projectLogoScilex.png" width="20%" style="border-radius: 5px;" alt="SciLEx logo">
 
-[![Docs](https://img.shields.io/badge/Docs-Read%20the%20docs-blue?logo=readthedocs)](https://scilex.readthedocs.io/en/latest/)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-%E2%89%A53.10-blue?logo=python)](https://www.python.org/)
-[![Issues](https://img.shields.io/github/issues/Wimmics/SciLEx)](https://github.com/Wimmics/SciLEx/issues)
-[![Tests](https://github.com/Wimmics/SciLEx/actions/workflows/tests.yml/badge.svg)](https://github.com/Wimmics/SciLEx/actions/workflows/tests.yml)
+</div>
 
-**SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. Crawl 10 academic APIs, deduplicate papers, analyze citation networks, and push to Zotero with advanced quality filtering.
+<p align="center">
+    <em>Systematic literature search across 10 academic APIs</em>
+</p>
 
+<p align="center">
+    <img src="https://img.shields.io/github/license/Wimmics/SciLEx?style=flat-square&logo=opensourceinitiative&logoColor=white&color=0080ff" alt="license">
+    <img src="https://img.shields.io/github/last-commit/Wimmics/SciLEx?style=flat-square&logo=git&logoColor=white&color=0080ff" alt="last-commit">
+    <img src="https://img.shields.io/github/languages/top/Wimmics/SciLEx?style=flat-square&color=0080ff" alt="repo-top-language">
+    <img src="https://img.shields.io/github/languages/count/Wimmics/SciLEx?style=flat-square&color=0080ff" alt="repo-language-count">
+</p>
 
-## Cite this work:
-
-**Full text**:
-
-Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit ⟨swh:1:dir:944639eb0260a034a5cbf8766d5ee9b74ca85330⟩.
-
-**Bibtex**:
-
-```bibtex
-@softwareversion{scilex2026,
-  TITLE = {{SciLEx, Science Literature Exploration Toolkit}},
-  AUTHOR = {Ringwald, Célian and Navey, Benjamin},
-  URL = {https://github.com/Wimmics/SciLEx},
-  NOTE = {},
-  INSTITUTION = {{University C{\^o}te d'Azur ; CNRS ; Inria}},
-  YEAR = {2026},
-  MONTH = Fev,
-  SWHID = {swh:1:dir:944639eb0260a034a5cbf8766d5ee9b74ca85330},
-  VERSION = {1.0},
-  REPOSITORY = {https://github.com/Wimmics/SciLEx},
-  LICENSE = {MIT Licence},
-  KEYWORDS = {Python, Scientific literature, literature research, paper retriva},
-  HAL_ID = {},
-  HAL_VERSION = {},
-}
-```
+<p align="center">
+    <img src="https://img.shields.io/badge/Docs-Read%20the%20Docs-blue?style=flat-square&logo=readthedocs" alt="docs">
+    <img src="https://github.com/Wimmics/SciLEx/actions/workflows/tests.yml/badge.svg" alt="tests">
+</p>
 
 ---
-## Framework
 
-![architecture](img/Framework.png)
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Key Features](#key-features)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Citation](#citation)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Overview
+
+**SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. It crawls 10 academic APIs in parallel, deduplicates results using DOI-based and normalized title exact matching, and applies a 5-phase quality filtering pipeline before exporting to Zotero or BibTeX.
+
+
+---
+
+## Architecture
+
+![SciLEx framework architecture](img/Framework.png)
 
 ---
 
 ## Key Features
 
 - Multi-API collection with parallel processing (10 academic APIs)
-- Smart deduplication using DOI, URL, and fuzzy title matching
-- 5-phase quality filtering pipeline with time-aware citation thresholds
-- Citation network extraction via CrossRef + OpenCitations + Semantic Scholar
-- HuggingFace enrichment: ML models, datasets, GitHub stats, AI keywords
+- Smart deduplication using DOI and normalized title matching
+- 5-phase quality filtering pipeline with time-aware citation thresholds:
+  1. **ItemType Filter** — whitelist by publication type (journal, conference, etc.)
+  2. **Quality Filter** — require DOI, abstract, year, minimum author count, optional open-access
+  3. **Abstract Quality Filter** — remove placeholder or low-quality abstracts
+  4. **Citation Filter** — time-aware thresholds (e.g. ≥1 citation after 18 months, ≥10 after 3 years)
+  5. **Relevance Ranking** — composite score (0–10) from keyword density, metadata completeness, venue type, and citation impact
+- Citation count enrichment via CrossRef, OpenCitations, and Semantic Scholar
+- HuggingFace enrichment: query HuggingFace Hub to retrieve associated ML models, datasets, and GitHub repositories
 - Export to Zotero (bulk upload) or BibTeX (with PDF links)
 - Idempotent collections for safe re-runs
 
----
-
-## Installation
-
-```bash
-# With uv (recommended)
-uv sync
-
-# With pip
-pip install -e .
-
-# Dev dependencies (pytest, ruff, coverage)
-pip install -e ".[dev]"
-```
-
-## Quick Start
-
-```bash
-# 1. Configure APIs and search parameters
-cp scilex/api.config.yml.example scilex/api.config.yml
-cp scilex/scilex.config.yml.example scilex/scilex.config.yml
-cp scilex/scilex.advanced.yml.example scilex/scilex.advanced.yml
-
-# 2. Activate your environment (pip/venv users)
-source .venv/bin/activate       # macOS/Linux
-# .venv\Scripts\activate        # Windows
-# uv users: no activation needed, use: uv run scilex-collect
-
-# 3. Collect papers from APIs
-scilex-collect
-
-# 3. Deduplicate & filter
-scilex-aggregate
-
-# 4. (Optional) Enrich with HuggingFace metadata
-scilex-enrich
-
-# 5. Export to Zotero or BibTeX
-scilex-push-zotero          # Push to Zotero
-scilex-export-bibtex        # Or export to BibTeX
-```
-
-See the [Quick Start Guide](https://scilex.readthedocs.io/en/latest/getting-started/quick-start.html) for a complete walkthrough.
-
----
-
-## Supported APIs
+### Supported APIs
 
 | API | Key Required | Best For |
 |-----|-------------|----------|
@@ -120,25 +83,187 @@ See the [API Comparison](https://scilex.readthedocs.io/en/latest/reference/api-c
 
 ---
 
-## Documentation
+## Project Structure
 
-Full documentation is available at **[scilex.readthedocs.io](https://scilex.readthedocs.io/en/latest/)**:
+```sh
+└── SciLEx/
+    ├── README.md
+    ├── pyproject.toml
+    ├── CONTRIBUTING.md
+    ├── .env.example
+    ├── scilex/
+    │   ├── run_collection.py
+    │   ├── aggregate_collect.py
+    │   ├── enrich_with_hf.py
+    │   ├── push_to_zotero.py
+    │   ├── export_to_bibtex.py
+    │   ├── quality_validation.py
+    │   ├── keyword_validation.py
+    │   ├── abstract_validation.py
+    │   ├── duplicate_tracking.py
+    │   ├── crawlers/
+    │   ├── citations/
+    │   ├── Zotero/
+    │   ├── HuggingFace/
+    │   └── tagging/
+    ├── tests/
+    ├── docs/
+    └── img/
+```
 
-- [Installation](https://scilex.readthedocs.io/en/latest/getting-started/installation.html) - Setup with uv or pip
-- [Configuration](https://scilex.readthedocs.io/en/latest/getting-started/configuration.html) - API keys, keywords, filters
-- [Basic Workflow](https://scilex.readthedocs.io/en/latest/user-guides/basic-workflow.html) - Step-by-step pipeline guide
-- [Advanced Filtering](https://scilex.readthedocs.io/en/latest/user-guides/advanced-filtering.html) - 5-phase filtering pipeline
-- [BibTeX Export](https://scilex.readthedocs.io/en/latest/reference/bibtex-export.html) - Field reference, PDF sources
-- [Troubleshooting](https://scilex.readthedocs.io/en/latest/getting-started/troubleshooting.html) - Common issues and fixes
+---
+
+## Getting Started
+
+### Prerequisites
+
+- ![Python](https://img.shields.io/badge/Python-3.10+-blue?style=flat-square&logo=python)
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+
+### Installation
+
+1. Clone the repository:
+
+```sh
+❯ git clone https://github.com/Wimmics/SciLEx
+```
+
+2. Navigate to the project directory:
+
+```sh
+❯ cd SciLEx
+```
+
+3. Install dependencies:
+
+**Using `uv`** &nbsp; [<img align="center" src="https://img.shields.io/badge/uv-7C3AED?style=flat-square&logoColor=white" height="25">]
+
+```sh
+❯ uv sync
+```
+
+**Using `pip`:**
+
+```sh
+❯ pip install -e .
+
+# With dev dependencies (pytest, ruff, coverage)
+❯ pip install -e ".[dev]"
+```
+
+### Configuration
+
+Copy the example config files and fill in your API keys:
+
+```sh
+❯ cp scilex/api.config.yml.example scilex/api.config.yml
+❯ cp scilex/scilex.config.yml.example scilex/scilex.config.yml
+❯ cp scilex/scilex.advanced.yml.example scilex/scilex.advanced.yml
+```
+
+See the [Configuration Guide](https://scilex.readthedocs.io/en/latest/getting-started/configuration.html) for all available settings.
+
+### Usage
+
+**Option A — with environment activation:**
+```sh
+❯ source .venv/bin/activate       # macOS/Linux
+❯ .venv\Scripts\activate          # Windows
+❯ scilex-collect
+```
+
+**Option B — with `uv run` (no activation needed):**
+```sh
+❯ uv run scilex-collect
+```
+
+Run the pipeline step by step:
+
+```sh
+# 1. Collect papers from all configured APIs
+❯ scilex-collect
+
+# 2. Deduplicate and apply quality filtering
+❯ scilex-aggregate
+
+# 3. (Optional) Enrich with HuggingFace metadata
+❯ scilex-enrich
+
+# 4. Export results
+❯ scilex-push-zotero        # Push to a Zotero collection
+❯ scilex-export-bibtex      # Export to BibTeX
+```
+
+See the [Quick Start Guide](https://scilex.readthedocs.io/en/latest/getting-started/quick-start.html) for a complete walkthrough.
+
+### Testing
+
+Install dev dependencies first (not included in the default install):
+
+```sh
+❯ uv sync --extra dev
+```
+
+Then run the tests:
+
+```sh
+❯ uv run python -m pytest tests/ -v                                              # All tests
+❯ uv run python -m pytest tests/ --cov=scilex --cov-report=term-missing         # With coverage
+❯ uv run python -m pytest tests/ -v -m "not live"                               # Offline tests only
+```
+
+---
+
+## Citation
+
+If you use SciLEx in your research, please cite:
+
+**Full text:**
+
+Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit ⟨swh:1:dir:944639eb0260a034a5cbf8766d5ee9b74ca85330⟩.
+
+**BibTeX:**
+
+```bibtex
+@softwareversion{scilex2026,
+  TITLE = {{SciLEx, Science Literature Exploration Toolkit}},
+  AUTHOR = {Ringwald, Célian and Navey, Benjamin},
+  URL = {https://github.com/Wimmics/SciLEx},
+  NOTE = {},
+  INSTITUTION = {{University Côte d'Azur ; CNRS ; Inria}},
+  YEAR = {2026},
+  MONTH = Fev,
+  SWHID = {swh:1:dir:944639eb0260a034a5cbf8766d5ee9b74ca85330},
+  VERSION = {1.0},
+  REPOSITORY = {https://github.com/Wimmics/SciLEx},
+  LICENSE = {MIT Licence},
+  KEYWORDS = {Python, Scientific literature, literature research, paper retrieval},
+  HAL_ID = {},
+  HAL_VERSION = {},
+}
+```
 
 ---
 
 ## Contributing
 
-- Report issues: [GitHub Issues](https://github.com/datalogism/SciLEx/issues)
+- Report issues: [GitHub Issues](https://github.com/Wimmics/SciLEx/issues)
 - See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines
 
-## Requirements
+<p align="center">
+   <a href="https://github.com/Wimmics/SciLEx/graphs/contributors">
+      <img src="https://contrib.rocks/image?repo=Wimmics/SciLEx">
+   </a>
+</p>
 
-- Python >=3.10
-- pip or uv package manager
+---
+
+## License
+
+This project is protected under the [MIT](LICENSE) License. For more details, refer to the [LICENSE](LICENSE) file.
+
+---
+
+<p align="center">
+   <a href="#top">Return to top</a>
+</p>
