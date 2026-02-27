@@ -44,38 +44,6 @@
 # collect: false
 
 # ============================================================================
-# MAXIMUM ARTICLES PER QUERY
-# ============================================================================
-#
-# Limit the number of articles collected per API query (keyword/year/API combo).
-# Useful for testing, limiting collection size, or controlling API quota usage.
-#
-# How it works:
-#   - Collectors make API requests and count total papers collected
-#   - Stops making requests when total >= max_articles_per_query
-#   - Example: max=2000, SemanticScholar bulk (1000/page)
-#     * Request 1: +1000 (total: 1000) → continue
-#     * Request 2: +1000 (total: 2000) → stop (2000 >= 2000)
-#   - Default: -1 (unlimited, collect all available)
-#
-# Pre-check optimization:
-#   - Before each API call, checks if limit would be exceeded
-#   - Skips wasteful API calls if limit already reached
-#   - Saves quota and time
-#
-# Use cases:
-#   - Testing: Set to 100 for quick test run (1-2 sec per query)
-#   - Limited quota: Set to 1000 to control monthly API usage
-#   - Balanced coverage: Set to 2000 for reasonable sample size
-#
-# Note: Limit applies PER QUERY (each keyword/year/API combination)
-#       Total collection = num_queries * max_articles_per_query
-#       For 10 keywords × 3 years = 30 queries × 1000 = 30,000 papers max
-#
-# Example: Limit collection to 2000 papers per query
-# max_articles_per_query: 2000
-
-# ============================================================================
 # CUSTOM RELEVANCE SCORING WEIGHTS
 # ============================================================================
 #
@@ -120,11 +88,10 @@
 #
 # Advanced abstract quality checking (detect truncation, boilerplate, encoding issues)
 #
-# Example: Enable detailed quality checking
+# Example: Enable abstract quality validation and filtering
 # quality_filters:
-#   validate_abstracts: true
-#   min_abstract_quality_score: 60        # Stricter threshold
-#   filter_by_abstract_quality: true      # Actually filter
+#   validate_abstracts: true              # Validate and filter poor abstracts
+#   min_abstract_quality_score: 60        # 0-100 scale (default: 60)
 
 # ============================================================================
 # OPEN ACCESS FILTERING
@@ -136,30 +103,6 @@
 # Example: Only open access papers
 # quality_filters:
 #   require_open_access: true
-
-# ============================================================================
-# ITEMTYPE WHITELIST FILTERING
-# ============================================================================
-#
-# Use whitelist mode to only keep specific publication types
-# (Advanced filtering, runs first in pipeline)
-#
-# Example 1: Peer-reviewed only (journals + conferences)
-# quality_filters:
-#   enable_itemtype_filter: true
-#   allowed_item_types:
-#     - journalArticle      # Peer-reviewed journals
-#     - conferencePaper     # Conference proceedings
-#
-# Example 2: Include all scholarly publications
-# quality_filters:
-#   enable_itemtype_filter: true
-#   allowed_item_types:
-#     - journalArticle
-#     - conferencePaper
-#     - bookSection
-#     - book
-#     - thesis
 
 # ============================================================================
 # CUSTOM ITEMTYPE RELEVANCE WEIGHTS

@@ -27,9 +27,17 @@ class TestPubMedCollector:
         self.fixtures_dir = Path(__file__).parent / "fixtures" / "pubmed"
 
     def test_single_keyword_group_query(self):
-        """Test query construction with single keyword group (OR logic)."""
+        """Test query construction with single keyword group.
+
+        In production, queryCompositor() breaks single keyword groups into
+        one query per keyword. Each collector receives keyword: ["term"],
+        so OR logic is achieved by dispatching separate queries, not within
+        a single PubMed query.
+        """
+        # Simulate what queryCompositor passes for single keyword mode:
+        # one keyword wrapped in a list
         data_query = {
-            "keyword": self.single_keywords,
+            "keyword": ["machine learning"],
             "year": self.year,
             "id_collect": 0,
             "total_art": 0,
@@ -41,10 +49,9 @@ class TestPubMedCollector:
         collector = PubMed_collector(data_query, "/tmp", None)
         query = collector.construct_search_query()
 
-        # Should have OR logic within the group (keywords are URL-encoded)
-        assert "machine%20learning" in query or "machine learning" in query
-        assert "deep%20learning" in query or "deep learning" in query
-        assert " OR " in query
+        # Should contain the keyword with Title/Abstract field tag
+        assert "machine learning" in query
+        assert "[Title/Abstract]" in query
         # Should have date filter
         assert "2024/01/01" in query
         assert "2024/12/31" in query

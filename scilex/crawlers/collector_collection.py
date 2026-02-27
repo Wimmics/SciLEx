@@ -25,15 +25,6 @@ from .collectors import (
     Springer_collector,
 )
 
-# Import centralized logging utilities
-try:
-    from scilex.logging_config import ProgressTracker, log_api_complete, log_api_start
-except ImportError:
-    # Fallback if logging_config not available
-    ProgressTracker = None
-    log_api_start = None
-    log_api_complete = None
-
 api_collectors = {
     "DBLP": DBLP_collector,
     "Arxiv": Arxiv_collector,
@@ -157,30 +148,11 @@ def _run_job_collects_worker(
 
 
 class CollectCollection:
-    # Deprecated APIs - warn and skip
-    DEPRECATED_APIS = {
-        "GoogleScholar": "GoogleScholar is deprecated (unreliable, requires Tor, frequent blocking). Use SemanticScholar or OpenAlex instead.",
-    }
-
     def __init__(self, main_config, api_config):
         print("Initializing collection")
         self.main_config = main_config
         self.api_config = api_config
-        self._filter_deprecated_apis()
         self.init_collection_collect()
-
-    def _filter_deprecated_apis(self):
-        """Warn about and remove deprecated APIs from the config."""
-        logger = logging.getLogger(__name__)
-        apis = self.main_config.get("apis", [])
-        filtered = []
-        for api in apis:
-            if api in self.DEPRECATED_APIS:
-                logger.warning(f"API '{api}' is deprecated and will be skipped: {self.DEPRECATED_APIS[api]}")
-            else:
-                filtered.append(api)
-        if len(filtered) != len(apis):
-            self.main_config["apis"] = filtered
 
     def validate_api_keys(self):
         """Validate that required API keys are present before starting collection"""

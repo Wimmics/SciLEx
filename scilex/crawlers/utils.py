@@ -21,19 +21,13 @@ def load_yaml_config(file_path):
         return yaml.safe_load(ymlfile)
 
 
-def get_current_directory():
-    """
-    Get the current working directory.
-
-    Returns:
-        str: Current working directory path.
-    """
-    return os.getcwd()
-
 
 def load_all_configs(config_files):
     """
     Load multiple YAML configurations based on a dictionary of file paths.
+
+    Config files are resolved relative to the scilex package directory
+    (where scilex.config.yml and api.config.yml live).
 
     Args:
         config_files (dict): A dictionary where keys are config names and values are relative file paths.
@@ -41,25 +35,11 @@ def load_all_configs(config_files):
     Returns:
         dict: A dictionary containing loaded configurations keyed by their names.
     """
-    # Find the src directory - look for it relative to current working directory or script location
-    current_directory = get_current_directory()
-    src_directory = None
-
-    # Check if we're in project root and src/ exists
-    if os.path.exists(os.path.join(current_directory, "src")):
-        src_directory = os.path.join(current_directory, "src")
-    # Check if we're already in src/
-    elif os.path.basename(current_directory) == "src":
-        src_directory = current_directory
-    # Check if src/ is one level up
-    elif os.path.exists(os.path.join(os.path.dirname(current_directory), "src")):
-        src_directory = os.path.join(os.path.dirname(current_directory), "src")
-    else:
-        # Default to current directory
-        src_directory = current_directory
+    # Resolve relative to the scilex/ package directory (parent of crawlers/)
+    package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     return {
-        key: load_yaml_config(os.path.join(src_directory, path))
+        key: load_yaml_config(os.path.join(package_dir, path))
         for key, path in config_files.items()
     }
 

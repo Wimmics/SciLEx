@@ -94,6 +94,10 @@ semantic_scholar_mode: regular
 # Project identification
 collect_name: my_research_project
 
+# Fetch citation counts during aggregation (CrossRef → OpenCitations fallback)
+# Set to false to skip citation fetching (faster runs, no citation-based filtering)
+aggregate_get_citations: true
+
 # Maximum articles per query (optional, advanced setting)
 # Default: -1 (unlimited - collect all available papers)
 # Set to a number to limit papers collected per API query (keyword/year/API combo)
@@ -123,10 +127,9 @@ quality_filters:
 
   # Content requirements
   require_abstract: true        # Literature review? → true | Bibliometrics? → false
-  require_doi: false            # Google Scholar users? → false
+  require_doi: false
 
   # Focus on impactful papers
-  aggregate_get_citations: true
   apply_citation_filter: true
 
   # Output size (null for unlimited, 500-1000 for focused reviews)
@@ -147,10 +150,7 @@ hf_enrichment:
   fuzzy_match_threshold: 85          # Minimum similarity score (0-100)
                                      # 90+: Very strict, 85: Recommended, 75: Lenient
 
-  max_models: 3                      # Max HF models to consider (for Models API fallback)
-
   # Cache settings (recommended for performance)
-  cache_enabled: true                # Enable SQLite caching
   cache_path: "output/hf_cache.db"   # Cache database location
   cache_ttl_days: 30                 # Cache expiration (days)
 

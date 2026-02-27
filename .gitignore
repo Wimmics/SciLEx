@@ -160,8 +160,6 @@ sketch
 /output_dir/*
 /output/*
 /scilex/output/*
-/scilex/api.config.yml
-/scilex/scilex.config.yml
 /scilex/output/entityLinking/
 /scilex/output/guigui_test/
 /scilex/output/relationExtraction2019_2022/
@@ -441,14 +439,16 @@ pyrightconfig.json
 .history
 .ionide
 CLAUDE.md
-scilex/api.config.yml
+# Config files with sensitive API keys — ignored everywhere in the tree
+api.config.yml
+scilex.config.yml
+scilex.advanced.yml
 
 KG_memory
 
 
 .claude
 .serena
-scilex/scilex.advanced.yml
 
 
 
@@ -457,3 +457,4 @@ docs/plans/
 
 # Deprecated code (tracked in git for history)
 # .deprecated/ is intentionally committed
+docs/enhancement-proposals.md

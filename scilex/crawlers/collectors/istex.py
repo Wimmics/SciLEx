@@ -9,10 +9,10 @@ class Istex_collector(API_collector):
 
     def __init__(self, filter_param, data_path, api_key):
         super().__init__(filter_param, data_path, api_key)
-        self.rate_limit = 3
         self.max_by_page = 500  # Maximum number of results to retrieve per page
         self.api_name = "Istex"
         self.api_url = "https://api.istex.fr/document/"
+        self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
         """
@@ -92,9 +92,7 @@ class Istex_collector(API_collector):
         encoded_query = urllib.parse.quote(query, safe=':[]() "')
 
         # Construct final URL
-        configured_url = (
-            f"{self.api_url}?q={encoded_query}&output=*&size={self.max_by_page}&from={{}}"
-        )
+        configured_url = f"{self.api_url}?q={encoded_query}&output=*&size={self.max_by_page}&from={{}}"
 
         logging.debug(f"ISTEX query: {query}")
         logging.debug(f"ISTEX URL: {configured_url}")

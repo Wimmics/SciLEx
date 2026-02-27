@@ -20,13 +20,11 @@ class Elsevier_collector(API_collector):
             inst_token: Institutional token for enhanced access (optional but recommended)
         """
         super().__init__(filter_param, data_path, api_key)
-        # Scopus API rate limits vary by subscription tier
-        # Default: 2 requests/sec for standard tier, 6-9 for institutional
-        self.rate_limit = 6  # Conservative rate for institutional access
         self.max_by_page = 25  # Scopus API max is 25 per page
         self.api_name = "Elsevier"
         self.api_url = "https://api.elsevier.com/content/search/scopus"
         self.inst_token = inst_token
+        self.load_rate_limit_from_config()
         if self.inst_token:
             logging.debug(
                 "Initialized Elsevier collector WITH institutional token (enhanced access)"

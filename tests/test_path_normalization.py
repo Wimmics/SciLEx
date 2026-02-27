@@ -71,6 +71,7 @@ def test_normalize_only_slashes():
 if __name__ == "__main__":
     """Run all tests when script is executed directly."""
     import inspect
+    import sys
 
     # Get all test functions
     test_functions = [
