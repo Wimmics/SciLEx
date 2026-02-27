@@ -17,7 +17,9 @@
 </p>
 
 <p align="center">
+    <a href="https://scilex.readthedocs.io/en/latest/">
     <img src="https://img.shields.io/badge/Docs-Read%20the%20Docs-blue?style=flat-square&logo=readthedocs" alt="docs">
+    </a>
     <img src="https://github.com/Wimmics/SciLEx/actions/workflows/tests.yml/badge.svg" alt="tests">
 </p>
 
