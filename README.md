@@ -62,7 +62,7 @@
   3. **Abstract Quality Filter** — remove placeholder or low-quality abstracts
   4. **Citation Filter** — time-aware thresholds (e.g. ≥1 citation after 18 months, ≥10 after 3 years)
   5. **Relevance Ranking** — composite score (0–10) from keyword density, metadata completeness, venue type, and citation impact
-- Citation count enrichment via CrossRef, OpenCitations, and Semantic Scholar
+- Citation count enrichment via CrossRef, OpenCitations, OpenAlex and Semantic Scholar
 - HuggingFace enrichment: query HuggingFace Hub to retrieve associated ML models, datasets, and GitHub repositories
 - Export to Zotero (bulk upload) or BibTeX (with PDF links)
 - Idempotent collections for safe re-runs
