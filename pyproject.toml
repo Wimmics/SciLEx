@@ -50,6 +50,7 @@ scilex-export-turtle = "scilex.export_to_turtle:main"
 scilex-analyze = "scilex.analyze:main"
 scilex-snowball = "scilex.snowball_sampling:main"
 scilex-summarize = "scilex.summarize_clusters:main"
+scilex-suggest-keywords = "scilex.suggest_keywords:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
