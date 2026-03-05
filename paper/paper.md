@@ -51,15 +51,11 @@ Finally, SciLEx exports all gathered information into a Zotero collection, facil
 ### Key Features
 ![SciLEx_workflow](./img/workflow-diagramV2.png)
 
-> **Note (BN):** We need to update the workflow diagram with + 2 collectors. I shared with you the pptx so it can be easily modified in the hackmd working document. I let you go on the hack md we used and find the google drive link yourself because I  don 't want to commit it here (it is open)
-
 SciLEx is built around the following core capabilities, each thoroughly documented in our [readthedocs.io](https://scilex.readthedocs.io/en/latest/):
 
 * Multi-source collection. Papers are retrieved concurrently from up to 12 academic APIs — SemanticScholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — using parallel processing to minimise collection time.
-
 * Flexible query construction. Users can either supply a flat list of keywords, generating one query per keyword, or define two keyword groups whose terms are combined pairwise — implicitly encoding both OR logic (within groups) and AND logic (across groups) — without writing raw query strings.
 * Cross-source deduplication. Results are deduplicated across APIs using DOI matching, URL matching, and normalized exact title matching, ensuring that papers retrieved from multiple sources are merged into a single record.
-[X] **Note (BN):** "fuzzy title matching" was mentioned here previously but does not exist in the current codebase. It is a reliquat of a previous feature development attempt, abandoned because it was too costly in terms of computation for not so worthy results. The current implementation uses normalized exact title matching instead.
 * Citation network extraction. SciLEx retrieves citation and reference lists via OpenCitations and Semantic Scholar, with results cached locally in SQLite to avoid redundant API calls across runs. This enables both impact-based filtering and citation snowballing.
 * Multi-stage quality filtering. Collected papers pass through a configurable pipeline that enforces time-aware citation thresholds, filters by item type, and ranks results by a composite relevance score computed from keyword matches and optional bonus keywords.
 * Hugging Face enrichment. For machine learning literature, SciLEx can enrich each paper with linked models, datasets, GitHub statistics, and AI-specific keywords sourced from Hugging Face.
@@ -75,15 +71,9 @@ API Collection → Deduplication → Item Type Filter → Keyword Filter → Qua
 
 **Collection system**. The collection layer (scilex/crawlers/collector_collection.py) orchestrates parallel API querying using one thread per API. It generates jobs from the user configuration as combinations of keywords, years, and target APIs, then tracks progress and skips already-completed queries, making all runs idempotent. Each of the 12 supported APIs has a dedicated collector class in scilex/crawlers/collectors/, all inheriting from a shared abstract base class API_collector (base.py) that defines a uniform interface for query construction, pagination, and result parsing. Adding a new API requires only implementing this interface and registering the collector — no other components need to be modified.
 
-**Format conversion**. Raw JSON responses from each API are converted into a unified, Zotero-compatible internal schema by a dedicated converter in scilex/crawlers/aggregate.py. Missing fields are represented by a shared MISSING_VALUE sentinel, ensuring that downstream components operate on a consistent data model regardless of source.
+**Format conversion**. Raw JSON responses from each API are converted into a unified, Zotero-compatible internal schema by a dedicated converter in scilex/crawlers/aggregate.py. 
 
-**Aggregation and filtering pipeline**. The aggregation pipeline (scilex/aggregate_collect.py) loads all collected JSON files, applies format conversion and deduplication — merging records by DOI, URL, or normalized exact title match —
-
-[X] **Note (BN):** "fuzzy title match" was mentioned here previously but does not exist in the current codebase. It is a reliquat of a previous feature development attempt, abandoned because it was too costly in terms of computation for not so worthy results.
-
-and then passes papers through a five-phase filtering engine: item type filtering, keyword relevance filtering (scilex/keyword_validation.py), metadata quality scoring (scilex/quality_validation.py), time-aware citation thresholds, and final relevance ranking. A parallel aggregation mode (scilex/crawlers/aggregate_parallel.py) is also available for large corpora, using multiprocessing with batches of 5,000 papers and automatic CPU count detection.
-
-> **Note (BN):** Use aggregation logs to illustrate dedup + filtering funnel with real paper counts at each stage. See example logs and Mermaid diagram at end of document.
+**Aggregation and filtering pipeline**. The aggregation pipeline (scilex/aggregate_collect.py) loads all collected JSON files, applies format conversion and deduplication — merging records by DOI, URL, or normalized exact title match — and then passes papers through a five-phase filtering engine: item type filtering, keyword relevance filtering (scilex/keyword_validation.py), metadata quality scoring (scilex/quality_validation.py), time-aware citation thresholds, and final relevance ranking. A parallel aggregation mode (scilex/crawlers/aggregate_parallel.py) is also available for large corpora, using multiprocessing with batches of 5,000 papers and automatic CPU count detection.
 
 **Citation system**. Citation and reference data are retrieved via a four-tier strategy: a local SQLite cache (output/citation_cache.db) is consulted first; if unavailable, Semantic Scholar in-memory data, CrossRef live API calls, and finally OpenCitations are tried in sequence. This tiered approach minimises redundant network requests while maximising coverage.
 
@@ -212,14 +202,13 @@ FINAL RESULTS:
 ### Filtering Funnel Diagram
 
 ```mermaid
-graph TD
+graph LR
     A["Collected from APIs<br/><b>259,845</b> papers"] -->|"format conversion + keyword text filter"| B["After conversion &amp; text filtering<br/><b>186,308</b> papers<br/><i>−73,537 (28.3%)</i>"]
     B -->|"DOI + title dedup"| C["After deduplication<br/><b>34,154</b> papers<br/><i>−152,154 (81.7%)</i>"]
     C -->|"DOI, abstract, year, authors"| D["After quality filter<br/><b>26,422</b> papers<br/><i>−7,732 (22.6%)</i>"]
     D -->|"min score: 70"| E["After abstract quality<br/><b>26,408</b> papers<br/><i>−14 (0.1%)</i>"]
     E -->|"time-aware thresholds"| F["After citation filter<br/><b>23,922</b> papers<br/><i>−2,486 (9.4%)</i>"]
     F -->|"top-N by relevance score"| G["Final output<br/><b>500</b> papers<br/><i>retention: 1.5%</i>"]
-
     style A fill:#4a90d9,color:#fff
     style G fill:#2ecc71,color:#fff
 ```
