@@ -1,0 +1,122 @@
+# ============================================================================
+# SciLEx Advanced Configuration (Optional)
+# ============================================================================
+#
+# This file is OPTIONAL and only needed for power users and advanced workflows.
+# Most users should NOT create this file - the system uses sensible defaults.
+#
+# How to use:
+#   1. Copy this file to 'scilex.advanced.yml' in your project root
+#   2. Uncomment and customize only the settings you need
+#   3. The system will merge advanced settings with main scilex.config.yml
+#
+# Note: Settings in this file OVERRIDE the defaults in scilex.config.yml
+#
+# ============================================================================
+
+# ============================================================================
+# SEMANTIC SCHOLAR API MODE
+# ============================================================================
+#
+# NOTE: This setting is now CORE and should be in scilex.config.yml
+# (moved from advanced to main config due to its importance for collection speed)
+#
+# If you want to override the setting from scilex.config.yml, uncomment below:
+#
+# Which Semantic Scholar endpoint to use:
+#   - "regular" (DEFAULT): 100 papers per page, 1 req/sec, works with free tier
+#   - "bulk": 1000 papers per page (10x faster), 1 req/sec, requires approval
+#
+# Example: Use bulk mode for faster collection (requires API approval)
+#
+# semantic_scholar_mode: bulk
+
+# ============================================================================
+# COLLECTION WORKFLOW CONTROL
+# ============================================================================
+#
+# Advanced workflow settings for special cases
+#
+# collect:
+#   Uncomment to skip collection phase and only aggregate existing data
+#   Useful when re-aggregating with different quality filters
+#
+# collect: false
+
+# ============================================================================
+# CUSTOM RELEVANCE SCORING WEIGHTS
+# ============================================================================
+#
+# Override default relevance component weights (advanced tuning)
+#
+# By default, content relevance (45%) is prioritized over citations (10%)
+# to avoid bias against recent papers.
+#
+# Example 1: Prioritize citations (citation-heavy research)
+# quality_filters:
+#   relevance_weights:
+#     keywords: 0.35    # Content relevance
+#     quality: 0.20     # Metadata completeness
+#     itemtype: 0.15    # Publication venue
+#     citations: 0.30   # Research impact (increased)
+#
+# Example 2: Strict quality focus (high standards)
+# quality_filters:
+#   relevance_weights:
+#     keywords: 0.40
+#     quality: 0.40     # Metadata completeness (doubled)
+#     itemtype: 0.15
+#     citations: 0.05
+
+# ============================================================================
+# ITEMTYPE BYPASS CONFIGURATION
+# ============================================================================
+#
+# Fast-track validation bypass for trusted publication types
+# Papers with these types skip quality filters (performance optimization)
+#
+# Example: Bypass journals and conferences (most common case)
+# quality_filters:
+#   enable_itemtype_bypass: true
+#   bypass_item_types:
+#     - journalArticle
+#     - conferencePaper
+
+# ============================================================================
+# ABSTRACT QUALITY VALIDATION
+# ============================================================================
+#
+# Advanced abstract quality checking (detect truncation, boilerplate, encoding issues)
+#
+# Example: Enable abstract quality validation and filtering
+# quality_filters:
+#   validate_abstracts: true              # Validate and filter poor abstracts
+#   min_abstract_quality_score: 60        # 0-100 scale (default: 60)
+
+# ============================================================================
+# OPEN ACCESS FILTERING
+# ============================================================================
+#
+# Restrict collection to open access papers only
+# WARNING: This significantly reduces collection size (typically 40-50% reduction)
+#
+# Example: Only open access papers
+# quality_filters:
+#   require_open_access: true
+
+# ============================================================================
+# CUSTOM ITEMTYPE RELEVANCE WEIGHTS
+# ============================================================================
+#
+# Override which itemTypes count as high-quality scholarly publications
+# (Advanced tuning, rarely needed)
+#
+# Example: Different venue quality preferences
+# quality_filters:
+#   itemtype_relevance_weights:
+#     journalArticle: true     # Peer-reviewed journals (10 points)
+#     conferencePaper: true    # Conferences (10 points)
+#     bookSection: true        # Book chapters (10 points)
+#     book: true               # Books (10 points)
+#     preprint: false          # Don't count preprints
+#     thesis: false            # Don't count theses
