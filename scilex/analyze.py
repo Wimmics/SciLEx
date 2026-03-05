@@ -21,15 +21,12 @@ import sys
 import pandas as pd
 
 from scilex.config_defaults import (
-    DEFAULT_AGGREGATED_FILENAME,
     DEFAULT_GRAPH_FORMAT,
     DEFAULT_GRAPH_MIN_WEIGHT,
     DEFAULT_GRAPH_TYPE,
     DEFAULT_LOUVAIN_RESOLUTION,
-    DEFAULT_OUTPUT_DIR,
 )
-from scilex.constants import is_valid, normalize_path_component
-from scilex.crawlers.utils import load_all_configs
+from scilex.export_to_bibtex import load_aggregated_data
 from scilex.graph_analysis.community import compute_centrality, detect_communities
 from scilex.graph_analysis.export import export_clusters_csv, export_graph
 from scilex.graph_analysis.graphs import (
@@ -38,41 +35,14 @@ from scilex.graph_analysis.graphs import (
 )
 from scilex.graph_analysis.loader import load_citation_caches
 from scilex.logging_config import setup_logging
+from scilex.pipeline_utils import (
+    extract_corpus_dois,
+    load_main_config,
+    resolve_collect_dir,
+)
 
 setup_logging()
 logger = logging.getLogger(__name__)
-
-
-def load_config() -> dict:
-    """Load scilex.config.yml."""
-    configs = load_all_configs({"main_config": "scilex.config.yml"})
-    return configs["main_config"]
-
-
-def _load_corpus_dois(collect_dir: str, config: dict) -> tuple[pd.DataFrame, set[str]]:
-    """Load aggregated CSV and extract the set of valid corpus DOIs.
-
-    Returns:
-        Tuple of (DataFrame, set of DOI strings).
-    """
-    filename = config.get("aggregated_filename", DEFAULT_AGGREGATED_FILENAME)
-    csv_path = os.path.join(collect_dir, filename)
-
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(
-            f"Aggregated CSV not found: {csv_path}. Run scilex-aggregate first."
-        )
-
-    # Auto-detect separator
-    with open(csv_path, encoding="utf-8") as f:
-        first_line = f.readline()
-    sep = "\t" if "\t" in first_line else ","
-
-    df = pd.read_csv(csv_path, sep=sep, dtype=str)
-    dois = {str(d).strip() for d in df["DOI"] if is_valid(d) and str(d).strip()}
-
-    logger.info(f"Loaded {len(df)} papers, {len(dois)} with valid DOIs")
-    return df, dois
 
 
 def main():
@@ -107,21 +77,17 @@ def main():
     args = parser.parse_args()
 
     try:
-        config = load_config()
-
-        if "collect_name" not in config:
-            raise ValueError("collect_name not specified in scilex.config.yml")
-
-        output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
-        collect_name = normalize_path_component(config["collect_name"])
-        collect_dir = os.path.join(output_dir, collect_name)
+        config = load_main_config()
+        collect_dir = resolve_collect_dir(config)
 
         # Output subdirectory
         analysis_dir = os.path.join(collect_dir, "graph_analysis")
         os.makedirs(analysis_dir, exist_ok=True)
 
         # Load data
-        df, corpus_dois = _load_corpus_dois(collect_dir, config)
+        df = load_aggregated_data(config)
+        corpus_dois = extract_corpus_dois(df)
+        logger.info(f"Loaded {len(df)} papers, {len(corpus_dois)} with valid DOIs")
         references, citers = load_citation_caches(collect_dir)
 
         graph_type = args.graph_type

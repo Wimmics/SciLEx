@@ -28,36 +28,32 @@ def merge_with_corpus(
         Merged DataFrame with duplicates removed (corpus papers take priority).
     """
     if snowball_df.empty:
-        corpus = corpus_df.copy()
-        corpus["snowball_depth"] = 0
-        return corpus
+        corpus_df["snowball_depth"] = 0
+        return corpus_df
 
-    corpus = corpus_df.copy()
-    snowball = snowball_df.copy()
-
-    corpus["snowball_depth"] = 0
-    snowball["snowball_depth"] = 1
+    corpus_df["snowball_depth"] = 0
+    snowball_df["snowball_depth"] = 1
 
     # Remove snowball papers already in corpus (by DOI)
     corpus_dois = set()
-    if doi_column in corpus.columns:
+    if doi_column in corpus_df.columns:
         corpus_dois = {
-            str(d).strip().lower() for d in corpus[doi_column] if is_valid(d)
+            str(d).strip().lower() for d in corpus_df[doi_column] if is_valid(d)
         }
 
-    if doi_column in snowball.columns:
-        snowball = snowball[
-            ~snowball[doi_column].apply(
+    if doi_column in snowball_df.columns:
+        snowball_df = snowball_df[
+            ~snowball_df[doi_column].apply(
                 lambda x: str(x).strip().lower() in corpus_dois
                 if is_valid(x)
                 else False
             )
         ]
 
-    n_new = len(snowball)
-    merged = pd.concat([corpus, snowball], ignore_index=True)
+    n_new = len(snowball_df)
+    merged = pd.concat([corpus_df, snowball_df], ignore_index=True)
 
     logger.info(
-        f"Merged: {len(corpus)} corpus + {n_new} new snowball = {len(merged)} total"
+        f"Merged: {len(corpus_df)} corpus + {n_new} new snowball = {len(merged)} total"
     )
     return merged

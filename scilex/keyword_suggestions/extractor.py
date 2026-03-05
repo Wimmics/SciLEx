@@ -11,8 +11,52 @@ from collections import Counter
 import pandas as pd
 
 from scilex.constants import is_valid
+from scilex.pipeline_utils import parse_keyword_values
 
 logger = logging.getLogger(__name__)
+
+_TITLE_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "the",
+        "of",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "and",
+        "or",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "with",
+        "from",
+        "by",
+        "as",
+        "it",
+        "its",
+        "this",
+        "that",
+        "which",
+        "how",
+        "what",
+        "when",
+        "where",
+        "who",
+        "using",
+        "based",
+        "via",
+        "through",
+        "between",
+        "into",
+    }
+)
 
 
 def extract_suggestions(
@@ -50,10 +94,7 @@ def extract_suggestions(
             val = row.get(col)
             if not is_valid(val):
                 continue
-            for kw in str(val).replace(",", ";").split(";"):
-                kw = kw.strip()
-                if ":" in kw:
-                    kw = kw.split(":", 1)[1].strip()
+            for kw in parse_keyword_values(str(val)):
                 _register_term(kw, cluster_id, term_freq, term_clusters)
 
         # Extract bigrams from titles
@@ -108,48 +149,8 @@ def _title_bigrams(title: str) -> list[str]:
 
     Filters out common stopwords to produce meaningful bigrams.
     """
-    stopwords = {
-        "a",
-        "an",
-        "the",
-        "of",
-        "in",
-        "on",
-        "at",
-        "to",
-        "for",
-        "and",
-        "or",
-        "is",
-        "are",
-        "was",
-        "were",
-        "be",
-        "been",
-        "being",
-        "with",
-        "from",
-        "by",
-        "as",
-        "it",
-        "its",
-        "this",
-        "that",
-        "which",
-        "how",
-        "what",
-        "when",
-        "where",
-        "who",
-        "using",
-        "based",
-        "via",
-        "through",
-        "between",
-        "into",
-    }
     words = re.findall(r"[a-zA-Z]+", title.lower())
-    words = [w for w in words if w not in stopwords and len(w) > 2]
+    words = [w for w in words if w not in _TITLE_STOPWORDS and len(w) > 2]
 
     bigrams = []
     for i in range(len(words) - 1):

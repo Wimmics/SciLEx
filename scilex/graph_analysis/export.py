@@ -24,13 +24,12 @@ def export_clusters_csv(
         output_path: Where to write the augmented CSV.
         doi_column: Column name containing DOIs.
     """
-    df = data.copy()
-    df["cluster_id"] = df[doi_column].map(partition).fillna(-1).astype(int)
-    df["pagerank"] = df[doi_column].map(pagerank).fillna(0.0)
-    df = df.sort_values(["cluster_id", "pagerank"], ascending=[True, False])
+    data["cluster_id"] = data[doi_column].map(partition).fillna(-1).astype(int)
+    data["pagerank"] = data[doi_column].map(pagerank).fillna(0.0)
+    data = data.sort_values(["cluster_id", "pagerank"], ascending=[True, False])
 
-    df.to_csv(output_path, index=False)
-    logger.info(f"Clusters CSV: {output_path} ({len(df)} papers)")
+    data.to_csv(output_path, index=False)
+    logger.info(f"Clusters CSV: {output_path} ({len(data)} papers)")
 
 
 def export_graph(
@@ -49,15 +48,13 @@ def export_graph(
         output_path: Output file path.
         fmt: ``"gexf"`` or ``"graphml"``.
     """
-    g = graph.copy()
-
-    for node in g.nodes():
-        g.nodes[node]["cluster_id"] = partition.get(node, -1)
-        g.nodes[node]["pagerank"] = pagerank.get(node, 0.0)
+    for node in graph.nodes():
+        graph.nodes[node]["cluster_id"] = partition.get(node, -1)
+        graph.nodes[node]["pagerank"] = pagerank.get(node, 0.0)
 
     if fmt == "graphml":
-        nx.write_graphml(g, output_path)
+        nx.write_graphml(graph, output_path)
     else:
-        nx.write_gexf(g, output_path)
+        nx.write_gexf(graph, output_path)
 
     logger.info(f"Graph exported: {output_path} ({fmt})")

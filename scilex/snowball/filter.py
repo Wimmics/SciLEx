@@ -11,6 +11,10 @@ import pandas as pd
 
 from scilex.constants import is_valid
 
+# Minimum abstract length in characters for the lightweight snowball filter.
+# This is intentionally simpler than the word-count check in the full pipeline.
+_MIN_ABSTRACT_CHARS = 50
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,7 +53,9 @@ def apply_snowball_filters(
     # Abstract filter
     if require_abstract and "abstract" in df.columns:
         df = df[
-            df["abstract"].apply(lambda x: is_valid(x) and len(str(x).strip()) > 50)
+            df["abstract"].apply(
+                lambda x: is_valid(x) and len(str(x).strip()) > _MIN_ABSTRACT_CHARS
+            )
         ]
         logger.info(f"Abstract filter: → {len(df)}")
 

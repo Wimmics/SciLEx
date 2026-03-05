@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from scilex.constants import is_valid
+from scilex.pipeline_utils import parse_keyword_values
 
 logger = logging.getLogger(__name__)
 
@@ -78,21 +79,14 @@ def _extract_keywords(group: pd.DataFrame, top_n: int) -> list[tuple[str, int]]:
     """Extract top keywords from a cluster group."""
     counter: Counter[str] = Counter()
 
-    # Try multiple keyword column names
     for col in ("tags", "keywords", "keyword"):
         if col not in group.columns:
             continue
         for val in group[col]:
             if not is_valid(val):
                 continue
-            # Keywords may be comma or semicolon separated
-            for kw in str(val).replace(",", ";").split(";"):
-                kw = kw.strip()
-                # Skip tag prefixes like "TASK:", "PTM:"
-                if ":" in kw:
-                    kw = kw.split(":", 1)[1].strip()
-                if kw and len(kw) > 1:
-                    counter[kw] += 1
+            for kw in parse_keyword_values(str(val)):
+                counter[kw] += 1
 
     return counter.most_common(top_n)
 

@@ -19,16 +19,18 @@ import os
 import sys
 
 from scilex.config_defaults import (
-    DEFAULT_OUTPUT_DIR,
     DEFAULT_SNOWBALL_DIRECTION,
     DEFAULT_SNOWBALL_MIN_FREQUENCY,
     DEFAULT_SNOWBALL_TOP_K,
 )
-from scilex.constants import is_valid, normalize_path_component
-from scilex.crawlers.utils import load_all_configs
 from scilex.export_to_bibtex import load_aggregated_data
 from scilex.graph_analysis.loader import load_citation_caches
 from scilex.logging_config import setup_logging
+from scilex.pipeline_utils import (
+    extract_corpus_dois,
+    load_main_and_api_configs,
+    resolve_collect_dir,
+)
 from scilex.snowball.candidates import extract_candidates
 from scilex.snowball.fetcher import fetch_metadata_batch
 from scilex.snowball.filter import apply_snowball_filters
@@ -36,14 +38,6 @@ from scilex.snowball.merge import merge_with_corpus
 
 setup_logging()
 logger = logging.getLogger(__name__)
-
-
-def load_config() -> tuple[dict, dict]:
-    """Load scilex.config.yml and api.config.yml."""
-    configs = load_all_configs(
-        {"main_config": "scilex.config.yml", "api_config": "api.config.yml"}
-    )
-    return configs["main_config"], configs["api_config"]
 
 
 def main():
@@ -77,20 +71,12 @@ def main():
     args = parser.parse_args()
 
     try:
-        main_config, api_config = load_config()
-
-        if "collect_name" not in main_config:
-            raise ValueError("collect_name not specified in scilex.config.yml")
-
-        output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
-        collect_name = normalize_path_component(main_config["collect_name"])
-        collect_dir = os.path.join(output_dir, collect_name)
+        main_config, api_config = load_main_and_api_configs()
+        collect_dir = resolve_collect_dir(main_config)
 
         # Load corpus and citation caches
         corpus_df = load_aggregated_data(main_config)
-        corpus_dois = {
-            str(d).strip() for d in corpus_df["DOI"] if is_valid(d) and str(d).strip()
-        }
+        corpus_dois = extract_corpus_dois(corpus_df)
         logger.info(f"Corpus: {len(corpus_df)} papers, {len(corpus_dois)} with DOIs")
 
         references, citers = load_citation_caches(collect_dir)

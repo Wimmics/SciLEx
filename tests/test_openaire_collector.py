@@ -58,7 +58,7 @@ class TestOpenAIRECollector:
         assert "biomedical" in url_template
 
     def test_url_year_filter(self):
-        """fromDateAccepted and toDateAccepted use the configured year."""
+        """FromDateAccepted and toDateAccepted use the configured year."""
         data_query = _make_data_query([["nlp"]], year=2024)
         collector = OpenAIRE_collector(data_query, "/tmp", None)
         url_template = collector.get_configurated_url()
@@ -98,21 +98,17 @@ class TestOpenAIRECollector:
         # Build a response where result is a single dict, not a list
         single_result = {
             "response": {
-                "header": {
-                    "total": {"$": "1"}
-                },
+                "header": {"total": {"$": "1"}},
                 "results": {
                     "result": {
                         "header": {"dri:objIdentifier": {"$": "test::001"}},
                         "metadata": {
                             "oaf:entity": {
-                                "oaf:result": {
-                                    "title": {"$": "Single Paper"}
-                                }
+                                "oaf:result": {"title": {"$": "Single Paper"}}
                             }
-                        }
+                        },
                     }
-                }
+                },
             }
         }
 
@@ -129,14 +125,7 @@ class TestOpenAIRECollector:
 
     def test_parse_page_results_empty(self):
         """Empty response returns total=0 and empty results list."""
-        empty_response = {
-            "response": {
-                "header": {
-                    "total": {"$": "0"}
-                },
-                "results": {}
-            }
-        }
+        empty_response = {"response": {"header": {"total": {"$": "0"}}, "results": {}}}
 
         mock_response = MagicMock()
         mock_response.json.return_value = empty_response
