@@ -61,6 +61,15 @@ FIELD_MAP: dict[str, tuple] = {
     "howpublished": (SCHEMA.codeRepository, "uri", None),
     "citationcount": (SCHEMA.citationCount, "literal", "xsd:integer"),
     "relevancescore": (SCILEX.relevanceScore, "literal", "xsd:decimal"),
+    # --- HuggingFace enrichment fields ---
+    "task": (SCILEX.task, "literal", None),
+    "ptm": (SCILEX.pretrainedModel, "literal", None),
+    "archi": (SCILEX.architecture, "literal", None),
+    "hfdataset": (SCILEX.usesDataset, "keyword_list", None),
+    "framework": (SCILEX.framework, "literal", None),
+    "githubstars": (SCILEX.githubStars, "literal", "xsd:integer"),
+    "citingdatasets": (SCILEX.citedByDataset, "keyword_list", None),
+    "hfurl": (SCILEX.huggingFaceUrl, "uri", None),
 }
 
 __all__ = ["BIBO", "DCTERMS", "SCHEMA", "SCILEX", "ENTRY_TYPE_MAP", "FIELD_MAP"]

@@ -4,6 +4,7 @@ import pandas as pd
 
 from scilex.export_to_bibtex import (
     ITEMTYPE_TO_BIBTEX,
+    classify_tags,
     escape_bibtex,
     extract_year,
     format_authors,
@@ -60,6 +61,49 @@ class TestParseTags:
 
     def test_filters_empty_segments(self):
         assert parse_tags("TASK:NER;;PTM:BERT") == ["TASK:NER", "PTM:BERT"]
+
+
+# -------------------------------------------------------------------------
+# classify_tags
+# -------------------------------------------------------------------------
+class TestClassifyTags:
+    def test_empty_list(self):
+        result = classify_tags([])
+        assert result["keywords"] == []
+        assert all(v == [] for v in result.values())
+
+    def test_single_prefix(self):
+        result = classify_tags(["TASK:NER"])
+        assert result["task"] == ["NER"]
+        assert result["keywords"] == []
+
+    def test_multiple_prefixes(self):
+        result = classify_tags(["TASK:NER", "PTM:BERT", "FRAMEWORK:PyTorch"])
+        assert result["task"] == ["NER"]
+        assert result["ptm"] == ["BERT"]
+        assert result["framework"] == ["PyTorch"]
+
+    def test_multi_value_same_prefix(self):
+        result = classify_tags(["DATASET:Squad", "DATASET:Glue"])
+        assert result["hfdataset"] == ["Squad", "Glue"]
+
+    def test_unprefixed_goes_to_keywords(self):
+        result = classify_tags(["multi-document QA", "transfer learning"])
+        assert result["keywords"] == ["multi-document QA", "transfer learning"]
+
+    def test_mixed_prefixed_and_unprefixed(self):
+        result = classify_tags(["TASK:NER", "multi-document QA", "PTM:BERT"])
+        assert result["task"] == ["NER"]
+        assert result["ptm"] == ["BERT"]
+        assert result["keywords"] == ["multi-document QA"]
+
+    def test_github_stars_prefix(self):
+        result = classify_tags(["GITHUB_STARS:366"])
+        assert result["githubstars"] == ["366"]
+
+    def test_archi_prefix(self):
+        result = classify_tags(["ARCHI:Transformer"])
+        assert result["archi"] == ["Transformer"]
 
 
 # -------------------------------------------------------------------------
@@ -309,10 +353,28 @@ class TestFormatBibtexEntry:
         assert "copyright" not in entry
         assert "file" not in entry
 
-    def test_hf_tags_in_keywords(self):
+    def test_hf_tags_classified_into_fields(self):
         row = self._make_row(tags="TASK:NER;PTM:BERT")
         entry = format_bibtex_entry(row, "key")
-        assert "keywords = {TASK:NER, PTM:BERT}" in entry
+        assert "task = {NER}" in entry
+        assert "ptm = {BERT}" in entry
+        assert "keywords" not in entry
+
+    def test_hf_url_dedicated_field(self):
+        row = self._make_row(hf_url="https://huggingface.co/papers/2401.12345")
+        entry = format_bibtex_entry(row, "key")
+        assert "hfurl = {https://huggingface.co/papers/2401.12345}" in entry
+        assert "note" not in entry
+
+    def test_multiple_datasets(self):
+        row = self._make_row(tags="DATASET:Squad;DATASET:Glue")
+        entry = format_bibtex_entry(row, "key")
+        assert "hfdataset = {Squad, Glue}" in entry
+
+    def test_only_unprefixed_in_keywords(self):
+        row = self._make_row(tags="multi-document QA;transfer learning")
+        entry = format_bibtex_entry(row, "key")
+        assert "keywords = {multi-document QA, transfer learning}" in entry
 
     def test_entry_closes_properly(self):
         row = self._make_row()

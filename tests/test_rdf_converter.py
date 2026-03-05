@@ -448,6 +448,110 @@ class TestTypedLiteral:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# BibTeX fixture with HuggingFace enrichment fields
+# ---------------------------------------------------------------------------
+
+_SAMPLE_BIB_WITH_HF = """\
+@article{hf2024test,
+  title = {An HF-Enriched Paper},
+  author = {Lee, Alice},
+  year = {2024},
+  doi = {10.1234/hf.2024},
+  task = {TextClassification},
+  ptm = {BERT},
+  archi = {Transformer},
+  hfdataset = {Squad, Glue},
+  framework = {PyTorch},
+  githubstars = {366},
+  citingdatasets = {SQuAD-v2, MNLI},
+  hfurl = {https://huggingface.co/papers/2401.12345},
+  keywords = {multi-document QA},
+}
+"""
+
+
+@pytest.fixture
+def bib_file_with_hf(tmp_path):
+    """Article with HuggingFace enrichment fields."""
+    f = tmp_path / "hf.bib"
+    f.write_text(_SAMPLE_BIB_WITH_HF, encoding="utf-8")
+    return str(f)
+
+
+# ---------------------------------------------------------------------------
+# TestHuggingFaceFields
+# ---------------------------------------------------------------------------
+
+
+class TestHuggingFaceFields:
+    """Tests for HuggingFace enrichment fields in RDF output."""
+
+    _PAPER = URIRef("https://doi.org/10.1234/hf.2024")
+
+    def test_task_triple(self, bib_file_with_hf):
+        g = convert(bib_file_with_hf)
+        tasks = list(g.objects(self._PAPER, SCILEX.task))
+        assert len(tasks) == 1
+        assert str(tasks[0]) == "TextClassification"
+
+    def test_ptm_triple(self, bib_file_with_hf):
+        g = convert(bib_file_with_hf)
+        ptms = list(g.objects(self._PAPER, SCILEX.pretrainedModel))
+        assert len(ptms) == 1
+        assert str(ptms[0]) == "BERT"
+
+    def test_architecture_triple(self, bib_file_with_hf):
+        g = convert(bib_file_with_hf)
+        archis = list(g.objects(self._PAPER, SCILEX.architecture))
+        assert len(archis) == 1
+        assert str(archis[0]) == "Transformer"
+
+    def test_dataset_split_into_multiple_triples(self, bib_file_with_hf):
+        g = convert(bib_file_with_hf)
+        datasets = {str(d) for d in g.objects(self._PAPER, SCILEX.usesDataset)}
+        assert "Squad" in datasets
+        assert "Glue" in datasets
+        assert len(datasets) == 2
+
+    def test_framework_triple(self, bib_file_with_hf):
+        g = convert(bib_file_with_hf)
+        fws = list(g.objects(self._PAPER, SCILEX.framework))
+        assert len(fws) == 1
+        assert str(fws[0]) == "PyTorch"
+
+    def test_github_stars_integer(self, bib_file_with_hf):
+        g = convert(bib_file_with_hf)
+        stars = list(g.objects(self._PAPER, SCILEX.githubStars))
+        assert len(stars) == 1
+        assert stars[0].datatype == XSD.integer
+        assert int(str(stars[0])) == 366
+
+    def test_citing_datasets_split(self, bib_file_with_hf):
+        g = convert(bib_file_with_hf)
+        cds = {str(d) for d in g.objects(self._PAPER, SCILEX.citedByDataset)}
+        assert "SQuAD-v2" in cds
+        assert "MNLI" in cds
+        assert len(cds) == 2
+
+    def test_hf_url_is_uri(self, bib_file_with_hf):
+        g = convert(bib_file_with_hf)
+        urls = list(g.objects(self._PAPER, SCILEX.huggingFaceUrl))
+        assert len(urls) == 1
+        assert isinstance(urls[0], URIRef)
+        assert str(urls[0]) == "https://huggingface.co/papers/2401.12345"
+
+    def test_unprefixed_keywords_still_dcterms_subject(self, bib_file_with_hf):
+        g = convert(bib_file_with_hf)
+        subjects = {str(s) for s in g.objects(self._PAPER, DCTERMS.subject)}
+        assert "multi-document QA" in subjects
+
+
+# ---------------------------------------------------------------------------
+# TestSlug
+# ---------------------------------------------------------------------------
+
+
 class TestSlug:
     """Tests for the :func:`_slug` helper."""
 

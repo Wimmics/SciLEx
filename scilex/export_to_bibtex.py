@@ -118,6 +118,43 @@ def parse_tags(tags_str: str) -> list[str]:
     return [t for t in tags if t]  # Remove empty strings
 
 
+TAG_PREFIX_TO_FIELD: dict[str, str] = {
+    "TASK:": "task",
+    "PTM:": "ptm",
+    "ARCHI:": "archi",
+    "DATASET:": "hfdataset",
+    "FRAMEWORK:": "framework",
+    "GITHUB_STARS:": "githubstars",
+    "CITED_BY_DATASET:": "citingdatasets",
+}
+
+
+def classify_tags(tags_list: list[str]) -> dict[str, list[str]]:
+    """Classify prefixed tags into BibTeX field buckets.
+
+    Unprefixed tags go under the "keywords" key.
+
+    Args:
+        tags_list: List of tag strings, possibly prefixed.
+
+    Returns:
+        Dict mapping BibTeX field names to lists of stripped tag values.
+    """
+    result: dict[str, list[str]] = {"keywords": []}
+    for field_name in TAG_PREFIX_TO_FIELD.values():
+        result[field_name] = []
+    for tag in tags_list:
+        matched = False
+        for prefix, field_name in TAG_PREFIX_TO_FIELD.items():
+            if tag.startswith(prefix):
+                result[field_name].append(tag[len(prefix) :])
+                matched = True
+                break
+        if not matched:
+            result["keywords"].append(tag)
+    return result
+
+
 def escape_bibtex(text: str) -> str:
     """Escape special BibTeX characters in text.
 
@@ -400,19 +437,24 @@ def format_bibtex_entry(
     if is_valid(archive_id):
         lines.append(f"  eprint = {{{escape_bibtex(str(archive_id))}}},")
 
-    # Keywords (from HF tags) - standard BibTeX field
+    # HuggingFace structured tags — one BibTeX field per tag category
     tags_str = safe_get(row, "tags")
     if is_valid(tags_str):
         tags_list = parse_tags(tags_str)
         if tags_list:
-            # Convert to comma-separated for BibTeX keywords field
-            keywords = ", ".join(tags_list)
-            lines.append(f"  keywords = {{{keywords}}},")
+            classified = classify_tags(tags_list)
+            for field_name in TAG_PREFIX_TO_FIELD.values():
+                values = classified[field_name]
+                if values:
+                    lines.append(f"  {field_name} = {{{', '.join(values)}}},")
+            if classified["keywords"]:
+                keywords = ", ".join(classified["keywords"])
+                lines.append(f"  keywords = {{{keywords}}},")
 
-    # HuggingFace URL (in note field)
+    # HuggingFace URL (dedicated field — proper URI in RDF)
     hf_url = safe_get(row, "hf_url")
     if is_valid(hf_url):
-        lines.append(f"  note = {{HuggingFace: {hf_url}}},")
+        lines.append(f"  hfurl = {{{hf_url}}},")
 
     # GitHub repository (in howpublished field)
     github_repo = safe_get(row, "github_repo")
