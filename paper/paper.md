@@ -44,10 +44,9 @@ The volume of scientific publications has grown dramatically in recent years[@10
 
 SciLEx fills this gap by providing a fully automated, configurable, and locally executable pipeline that takes keyword inputs and produces a ranked, deduplicated, and enriched bibliography — requiring no subscription and no cloud dependency. It is designed for researchers and graduate students who need to efficiently scope a new research area.
 
-SciLEx enriches the resulting corpus through integration with external services such as [Papers With Code](https://paperswithcode.com) (available until May 2025 and now redirected to Hugging Face), Crossref [@hendricks_crossref_2020], and OpenCitations [@peroni_opencitations_2020]. Papers With Code was intended for the machine learning community and aimed at connecting research articles to their corresponding methods, implemented code, evaluation results on standard datasets, and initial paper annotations. OpenCitation enables the retrieval of citations and references for a given paper, which can be used both to filter papers by impact and to expand the corpus through citation snowballing.
-Finally, SciLEx exports all gathered information into a Zotero collection, facilitating collaborative management, selection, and annotation of the corpus.
+SciLEx enriches the extracted papers with many other open services, extracting citations networks using multiple sources: Semantic Scholar/OpenAlex/CrossRef[@hendricks_crossref_2020] and OpenCitations[@peroni_opencitations_2020]. It also integrates Hugging Face metadata for the enrichment of the collection using  — linked models, datasets, topic keywords and GitHub repository, which deliver a first layer of context to start a bibliographic analysis. 
 
-[X] **Note (BN):** Papers With Code replaced by huggingface : [huggingface](https://huggingface.co/papers/trending)
+Finally, SciLEx exports all gathered information into a Zotero collection, facilitating collaborative management, selection, and annotation of the corpus.
 
 ### Key Features
 ![SciLEx_workflow](./img/workflow-diagram.pptx.jpg)
