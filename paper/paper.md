@@ -35,8 +35,8 @@ SciLEx — much like the silex stone that early humans relied on to spark fire f
 
 # Detailed Summary
 [SciLEx (Science Literature Exploration)](https://github.com/Wimmics/SciLEx) is an open-source Python toolkit designed to support systematic literature reviews in research and academic contexts. Users define one or two groups of keywords: within each group, terms are combined with Boolean OR logic, while the two groups are combined with AND, enabling precise compound queries without manual query construction. 
-SciLEx concurrently queries up to 12 academic APIs — SemanticScholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, Istex, and PubMed — and deduplicates results, so that papers retrieved from multiple APIs are merged rather than counted multiple times. Collected papers then pass through a configurable multi-stage filtering pipeline that scores metadata completeness, enforces time-aware citation thresholds, and ranks results by a composite relevance score, distilling potentially hundreds of thousands of raw results into a curated final set.
-SciLEx further extracts citations networks using multiples sources: Semantic Scholar/OpenAlex/CrossRef and OpenCitations[@peroni_opencitations_2020]. It could also enrich the collection of papers using Hugging Face metadata — linked models, datasets, topic keywords and GitHub repository — making it particularly suited to AI and machine learning literature reviews. Final outputs can be exported to BibTeX or pushed directly to a Zotero[@mueen_ahmed_zotero_2011] collection. All operations are idempotent: interrupted or repeated runs automatically resume from where they left off, making SciLEx practical on standard personal hardware.
+SciLEx concurrently queries up to 12 academic APIs — Semantic Scholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — and deduplicates results, so that papers retrieved from multiple APIs are merged rather than counted multiple times. Collected papers then pass through a configurable multi-stage filtering pipeline that scores metadata completeness, enforces time-aware citation thresholds, and ranks results by a composite relevance score, distilling potentially hundreds of thousands of raw results into a curated final set.
+SciLEx further extracts citation networks using multiple sources: Semantic Scholar/OpenAlex/CrossRef and OpenCitations[@peroni_opencitations_2020]. It can also enrich the collection of papers using Hugging Face metadata — linked models, datasets, topic keywords and GitHub repository — making it particularly suited to AI and machine learning literature reviews. Final outputs can be exported to BibTeX or pushed directly to a Zotero[@mueen_ahmed_zotero_2011] collection. All operations are idempotent: interrupted or repeated runs automatically resume from where they left off, making SciLEx practical on standard personal hardware.
 
 # Statement of need
 
@@ -44,7 +44,7 @@ The volume of scientific publications has grown dramatically in recent years[@10
 
 SciLEx fills this gap by providing a fully automated, configurable, and locally executable pipeline that takes keyword inputs and produces a ranked, deduplicated, and enriched bibliography — requiring no subscription and no cloud dependency. It is designed for researchers and graduate students who need to efficiently scope a new research area.
 
-SciLEx enriches the extracted papers with many other open services, extracting citations networks using multiple sources: Semantic Scholar/OpenAlex/CrossRef[@hendricks_crossref_2020] and OpenCitations[@peroni_opencitations_2020]. It also integrates Hugging Face metadata for the enrichment of the collection using  — linked models, datasets, topic keywords and GitHub repository, which deliver a first layer of context to start a bibliographic analysis. 
+SciLEx enriches the extracted papers with many other open services, extracting citation networks using multiple sources: Semantic Scholar/OpenAlex/CrossRef[@hendricks_crossref_2020] and OpenCitations[@peroni_opencitations_2020]. It also integrates Hugging Face metadata — linked models, datasets, topic keywords, and GitHub repositories — which deliver a first layer of context to start a bibliographic analysis. 
 
 Finally, SciLEx exports all gathered information into a Zotero collection, facilitating collaborative management, selection, and annotation of the corpus.
 
@@ -53,7 +53,7 @@ Finally, SciLEx exports all gathered information into a Zotero collection, facil
 
 SciLEx is built around the following core capabilities, each thoroughly documented in our [readthedocs.io](https://scilex.readthedocs.io/en/latest/):
 
-* Multi-source collection. Papers are retrieved concurrently from up to 12 academic APIs — SemanticScholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — using parallel processing to minimise collection time.
+* Multi-source collection. Papers are retrieved concurrently from up to 12 academic APIs — Semantic Scholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — using parallel processing to minimise collection time.
 * Flexible query construction. Users can either supply a flat list of keywords, generating one query per keyword, or define two keyword groups whose terms are combined pairwise — implicitly encoding both OR logic (within groups) and AND logic (across groups) — without writing raw query strings.
 * Cross-source deduplication. Results are deduplicated across APIs using DOI matching, URL matching, and normalized exact title matching, ensuring that papers retrieved from multiple sources are merged into a single record.
 * Citation network extraction. SciLEx retrieves citation and reference lists via OpenCitations and Semantic Scholar, with results cached locally in SQLite to avoid redundant API calls across runs. This enables both impact-based filtering and citation snowballing.
@@ -73,7 +73,7 @@ API Collection → Deduplication → Item Type Filter → Keyword Filter → Qua
 
 **Format conversion**. Raw JSON responses from each API are converted into a unified, Zotero-compatible internal schema by a dedicated converter in scilex/crawlers/aggregate.py. 
 
-**Aggregation and filtering pipeline**. The aggregation pipeline (scilex/aggregate_collect.py) loads all collected JSON files, applies format conversion and deduplication — merging records by DOI, URL, or normalized exact title match — and then passes papers through a five-phase filtering engine: item type filtering, keyword relevance filtering (scilex/keyword_validation.py), metadata quality scoring (scilex/quality_validation.py), time-aware citation thresholds, and final relevance ranking. A parallel aggregation mode (scilex/crawlers/aggregate_parallel.py) is also available for large corpora, using multiprocessing with batches of 5,000 papers and automatic CPU count detection.
+**Aggregation and filtering pipeline**. The aggregation pipeline (scilex/aggregate_collect.py) loads all collected JSON files, applies format conversion and deduplication — merging records by DOI, URL, or normalized exact title match — and then passes papers through a five-phase filtering engine: item type filtering, keyword relevance filtering (scilex/keyword_validation.py), metadata quality scoring (scilex/quality_validation.py), time-aware citation thresholds, and final relevance ranking. A parallel aggregation mode (scilex/crawlers/aggregate_parallel.py) is also available for large corpora, using multiprocessing with batches of 5,000 papers and automatic CPU count detection. An illustrative example of this pipeline applied to a real collection run — showing paper counts at each stage — is provided in [Appendix A](#appendix-a).
 
 **Citation system**. Citation and reference data are retrieved via a four-tier strategy: a local SQLite cache (output/citation_cache.db) is consulted first; if unavailable, Semantic Scholar in-memory data, CrossRef live API calls, and finally OpenCitations are tried in sequence. This tiered approach minimises redundant network requests while maximising coverage.
 
@@ -85,19 +85,19 @@ API Collection → Deduplication → Item Type Filter → Keyword Filter → Qua
 
 **Resilience and performance**. API reliability is managed via a circuit breaker pattern (scilex/crawlers/circuit_breaker.py) that tracks consecutive failures per API, opens the circuit after five failures, and auto-retries after a 60-second timeout. All API calls enforce a 30-second timeout with exponential backoff retry logic. Per-API rate limiting uses a dual-value system supporting both authenticated and unauthenticated request rates.
 
-**Interfaces**. SciLEx can be used in two ways. From the command line, the main pipeline steps are invoked as individual scripts — run_collection.py for collection, aggregate_collect.py for aggregation and filtering, enrich_with_hf.py for Hugging Face enrichment, export_to_bibtex.py for BibTeX export, and push_to_zotero.py for Zotero upload — making it straightforward to integrate SciLEx into shell-based or automated workflows. Programmatically, all components are importable as a Python library: the CollectCollection class orchestrates collection directly from a Python dictionary config, removing the need for YAML files entirely, while aggregation and enrichment steps are invoked by calling their respective main() functions. This dual interface makes SciLEx suitable both for one-off interactive use in Jupyter notebooks and for embedding in larger, reproducible research pipelines. A full end-to-end example covering configuration, collection, aggregation, enrichment, and export is provided in the project documentation.
+**Interfaces**. SciLEx can be used in two ways. From the command line, the main pipeline steps are invoked as individual scripts — run_collection.py for collection, aggregate_collect.py for aggregation and filtering, enrich_with_hf.py for Hugging Face enrichment, export_to_bibtex.py for BibTeX export, and push_to_zotero.py for Zotero upload — making it straightforward to integrate SciLEx into shell-based or automated workflows.
+
+Programmatically, all components are importable as a Python library: the CollectCollection class orchestrates collection directly from a Python dictionary config, removing the need for YAML files entirely, while aggregation and enrichment steps are invoked by calling their respective main() functions. This dual interface makes SciLEx suitable both for one-off interactive use in Jupyter notebooks and for embedding in larger, reproducible research pipelines. A full end-to-end example covering configuration, collection, aggregation, enrichment, and export is provided in the project documentation.
 
 # Research use / scholarly publications enabled
 
-SciLEx was originally developed to support a systematic literature review conducted during a PhD on pattern-based information extraction from natural language and knowledge graphs, presented at AAAI-24 [@Ringwald_2024]. The tool has since been generalised and extended to support literature reviews across a broader range of research areas, particularly in AI and machine learning, where the need to survey rapidly growing bodies of preprint and conference literature across heterogeneous sources is especially acute. SciLEx is designed for researchers and graduate students who need to scope a new research area, assemble a reproducible corpus, or conduct a formal systematic review — and has been used in this capacity within the Wimmics research groups. The first systematic literature review based on SciLEx [@celian2025systematicreviewrelationextraction] is actually under-review.
+SciLEx was originally developed to support a systematic literature review conducted during a PhD on pattern-based information extraction from natural language and knowledge graphs, presented at AAAI-24 [@Ringwald_2024]. The tool has since been generalised and extended to support literature reviews across a broader range of research areas, particularly in AI and machine learning, where the need to survey rapidly growing bodies of preprint and conference literature across heterogeneous sources is especially acute. SciLEx is designed for researchers and graduate students who need to scope a new research area, assemble a reproducible corpus, or conduct a formal systematic review — and has been used in this capacity within the Wimmics research groups. The first systematic literature review based on SciLEx [@celian2025systematicreviewrelationextraction] is currently under review.
 
 # Comparison with existing software
 
 **1. CoLRev (2024)**
 
-CoLRev [@Wagner2024] is a comprehensive open-source environment for collaborative literature reviews that covers the full review lifecycle: problem formulation, search, deduplication, screening, PDF retrieval and preparation, and synthesis. It is built around Git-based collaboration and shared data standards, making it well suited for large, multi-reviewer systematic reviews that require auditability and reproducibility across teams. Compared to SciLEx, CoLRev is considerably broader in scope, addressing stages well beyond corpus assembly. SciLEx is more narrowly focused on the collection, deduplication, quality filtering, and enrichment phases, and is designed for individual researchers or small teams who need a lightweight, locally executable tool without the overhead of a full review management environment. The two tools are therefore largely complementary: SciLEx could be used to assemble an initial corpus that is then imported into CoLRev for screening and synthesis.
-
-> **Note (BN):** Broken citation key: [@Wagner2024] does not match the bib entry `wagner2026colrev`. The bib entry year is also wrong (2026 → 2024, confirmed via Zenodo DOI 10.5281/zenodo.11668338). Fix: rename bib key to `wagner2024colrev`, set year to 2024, and update citation to [@wagner2024colrev].
+CoLRev [@wagner2024colrev] is a comprehensive open-source environment for collaborative literature reviews that covers the full review lifecycle: problem formulation, search, deduplication, screening, PDF retrieval and preparation, and synthesis. It is built around Git-based collaboration and shared data standards, making it well suited for large, multi-reviewer systematic reviews that require auditability and reproducibility across teams. Compared to SciLEx, CoLRev is considerably broader in scope, addressing stages well beyond corpus assembly. SciLEx is more narrowly focused on the collection, deduplication, quality filtering, and enrichment phases, and is designed for individual researchers or small teams who need a lightweight, locally executable tool without the overhead of a full review management environment. The two tools are therefore largely complementary: SciLEx could be used to assemble an initial corpus that is then imported into CoLRev for screening and synthesis.
 
 **2. PyPaperRetriever (2025)**
 
@@ -117,15 +117,14 @@ ResearchRabbit, Litmaps, and ConnectedPapers are web-based citation mapping tool
 
 # Development agenda
 
-- The use of SciLEx in fast-moving and dynamic research fields may also involve updating and extending an existing literature collection. Our experience in conducting the survey [@celian2025systematicreviewrelationextraction] further highlighted the substantial annotation effort required for a systematic literature review. The collaborative tagging and annotation of the collected corpus—managed and enriched through Zotero—suggest promising extensions of this workflow. In particular, extracted keywords could inform future collection rounds, while annotation could be progressively expanded to the full corpus following the consolidation of annotation guidelines and the implementation of cross-annotation procedures.
+The use of SciLEx in fast-moving and dynamic research fields may also involve updating and extending an existing literature collection. Our experience in conducting the survey [@celian2025systematicreviewrelationextraction] further highlighted the substantial annotation effort required for a systematic literature review. The collaborative tagging and annotation of the collected corpus—managed and enriched through Zotero—suggest promising extensions of this workflow. In particular, extracted keywords could inform future collection rounds, while annotation could be progressively expanded to the full corpus following the consolidation of annotation guidelines and the implementation of cross-annotation procedures.
 
-> **Note (BN):** Additional development agenda items to expand this section:
->
-> - **Citation chaining and snowball sampling.** Extending the collection phase with forward and backward citation chaining to complement keyword-based discovery and address its inherent vocabulary ceiling, following established snowball sampling guidelines (Wohlin, 2014).
-> - **Citation network analysis.** Leveraging the citation and reference data already collected to build citation graphs, detect research community clusters, and identify hub papers — turning raw citation counts into structural bibliometric insights without additional API calls.
-> - **LLM-augmented pipeline steps.** Introducing optional large language model–based stages: semantic abstract screening to reduce false positives and false negatives inherent to substring keyword matching, and AI-powered keyword expansion to assist users unfamiliar with a field's vocabulary in constructing effective queries.
-> - **PRISMA-compliant reporting.** Automatically generating a PRISMA 2020 flow diagram and provenance report from pipeline run metadata, documenting records identified, deduplicated, and excluded at each stage for direct inclusion in systematic review manuscripts.
-> - **Enrichment extensions.** Adding open access status classification via Unpaywall (gold/green/bronze/closed), author impact metrics (h-index) via the Semantic Scholar Author API.
+Further planned extensions include:
+
+- **Citation chaining and snowball sampling.** Extending the collection phase with forward and backward citation chaining to complement keyword-based discovery and address its inherent vocabulary ceiling.
+- **Citation network analysis.** Leveraging the citation and reference data already collected to build citation graphs, detect research community clusters, and identify hub papers — turning raw citation counts into structural bibliometric insights without additional API calls.
+- **LLM-augmented pipeline steps.** Introducing optional large language model–based stages: semantic abstract screening to reduce false positives and false negatives inherent to substring keyword matching, and AI-powered keyword expansion to assist users unfamiliar with a field's vocabulary in constructing effective queries.
+- **Enrichment extensions.** Adding open access status classification via Unpaywall (gold/green/bronze/closed), author impact metrics (h-index) via the Semantic Scholar Author API.
 
 # Acknowledgements
 
@@ -140,75 +139,24 @@ Scope of assistance:
   - Documentation: Updating README, CLAUDE.md project instructions, documentation suite (docs/) and inline documentation.
  
 
-> **Note (BN):** A. Ollagnier cited here but not in the author list
-
 # References
 
 ---
 
-> **Note (BN):** Illustration material for the filtering funnel section. Use these logs and diagram in the paper.
+## Appendix A: Filtering Funnel Example {#appendix-a}
 
-## Appendix: Filtering Funnel Example
+The following example illustrates SciLEx's filtering pipeline applied to a real collection run on the topic of relation extraction. Starting from 259,845 raw results collected across 12 APIs, the pipeline progressively reduces the corpus to a curated set of 500 papers — a 1.5% retention rate.
 
-### Aggregation Logs
+![Filtering funnel diagram showing paper counts at each pipeline stage, from 259,845 collected papers down to 500 final output.](./img/filtering_funnel.png)
 
-```
-======================================================================
-PARALLEL AGGREGATION COMPLETE
-======================================================================
-Total time: 6.1s (0.1 minutes)
-Papers loaded: 259,845
-Papers after filtering: 186,308
-Papers after deduplication: 34,154
-Overall throughput: 42485.3 papers/sec
-======================================================================
+<!-- ![ASCII representation of the filtering funnel.](./img/filtering_funnel_ascii.png) -->
 
-================================================================================
-FILTERING PIPELINE SUMMARY
-================================================================================
-
-[Initial] Papers after deduplication
-  Papers: 34,154
-
-[Quality Filter] Papers meeting quality requirements (DOI, abstract, year, author count, etc.)
-  Papers remaining: 26,422
-  Removed this stage: 7,732 (22.6%)
-  Cumulative removal: 7,732 (22.6%)
-
-[Abstract Quality Filter] Abstracts meeting quality threshold (min score: 70)
-  Papers remaining: 26,408
-  Removed this stage: 14 (0.1%)
-  Cumulative removal: 7,746 (22.7%)
-
-[Citation Filter] Papers meeting time-aware citation thresholds
-  Papers remaining: 23,922
-  Removed this stage: 2,486 (9.4%)
-  Cumulative removal: 10,232 (30.0%)
-
-[Relevance Ranking] Top 500 Papers ranked by normalized relevance score (0-10 scale)
-  Papers remaining: 500
-  Removed this stage: 23,422 (97.9%)
-  Cumulative removal: 33,654 (98.5%)
-
---------------------------------------------------------------------------------
-FINAL RESULTS:
-  Started with: 34,154 papers
-  Final output: 500 papers
-  Total removed: 33,654 papers (98.5%)
-  Retention rate: 1.5%
-================================================================================
-```
-
-### Filtering Funnel Diagram
-
-```mermaid
-graph LR
-    A["Collected from APIs<br/><b>259,845</b> papers"] -->|"format conversion + keyword text filter"| B["After conversion &amp; text filtering<br/><b>186,308</b> papers<br/><i>−73,537 (28.3%)</i>"]
-    B -->|"DOI + title dedup"| C["After deduplication<br/><b>34,154</b> papers<br/><i>−152,154 (81.7%)</i>"]
-    C -->|"DOI, abstract, year, authors"| D["After quality filter<br/><b>26,422</b> papers<br/><i>−7,732 (22.6%)</i>"]
-    D -->|"min score: 70"| E["After abstract quality<br/><b>26,408</b> papers<br/><i>−14 (0.1%)</i>"]
-    E -->|"time-aware thresholds"| F["After citation filter<br/><b>23,922</b> papers<br/><i>−2,486 (9.4%)</i>"]
-    F -->|"top-N by relevance score"| G["Final output<br/><b>500</b> papers<br/><i>retention: 1.5%</i>"]
-    style A fill:#4a90d9,color:#fff
-    style G fill:#2ecc71,color:#fff
-```
+| Stage | Papers remaining | Removed | Cumulative removal |
+|-------|----------------:|---------:|-------------------:|
+| Collected from APIs | 259,845 | — | — |
+| After format conversion + keyword filter | 186,308 | 73,537 (28.3%) | 28.3% |
+| After deduplication | 34,154 | 152,154 (81.7%) | 86.9% |
+| After quality filter | 26,422 | 7,732 (22.6%) | 89.8% |
+| After abstract quality filter | 26,408 | 14 (0.1%) | 89.8% |
+| After citation filter | 23,922 | 2,486 (9.4%) | 90.8% |
+| Final output (top-N by relevance) | 500 | 23,422 (97.9%) | 99.8% |
