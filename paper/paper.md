@@ -34,33 +34,28 @@ bibliography: paper.bib
 SciLEx — much like the silex stone that early humans relied on to spark fire from raw material — is a lightweight, portable tool designed to ignite research exploration. Rather than navigating fragmented databases, confronting redundant results, and manually sifting through noise, SciLEx strikes directly at the core challenge: it queries heterogeneous digital library APIs, applies smart deduplication and quality filtering, and delivers a clean, curated corpus ready for export to Zotero or BibTeX. It is not a full-scale review platform — it is the essential flint in the researcher's toolkit, engineered to quick-start systematic literature reviews with precision and minimal friction.
 
 # Detailed Summary
-[SciLEx (Science Literature Exploration)](https://github.com/Wimmics/SciLEx) is an open-source Python toolkit designed to support systematic literature reviews in research and academic contexts. Users define one or two groups of keywords: within each group, terms are combined with Boolean OR logic, while the two groups are combined with AND, enabling precise compound queries without manual query construction. SciLEx concurrently queries up to ten academic APIs — SemanticScholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, Istex, and PubMed — and deduplicates results across sources using DOI matching, URL matching, and fuzzy title comparison, so that papers retrieved from multiple APIs are merged rather than counted multiple times. Collected papers then pass through a configurable multi-stage filtering pipeline that scores metadata completeness, enforces time-aware citation thresholds, and ranks results by a composite relevance score, distilling potentially hundreds of thousands of raw results into a curated final set. SciLEx further extracts citation networks via OpenCitations[@peroni_opencitations_2020] and Semantic Scholar, and optionally enriches records with Hugging Face metadata — linked models, datasets, and GitHub statistics — making it particularly suited to AI and machine learning literature reviews. Final outputs can be exported to BibTeX or pushed directly to a Zotero[@mueen_ahmed_zotero_2011] collection. All operations are idempotent: interrupted or repeated runs automatically resume from where they left off, making SciLEx practical on standard personal hardware.
-
-> **Note (BN):** "ten APIs" outdated — OpenAIRE and ORKG added, now 12. Update count and list.
+[SciLEx (Science Literature Exploration)](https://github.com/Wimmics/SciLEx) is an open-source Python toolkit designed to support systematic literature reviews in research and academic contexts. Users define one or two groups of keywords: within each group, terms are combined with Boolean OR logic, while the two groups are combined with AND, enabling precise compound queries without manual query construction. 
+SciLEx concurrently queries up to 12 academic APIs — SemanticScholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, Istex, and PubMed — and deduplicates results, so that papers retrieved from multiple APIs are merged rather than counted multiple times. Collected papers then pass through a configurable multi-stage filtering pipeline that scores metadata completeness, enforces time-aware citation thresholds, and ranks results by a composite relevance score, distilling potentially hundreds of thousands of raw results into a curated final set.
+SciLEx further extracts citations networks using multiples sources: Semantic Scholar/OpenAlex/CrossRef and OpenCitations[@peroni_opencitations_2020]. It could also enrich the collection of papers using Hugging Face metadata — linked models, datasets, topic keywords and GitHub repository — making it particularly suited to AI and machine learning literature reviews. Final outputs can be exported to BibTeX or pushed directly to a Zotero[@mueen_ahmed_zotero_2011] collection. All operations are idempotent: interrupted or repeated runs automatically resume from where they left off, making SciLEx practical on standard personal hardware.
 
 # Statement of need
 
-The volume of scientific publications has grown dramatically in recent years[@10.1162/qss_a_00327], making comprehensive literature surveys increasingly difficult to conduct manually. Researchers initiating a new project or conducting a systematic review[@kitchenham2007guidelines] must navigate a fragmented landscape of disciplinary databases with incompatible formats, heterogeneous metadata standards, and varying access policies. Existing reference managers such as Zotero provide manual search interfaces and import functionality, but do not automate multi-API retrieval, cross-source deduplication, or quality-based filtering. SciLEx fills this gap by providing a fully automated, configurable, and locally executable pipeline that takes keyword inputs and produces a ranked, deduplicated, and enriched bibliography — requiring no subscription and no cloud dependency. It is designed for researchers and graduate students who need to efficiently scope a new research area or assemble a reproducible literature corpus.
+The volume of scientific publications has grown dramatically in recent years[@10.1162/qss_a_00327], making comprehensive literature surveys increasingly difficult to conduct manually. Researchers initiating a new project or conducting a systematic review[@kitchenham2007guidelines] must navigate a fragmented landscape of disciplinary databases with incompatible formats, heterogeneous metadata standards, and varying access policies. Existing reference managers such as Zotero provide manual search interfaces and import functionality, but do not automate multi-API retrieval, cross-source deduplication, or quality-based filtering. 
 
-SciLEx enriches the resulting corpus through integration with external services such as [Papers With Code](https://paperswithcode.com) (available until May 2025 and now redirected to Hugging Face), Crossref [@hendricks_crossref_2020], and OpenCitations [@peroni_opencitations_2020]. Papers With Code was intended for the machine learning community and aimed at connecting research articles to their corresponding methods, implemented code, evaluation results on standard datasets, and initial paper annotations. OpenCitation enables the retrieval of citations and references for a given paper, which can be used both to filter papers by impact and to expand the corpus through citation snowballing.
+SciLEx fills this gap by providing a fully automated, configurable, and locally executable pipeline that takes keyword inputs and produces a ranked, deduplicated, and enriched bibliography — requiring no subscription and no cloud dependency. It is designed for researchers and graduate students who need to efficiently scope a new research area.
+
+SciLEx enriches the extracted papers with many other open services, extracting citations networks using multiple sources: Semantic Scholar/OpenAlex/CrossRef[@hendricks_crossref_2020] and OpenCitations[@peroni_opencitations_2020]. It also integrates Hugging Face metadata for the enrichment of the collection using  — linked models, datasets, topic keywords and GitHub repository, which deliver a first layer of context to start a bibliographic analysis. 
+
 Finally, SciLEx exports all gathered information into a Zotero collection, facilitating collaborative management, selection, and annotation of the corpus.
 
-> **Note (BN):** Papers With Code replaced by huggingface : [huggingface](https://huggingface.co/papers/trending)
-
 ### Key Features
-![SciLEx_workflow](./img/workflow-diagram.pptx.jpg)
-
-> **Note (BN):** We need to update the workflow diagram with + 2 collectors. I shared with you the pptx so it can be easily modified in the hackmd working document. I let you go on the hack md we used and find the google drive link yourself because I  don 't want to commit it here (it is open)
+![SciLEx_workflow](./img/workflow-diagramV2.png)
 
 SciLEx is built around the following core capabilities, each thoroughly documented in our [readthedocs.io](https://scilex.readthedocs.io/en/latest/):
 
-* Multi-source collection. Papers are retrieved concurrently from up to ten academic APIs — SemanticScholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, Istex, and PubMed — using parallel processing to minimise collection time.
-
-> **Note (BN):** "ten APIs" outdated — OpenAIRE and ORKG added, now 12. Update count and list.
-
+* Multi-source collection. Papers are retrieved concurrently from up to 12 academic APIs — SemanticScholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — using parallel processing to minimise collection time.
 * Flexible query construction. Users can either supply a flat list of keywords, generating one query per keyword, or define two keyword groups whose terms are combined pairwise — implicitly encoding both OR logic (within groups) and AND logic (across groups) — without writing raw query strings.
 * Cross-source deduplication. Results are deduplicated across APIs using DOI matching, URL matching, and normalized exact title matching, ensuring that papers retrieved from multiple sources are merged into a single record.
-> **Note (BN):** "fuzzy title matching" was mentioned here previously but does not exist in the current codebase. It is a reliquat of a previous feature development attempt, abandoned because it was too costly in terms of computation for not so worthy results. The current implementation uses normalized exact title matching instead.
 * Citation network extraction. SciLEx retrieves citation and reference lists via OpenCitations and Semantic Scholar, with results cached locally in SQLite to avoid redundant API calls across runs. This enables both impact-based filtering and citation snowballing.
 * Multi-stage quality filtering. Collected papers pass through a configurable pipeline that enforces time-aware citation thresholds, filters by item type, and ranks results by a composite relevance score computed from keyword matches and optional bonus keywords.
 * Hugging Face enrichment. For machine learning literature, SciLEx can enrich each paper with linked models, datasets, GitHub statistics, and AI-specific keywords sourced from Hugging Face.
@@ -74,19 +69,11 @@ SciLEx is implemented in Python and follows a modular, pipeline-oriented archite
 
 API Collection → Deduplication → Item Type Filter → Keyword Filter → Quality Filter → Citation Filter → Relevance Ranking → Output
 
-**Collection system**. The collection layer (scilex/crawlers/collector_collection.py) orchestrates parallel API querying using one thread per API. It generates jobs from the user configuration as combinations of keywords, years, and target APIs, then tracks progress and skips already-completed queries, making all runs idempotent. Each of the ten supported APIs has a dedicated collector class in scilex/crawlers/collectors/, all inheriting from a shared abstract base class API_collector (base.py) that defines a uniform interface for query construction, pagination, and result parsing. Adding a new API requires only implementing this interface and registering the collector — no other components need to be modified.
+**Collection system**. The collection layer (scilex/crawlers/collector_collection.py) orchestrates parallel API querying using one thread per API. It generates jobs from the user configuration as combinations of keywords, years, and target APIs, then tracks progress and skips already-completed queries, making all runs idempotent. Each of the 12 supported APIs has a dedicated collector class in scilex/crawlers/collectors/, all inheriting from a shared abstract base class API_collector (base.py) that defines a uniform interface for query construction, pagination, and result parsing. Adding a new API requires only implementing this interface and registering the collector — no other components need to be modified.
 
-> **Note (BN):** "ten" → 12 (OpenAIRE + ORKG added).
+**Format conversion**. Raw JSON responses from each API are converted into a unified, Zotero-compatible internal schema by a dedicated converter in scilex/crawlers/aggregate.py. 
 
-**Format conversion**. Raw JSON responses from each API are converted into a unified, Zotero-compatible internal schema by a dedicated converter in scilex/crawlers/aggregate.py. Missing fields are represented by a shared MISSING_VALUE sentinel, ensuring that downstream components operate on a consistent data model regardless of source.
-
-**Aggregation and filtering pipeline**. The aggregation pipeline (scilex/aggregate_collect.py) loads all collected JSON files, applies format conversion and deduplication — merging records by DOI, URL, or normalized exact title match —
-
-> **Note (BN):** "fuzzy title match" was mentioned here previously but does not exist in the current codebase. It is a reliquat of a previous feature development attempt, abandoned because it was too costly in terms of computation for not so worthy results.
-
-and then passes papers through a five-phase filtering engine: item type filtering, keyword relevance filtering (scilex/keyword_validation.py), metadata quality scoring (scilex/quality_validation.py), time-aware citation thresholds, and final relevance ranking. A parallel aggregation mode (scilex/crawlers/aggregate_parallel.py) is also available for large corpora, using multiprocessing with batches of 5,000 papers and automatic CPU count detection.
-
-> **Note (BN):** Use aggregation logs to illustrate dedup + filtering funnel with real paper counts at each stage. See example logs and Mermaid diagram at end of document.
+**Aggregation and filtering pipeline**. The aggregation pipeline (scilex/aggregate_collect.py) loads all collected JSON files, applies format conversion and deduplication — merging records by DOI, URL, or normalized exact title match — and then passes papers through a five-phase filtering engine: item type filtering, keyword relevance filtering (scilex/keyword_validation.py), metadata quality scoring (scilex/quality_validation.py), time-aware citation thresholds, and final relevance ranking. A parallel aggregation mode (scilex/crawlers/aggregate_parallel.py) is also available for large corpora, using multiprocessing with batches of 5,000 papers and automatic CPU count detection.
 
 **Citation system**. Citation and reference data are retrieved via a four-tier strategy: a local SQLite cache (output/citation_cache.db) is consulted first; if unavailable, Semantic Scholar in-memory data, CrossRef live API calls, and finally OpenCitations are tried in sequence. This tiered approach minimises redundant network requests while maximising coverage.
 
@@ -146,7 +133,7 @@ This work was supported by the French government through the France 2030 investm
 
 ## AI Usage Disclosure
 
-Tools used: Claude Code CLI (Anthropic) with Claude Sonnet 4.5 and Claude Opus 4.5 models, used from October 2025 through February 2026. Prior to October 2025, no AI tools were used by any contributor (C. Ringwald, A. Ollagnier, F. Gandon).
+Tools used: Claude Code CLI (Anthropic) with Claude Sonnet 4.5 and Claude Opus 4.5 models, used from October 2025 through February 2026. Prior to October 2025, no AI tools were used by any contributor (C. Ringwald, F. Gandon).
 Scope of assistance: 
   - Code development and refactoring: Claude Code was used to assist with implementing new features (PubMed collector, Hugging Face enrichment pipeline, BibTeX export, parallel aggregation, citation caching), refactoring the collector architecture (modular collector classes, multi-threading migration, state management removal), and bug fixing (API rate limiting, URL encoding, deduplication logic, metadata extraction).
   - Code quality: Automated linting, formatting (via Ruff), and code style improvements.
@@ -215,14 +202,13 @@ FINAL RESULTS:
 ### Filtering Funnel Diagram
 
 ```mermaid
-graph TD
+graph LR
     A["Collected from APIs<br/><b>259,845</b> papers"] -->|"format conversion + keyword text filter"| B["After conversion &amp; text filtering<br/><b>186,308</b> papers<br/><i>−73,537 (28.3%)</i>"]
     B -->|"DOI + title dedup"| C["After deduplication<br/><b>34,154</b> papers<br/><i>−152,154 (81.7%)</i>"]
     C -->|"DOI, abstract, year, authors"| D["After quality filter<br/><b>26,422</b> papers<br/><i>−7,732 (22.6%)</i>"]
     D -->|"min score: 70"| E["After abstract quality<br/><b>26,408</b> papers<br/><i>−14 (0.1%)</i>"]
     E -->|"time-aware thresholds"| F["After citation filter<br/><b>23,922</b> papers<br/><i>−2,486 (9.4%)</i>"]
     F -->|"top-N by relevance score"| G["Final output<br/><b>500</b> papers<br/><i>retention: 1.5%</i>"]
-
     style A fill:#4a90d9,color:#fff
     style G fill:#2ecc71,color:#fff
 ```
