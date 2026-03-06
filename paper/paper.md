@@ -16,6 +16,9 @@ authors:
   - name: Fabien Gandon
     orcid: 0000-0003-0543-1232
     affiliation: 1
+   - name: Catherine Faron
+     orcid: 0000-0001-5959-5561
+     affiliation: 1
 affiliations:
  - name: INRIA, 3IA, CNRS, I3S, Université Côte d'Azur
    index: 1
@@ -29,13 +32,13 @@ bibliography: paper.bib
   <img src="./img/small_logo.png" alt="description" width="100">
 </p>
 
-# A Spark for Systematic Literature Reviews
+# SciLEx: a Spark for Systematic Literature Reviews
 
 SciLEx — much like the silex stone that early humans relied on to spark fire from raw material — is a lightweight, portable tool designed to ignite research exploration. Rather than navigating fragmented databases, confronting redundant results, and manually sifting through noise, SciLEx strikes directly at the core challenge: it queries heterogeneous digital library APIs, applies smart deduplication and quality filtering, and delivers a clean, curated corpus ready for export to Zotero or BibTeX. It is not a full-scale review platform — it is the essential flint in the researcher's toolkit, engineered to quick-start systematic literature reviews with precision and minimal friction.
 
 # Detailed Summary
 [SciLEx (Science Literature Exploration)](https://github.com/Wimmics/SciLEx) is an open-source Python toolkit designed to support systematic literature reviews in research and academic contexts. Users define one or two groups of keywords: within each group, terms are combined with Boolean OR logic, while the two groups are combined with AND, enabling precise compound queries without manual query construction. 
-SciLEx concurrently queries up to 12 academic APIs — Semantic Scholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — and deduplicates results, so that papers retrieved from multiple APIs are merged rather than counted multiple times. Collected papers then pass through a configurable multi-stage filtering pipeline that scores metadata completeness, enforces time-aware citation thresholds, and ranks results by a composite relevance score, distilling potentially hundreds of thousands of raw results into a curated final set.
+SciLEx concurrently queries up to twelve academic APIs — Semantic Scholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — and deduplicates results, so that papers retrieved from multiple APIs are merged rather than counted multiple times. Collected papers then pass through a configurable multi-stage filtering pipeline that scores metadata completeness, enforces time-aware citation thresholds, and ranks results by a composite relevance score, distilling potentially hundreds of thousands of raw results into a curated final set.
 SciLEx further extracts citation networks using multiple sources: Semantic Scholar/OpenAlex/CrossRef and OpenCitations[@peroni_opencitations_2020]. It can also enrich the collection of papers using Hugging Face metadata — linked models, datasets, topic keywords and GitHub repository — making it particularly suited to AI and machine learning literature reviews. Final outputs can be exported to BibTeX or pushed directly to a Zotero[@mueen_ahmed_zotero_2011] collection. All operations are idempotent: interrupted or repeated runs automatically resume from where they left off, making SciLEx practical on standard personal hardware.
 
 # Statement of need
@@ -53,7 +56,7 @@ Finally, SciLEx exports all gathered information into a Zotero collection, facil
 
 SciLEx is built around the following core capabilities, each thoroughly documented in our [readthedocs.io](https://scilex.readthedocs.io/en/latest/):
 
-* Multi-source collection. Papers are retrieved concurrently from up to 12 academic APIs — Semantic Scholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — using parallel processing to minimise collection time.
+* Multi-source collection. Papers are retrieved concurrently from up to twelve academic APIs — Semantic Scholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — using parallel processing to minimise collection time.
 * Flexible query construction. Users can either supply a flat list of keywords, generating one query per keyword, or define two keyword groups whose terms are combined pairwise — implicitly encoding both OR logic (within groups) and AND logic (across groups) — without writing raw query strings.
 * Cross-source deduplication. Results are deduplicated across APIs using DOI matching, URL matching, and normalized exact title matching, ensuring that papers retrieved from multiple sources are merged into a single record.
 * Citation network extraction. SciLEx retrieves citation and reference lists via OpenCitations and Semantic Scholar, with results cached locally in SQLite to avoid redundant API calls across runs. This enables both impact-based filtering and citation snowballing.
@@ -65,11 +68,11 @@ SciLEx is built around the following core capabilities, each thoroughly document
 
 # Software design
 
-SciLEx is implemented in Python and follows a modular, pipeline-oriented architecture organised around nine core components. The overall data flow proceeds in two phases: a parallel collection phase that queries APIs concurrently and stores raw results as JSON, followed by an aggregation phase that converts, deduplicates, filters, and ranks papers before exporting them.
+SciLEx is implemented in Python and follows a modular, pipeline-oriented architecture organised around nine core components. The overall data flow proceeds in two phases: a parallel collection phase that queries APIs concurrently and stores raw results as JSON data, followed by an aggregation phase that converts, deduplicates, filters, and ranks papers before exporting them.
 
 API Collection → Deduplication → Item Type Filter → Keyword Filter → Quality Filter → Citation Filter → Relevance Ranking → Output
 
-**Collection system**. The collection layer (scilex/crawlers/collector_collection.py) orchestrates parallel API querying using one thread per API. It generates jobs from the user configuration as combinations of keywords, years, and target APIs, then tracks progress and skips already-completed queries, making all runs idempotent. Each of the 12 supported APIs has a dedicated collector class in scilex/crawlers/collectors/, all inheriting from a shared abstract base class API_collector (base.py) that defines a uniform interface for query construction, pagination, and result parsing. Adding a new API requires only implementing this interface and registering the collector — no other components need to be modified.
+**Collection system**. The collection layer (scilex/crawlers/collector_collection.py) orchestrates parallel API querying using one thread per API. It generates jobs from the user configuration as combinations of keywords, years, and target APIs, then tracks progress and skips already-completed queries, making all runs idempotent. Each of the twelve supported APIs has a dedicated collector class in scilex/crawlers/collectors/, all inheriting from a shared abstract base class API_collector (base.py) that defines a uniform interface for query construction, pagination, and result parsing. Adding a new API requires only implementing this interface and registering the collector — no other components need to be modified.
 
 **Format conversion**. Raw JSON responses from each API are converted into a unified, Zotero-compatible internal schema by a dedicated converter in scilex/crawlers/aggregate.py. 
 
@@ -91,7 +94,7 @@ Programmatically, all components are importable as a Python library: the Collect
 
 # Research use / scholarly publications enabled
 
-SciLEx was originally developed to support a systematic literature review conducted during a PhD on pattern-based information extraction from natural language and knowledge graphs, presented at AAAI-24 [@Ringwald_2024]. The tool has since been generalised and extended to support literature reviews across a broader range of research areas, particularly in AI and machine learning, where the need to survey rapidly growing bodies of preprint and conference literature across heterogeneous sources is especially acute. SciLEx is designed for researchers and graduate students who need to scope a new research area, assemble a reproducible corpus, or conduct a formal systematic review — and has been used in this capacity within the Wimmics research groups. The first systematic literature review based on SciLEx [@celian2025systematicreviewrelationextraction] is currently under review.
+SciLEx was originally developed to support a systematic literature review conducted during a PhD on pattern-based information extraction from natural language and knowledge graphs, presented at AAAI-24 [@Ringwald_2024]. The tool has since been generalised and extended to support literature reviews across a broader range of research areas, particularly in AI and machine learning, where the need to survey rapidly growing bodies of preprint and conference literature across heterogeneous sources is especially acute. SciLEx is designed for researchers and graduate students who need to scope a new research area, assemble a reproducible corpus, or conduct a formal systematic review — and has been used in this capacity within the Wimmics research group. The first systematic literature review based on SciLEx [@celian2025systematicreviewrelationextraction] is currently under review.
 
 # Comparison with existing software
 
@@ -124,7 +127,7 @@ Further planned extensions include:
 - **Citation chaining and snowball sampling.** Extending the collection phase with forward and backward citation chaining to complement keyword-based discovery and address its inherent vocabulary ceiling.
 - **Citation network analysis.** Leveraging the citation and reference data already collected to build citation graphs, detect research community clusters, and identify hub papers — turning raw citation counts into structural bibliometric insights without additional API calls.
 - **LLM-augmented pipeline steps.** Introducing optional large language model–based stages: semantic abstract screening to reduce false positives and false negatives inherent to substring keyword matching, and AI-powered keyword expansion to assist users unfamiliar with a field's vocabulary in constructing effective queries.
-- **Enrichment extensions.** Adding open access status classification via Unpaywall (gold/green/bronze/closed), author impact metrics (h-index) via the Semantic Scholar Author API.
+- **Enrichment extensions.** Adding open access status classification via Unpaywall (gold/green/bronze/closed), and author impact metrics (h-index) via the Semantic Scholar Author API.
 
 # Acknowledgements
 
