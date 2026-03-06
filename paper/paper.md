@@ -15,9 +15,9 @@ authors:
   - name: Fabien Gandon
     orcid: 0000-0003-0543-1232
     affiliation: 1
-   - name: Catherine Faron
-     orcid: 0000-0001-5959-5561
-     affiliation: 1
+  - name: Catherine Faron
+    orcid: 0000-0001-5959-5561
+    affiliation: 1
 affiliations:
  - name: INRIA, 3IA, CNRS, I3S, Université Côte d'Azur
    index: 1
