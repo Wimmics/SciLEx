@@ -1544,3 +1544,214 @@ def PubMedtoZoteroFormat(row):
         zotero_temp["itemType"] = "journalArticle"
 
     return zotero_temp
+
+
+def OpenAIREtoZoteroFormat(row):
+    zotero_temp = {
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": MISSING_VALUE,
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": "OpenAIRE",
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
+    }
+
+    try:
+        entity = row["metadata"]["oaf:entity"]["oaf:result"]
+    except (KeyError, TypeError):
+        return zotero_temp
+
+    # Title
+    try:
+        zotero_temp["title"] = entity["title"]["$"]
+    except (KeyError, TypeError):
+        pass
+
+    # Authors — creator can be a dict (single) or list
+    try:
+        creators = entity["creator"]
+        if isinstance(creators, dict):
+            creators = [creators]
+        names = [c.get("$", "") for c in creators if c.get("$")]
+        if names:
+            zotero_temp["authors"] = ";".join(names)
+    except (KeyError, TypeError):
+        pass
+
+    # Date
+    try:
+        zotero_temp["date"] = entity["dateofacceptance"]["$"]
+    except (KeyError, TypeError):
+        pass
+
+    # Abstract
+    try:
+        zotero_temp["abstract"] = entity["description"]["$"]
+    except (KeyError, TypeError):
+        pass
+
+    # DOI — pid can be dict or list; filter by @classid == "doi"
+    try:
+        pids = entity.get("pid", [])
+        if isinstance(pids, dict):
+            pids = [pids]
+        doi_raw = next(
+            (p["$"] for p in pids if p.get("@classid") == "doi" and p.get("$")),
+            None,
+        )
+        if doi_raw:
+            zotero_temp["DOI"] = clean_doi(doi_raw)
+    except (KeyError, TypeError):
+        pass
+
+    # Journal
+    try:
+        zotero_temp["journalAbbreviation"] = entity["journal"]["$"]
+    except (KeyError, TypeError):
+        pass
+
+    # Language
+    try:
+        zotero_temp["language"] = entity["language"]["@classid"]
+    except (KeyError, TypeError):
+        pass
+
+    # Rights
+    try:
+        classname = entity["bestaccessright"]["@classname"]
+        if "Open" in classname:
+            zotero_temp["rights"] = "open_access"
+        else:
+            zotero_temp["rights"] = "restricted"
+    except (KeyError, TypeError):
+        pass
+
+    # Archive ID — originalId can be str or list
+    try:
+        original_id = entity["originalId"]
+        if isinstance(original_id, list):
+            original_id = original_id[0]
+        zotero_temp["archiveID"] = original_id
+    except (KeyError, TypeError):
+        pass
+
+    # URL — children.instance can be dict or list
+    try:
+        instances = entity["children"]["instance"]
+        if isinstance(instances, dict):
+            instances = [instances]
+        url_val = next(
+            (
+                inst["webresource"]["url"]["$"]
+                for inst in instances
+                if inst.get("webresource", {}).get("url", {}).get("$")
+            ),
+            None,
+        )
+        if url_val:
+            zotero_temp["url"] = url_val
+    except (KeyError, TypeError):
+        pass
+
+    # Item type
+    try:
+        resource_type = entity["resourcetype"]["@classname"]
+        type_mapping = {
+            "Article": "journalArticle",
+            "Conference object": "conferencePaper",
+            "Book": "book",
+            "Book part": "bookSection",
+            "Preprint": "Manuscript",
+        }
+        zotero_temp["itemType"] = type_mapping.get(resource_type, "Manuscript")
+    except (KeyError, TypeError):
+        pass
+
+    return zotero_temp
+
+
+def ORKGtoZoteroFormat(row):
+    zotero_temp = {
+        "title": MISSING_VALUE,
+        "publisher": MISSING_VALUE,
+        "itemType": "journalArticle",
+        "authors": MISSING_VALUE,
+        "language": MISSING_VALUE,
+        "abstract": MISSING_VALUE,
+        "archiveID": MISSING_VALUE,
+        "archive": "ORKG",
+        "date": MISSING_VALUE,
+        "DOI": MISSING_VALUE,
+        "url": MISSING_VALUE,
+        "rights": MISSING_VALUE,
+        "pages": MISSING_VALUE,
+        "journalAbbreviation": MISSING_VALUE,
+        "volume": MISSING_VALUE,
+        "serie": MISSING_VALUE,
+        "issue": MISSING_VALUE,
+        "pdf_url": MISSING_VALUE,
+    }
+
+    orkg_id = row.get("id", MISSING_VALUE)
+    zotero_temp["archiveID"] = orkg_id
+
+    # Title
+    title = row.get("title")
+    if title:
+        zotero_temp["title"] = title
+
+    # DOI
+    try:
+        doi_list = row["identifiers"]["doi"]
+        if doi_list:
+            zotero_temp["DOI"] = clean_doi(doi_list[0])
+    except (KeyError, TypeError):
+        pass
+
+    # Publication info
+    pub_info = row.get("publication_info", {})
+
+    # Date
+    year = pub_info.get("published_year")
+    if year is not None:
+        zotero_temp["date"] = str(year)
+
+    # Journal
+    published_in = pub_info.get("published_in")
+    if published_in:
+        if isinstance(published_in, dict):
+            label = published_in.get("label")
+            if label:
+                zotero_temp["journalAbbreviation"] = label
+        elif isinstance(published_in, str):
+            zotero_temp["journalAbbreviation"] = published_in
+
+    # URL — fallback to ORKG paper page
+    url_val = pub_info.get("url", "")
+    if url_val:
+        zotero_temp["url"] = url_val
+    elif is_valid(orkg_id):
+        zotero_temp["url"] = f"https://orkg.org/paper/{orkg_id}"
+
+    # Authors
+    try:
+        authors = row.get("authors", [])
+        names = [a["name"] for a in authors if a.get("name")]
+        if names:
+            zotero_temp["authors"] = ";".join(names)
+    except (KeyError, TypeError):
+        pass
+
+    return zotero_temp

@@ -11,7 +11,9 @@ from .elsevier import Elsevier_collector
 from .hal import HAL_collector
 from .ieee import IEEE_collector
 from .istex import Istex_collector
+from .openaire import OpenAIRE_collector
 from .openalex import OpenAlex_collector
+from .orkg import ORKG_collector
 from .pubmed import PubMed_collector
 from .pubmed_central import PubMedCentral_collector
 from .semantic_scholar import SemanticScholar_collector
@@ -31,4 +33,6 @@ __all__ = [
     "Springer_collector",
     "PubMed_collector",
     "PubMedCentral_collector",
+    "OpenAIRE_collector",
+    "ORKG_collector",
 ]
