@@ -127,6 +127,10 @@ Further planned extensions include:
 - **Citation network analysis.** Leveraging the citation and reference data already collected to build citation graphs, detect research community clusters, and identify hub papers — turning raw citation counts into structural bibliometric insights without additional API calls.
 - **LLM-augmented pipeline steps.** Introducing optional large language model–based stages: semantic abstract screening to reduce false positives and false negatives inherent to substring keyword matching, and AI-powered keyword expansion to assist users unfamiliar with a field's vocabulary in constructing effective queries.
 - **Enrichment extensions.** Adding open access status classification via Unpaywall (gold/green/bronze/closed), and author impact metrics (h-index) via the Semantic Scholar Author API.
+  
+Morover, we plan to synergize SciLEx with Perspicacité-AI[@pradi:hal-05232923] and DataLens[@DataLens2025] projects to create a comprehensive AI-powered ecosystem for scientific research and education, empowering :
+* Intelligent Dataset Discovery: Integrate Perspicacité-AI's LLM and RAG capabilities with DataLens's network-based visualizations to enable context-aware dataset recommendations. Researchers will navigate from scientific questions to relevant datasets through AI-guided semantic understanding combined with interactive topology exploration.
+* Visual Knowledge Networks: Leverage DataLens's customizable network topologies to visualize the relationships between scientific literature, datasets, and methodologies retrieved by Perspicacité-AI, creating an intuitive interface that reveals hidden connections and accelerates the research discovery process.
 
 # Acknowledgements
 
