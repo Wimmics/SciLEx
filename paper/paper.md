@@ -1,5 +1,5 @@
 ---
-title: 'SciLEx'
+title: 'SciLEx - Science Literature Exploration'
 tags:
   - Python
   - scientific literature
