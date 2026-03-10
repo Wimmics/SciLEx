@@ -18,6 +18,9 @@ authors:
   - name: Catherine Faron
     orcid: 0000-0001-5959-5561
     affiliation: 1
+  - name: Anaïs Ollagnier
+    orcid: 0000-0003-4117-1191
+    affiliation: 1
 affiliations:
  - name: INRIA, 3IA, CNRS, I3S, Université Côte d'Azur
    index: 1
