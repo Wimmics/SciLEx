@@ -805,6 +805,57 @@ with tab3:
                             width='stretch',
                         )
 
+                # Zotero push option
+                st.write("---")
+                st.subheader("📤 Push to Zotero")
+                
+                zotero_col1, zotero_col2 = st.columns(2)
+                
+                with zotero_col1:
+                    zotero_collection_name = st.text_input(
+                        "Zotero Collection Name",
+                        value=selected_collection,
+                        help="Name of the Zotero collection to push papers to",
+                    )
+                
+                with zotero_col2:
+                    if st.button("📚 Push to Zotero", width='stretch', type="primary"):
+                        try:
+                            st.info("⏳ Pushing papers to Zotero (this may take a moment)...")
+                            
+                            # Run push to Zotero command
+                            result = subprocess.run(
+                                [
+                                    "scilex-push-zotero",
+                                    "--collect-name", zotero_collection_name,
+                                    "--output-dir", str(output_dir),
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=120,
+                            )
+                            
+                            if result.returncode == 0:
+                                st.info(f"**Collection:** {zotero_collection_name}")
+                                # Display the command output which contains summary stats
+                                if result.stderr:
+                                    # Log output is in stderr for the logging handler
+                                    st.warning("Zotero push completed:")
+                                    st.caption("Output:\n" + result.stderr[-500:] if len(result.stderr) > 500 else result.stderr)
+                                else:
+                                    st.success("✅ Successfully pushed papers to Zotero!")
+                            else:
+                                st.error("❌ Failed to push papers to Zotero")
+                                if result.stderr:
+                                    # Show last 500 chars of error
+                                    error_msg = result.stderr[-500:] if len(result.stderr) > 500 else result.stderr
+                                    st.error(f"Error details:\n{error_msg}")
+                                
+                        except subprocess.TimeoutExpired:
+                            st.error("❌ Zotero push timed out (took >2 minutes)")
+                        except Exception as e:
+                            st.error(f"❌ Error pushing to Zotero: {str(e)}")
+
         except Exception as e:
             st.error(f"Error loading results: {str(e)}")
 
