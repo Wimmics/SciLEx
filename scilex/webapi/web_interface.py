@@ -1,5 +1,6 @@
 """Simple Streamlit web interface for SciLEx."""
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -753,9 +754,45 @@ with tab3:
 
                 with col2:
                     if st.button("📚 Download as BibTeX", width='stretch'):
-                        st.info(
-                            "BibTeX export requires running the export pipeline from CLI"
-                        )
+                        try:
+                            # Prepare BibTeX export output
+                            bib_output_dir = output_path / selected_collection
+                            bib_file_path = bib_output_dir / "aggregated_results.bib"
+                            
+                            # Run BibTeX export command with CLI arguments
+                            result = subprocess.run(
+                                [
+                                    "scilex-export-bibtex",
+                                    "--collect-name", selected_collection,
+                                    "--output-dir", str(output_dir),
+                                ],
+                                capture_output=True,
+                                text=True,
+                                timeout=30,
+                            )
+                            
+                            if result.returncode == 0 and bib_file_path.exists():
+                                # Read BibTeX content
+                                with bib_file_path.open("r", encoding="utf-8") as f:
+                                    bib_content = f.read()
+                                
+                                st.download_button(
+                                    label="⬇️ Download BibTeX File",
+                                    data=bib_content.encode(),
+                                    file_name=f"{selected_collection}.bib",
+                                    mime="text/plain",
+                                    width='stretch',
+                                )
+                                st.success(f"✅ BibTeX file generated ({len(bib_content)} bytes)")
+                            else:
+                                st.error("❌ Failed to generate BibTeX file")
+                                if result.stderr:
+                                    st.error(f"Error: {result.stderr}")
+                                
+                        except subprocess.TimeoutExpired:
+                            st.error("❌ BibTeX export timed out (took >30 seconds)")
+                        except Exception as e:
+                            st.error(f"❌ Error generating BibTeX: {str(e)}")
 
                 with col3:
                     if st.button("📋 Download as JSON", width='stretch'):

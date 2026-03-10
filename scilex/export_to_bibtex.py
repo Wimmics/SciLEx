@@ -5,6 +5,7 @@ Exports aggregated paper data to BibTeX format for pipeline integration.
 Supports DOI-based citation keys and direct PDF download links.
 """
 
+import argparse
 import logging
 import os
 import sys
@@ -58,13 +59,29 @@ BIBTEX_SPECIAL_CHARS = {
 }
 
 
-def load_config() -> dict:
-    """Load scilex.config.yml configuration."""
+def load_config(collect_name: str | None = None, output_dir: str | None = None) -> dict:
+    """Load scilex.config.yml configuration, with optional CLI overrides.
+    
+    Args:
+        collect_name: Override collection name from CLI
+        output_dir: Override output directory from CLI
+    
+    Returns:
+        Configuration dictionary
+    """
     config_files = {
         "main_config": "scilex.config.yml",
     }
     configs = load_all_configs(config_files)
-    return configs["main_config"]
+    config = configs["main_config"]
+    
+    # Override with CLI arguments if provided
+    if collect_name:
+        config["collect_name"] = collect_name
+    if output_dir:
+        config["output_dir"] = output_dir
+    
+    return config
 
 
 def load_aggregated_data(config: dict) -> pd.DataFrame:
@@ -467,13 +484,34 @@ def export_to_bibtex(data: pd.DataFrame, config: dict) -> str:
 
 def main():
     """Main entry point for BibTeX export."""
+    parser = argparse.ArgumentParser(
+        description="Export aggregated papers to BibTeX format"
+    )
+    parser.add_argument(
+        "--collect-name",
+        type=str,
+        default=None,
+        help="Collection name (overrides scilex.config.yml)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory (overrides scilex.config.yml)",
+    )
+    
+    args = parser.parse_args()
+    
     try:
-        # Load configuration
-        config = load_config()
+        # Load configuration with CLI overrides
+        config = load_config(
+            collect_name=args.collect_name,
+            output_dir=args.output_dir,
+        )
 
         # Validate required config
         if "collect_name" not in config:
-            raise ValueError("collect_name not specified in scilex.config.yml")
+            raise ValueError("collect_name not specified in scilex.config.yml or --collect-name")
 
         # Load aggregated data
         data = load_aggregated_data(config)

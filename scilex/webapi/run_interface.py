@@ -131,14 +131,6 @@ def main():
             web_process = subprocess.Popen(web_cmd)
             processes.append(("Web", web_process))
 
-            # Wait a bit then open in browser
-            time.sleep(5)
-            try:
-                webbrowser.open(f"http://{args.host}:{args.web_port}")
-            except Exception as e:
-                print(f"Could not open browser automatically: {e}")
-                print(f"Visit http://{args.host}:{args.web_port} manually")
-
         # Wait for all processes
         print("\n" + "=" * 60)
         print("✅ All services started successfully!")
