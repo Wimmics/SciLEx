@@ -146,9 +146,6 @@ Scope of assistance:
   - Documentation: Updating README, CLAUDE.md project instructions, documentation suite (docs/) and inline documentation.
  
 
-# References
-
----
 
 ## Appendix A: Keyword Combination Examples {#appendix-a}
 
@@ -172,3 +169,9 @@ The following example illustrates SciLEx's filtering pipeline applied to a real 
 | After abstract quality filter | 26,408 | 14 (0.1%) | 89.8% |
 | After citation filter | 23,922 | 2,486 (9.4%) | 90.8% |
 | Final output (top-N by relevance) | 500 | 23,422 (97.9%) | 99.8% |
+
+
+
+# References
+
+---
