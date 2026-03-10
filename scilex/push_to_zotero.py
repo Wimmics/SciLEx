@@ -6,6 +6,7 @@ This script reads aggregated paper data and pushes it to a specified
 Zotero collection, handling duplicates and creating the collection if needed.
 """
 
+import argparse
 import logging
 import os
 from datetime import datetime
@@ -190,6 +191,24 @@ def push_new_items_to_zotero(
 
 def main():
     """Main execution function."""
+    parser = argparse.ArgumentParser(
+        description="Push aggregated papers to Zotero collection"
+    )
+    parser.add_argument(
+        "--collect-name",
+        type=str,
+        default=None,
+        help="Collection name (overrides scilex.config.yml)",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default=None,
+        help="Output directory (overrides scilex.config.yml)",
+    )
+    
+    args = parser.parse_args()
+    
     logging.info(f"Zotero push process started at {datetime.now()}")
     logging.info("=" * 60)
 
@@ -201,6 +220,12 @@ def main():
     configs = load_all_configs(config_files)
     main_config = configs["main_config"]
     api_config = configs["api_config"]
+    
+    # Override with CLI arguments if provided
+    if args.collect_name:
+        main_config["collect_name"] = args.collect_name
+    if args.output_dir:
+        main_config["output_dir"] = args.output_dir
 
     # Extract Zotero configuration (handle both lowercase and capitalized keys)
     zotero_config = api_config.get("Zotero") or api_config.get("zotero")

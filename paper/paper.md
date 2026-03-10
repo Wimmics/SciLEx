@@ -21,6 +21,12 @@ authors:
   - name: Anaïs Ollagnier
     orcid: 0000-0003-4117-1191
     affiliation: 1
+  - name: Yousouf Taghzouti
+    orcid: 0000-0003-4509-9537
+    affiliation: 1
+  - name: Genesis Montenegro
+    orcid: 0009-0002-9354-2265
+    affiliation: 1
 affiliations:
  - name: INRIA, 3IA, CNRS, I3S, Université Côte d'Azur
    index: 1
@@ -130,6 +136,7 @@ Further planned extensions include:
 - **Citation network analysis.** Leveraging the citation and reference data already collected to build citation graphs, detect research community clusters, and identify hub papers — turning raw citation counts into structural bibliometric insights without additional API calls.
 - **LLM-augmented pipeline steps.** Introducing optional large language model–based stages: semantic abstract screening to reduce false positives and false negatives inherent to substring keyword matching, and AI-powered keyword expansion to assist users unfamiliar with a field's vocabulary in constructing effective queries.
 - **Enrichment extensions.** Adding open access status classification via Unpaywall (gold/green/bronze/closed), and author impact metrics (h-index) via the Semantic Scholar Author API.
+- **LLM-based pre-annotation** Annotating paper using titles/abstracts (e.g., task, language, and domain) to accelerate downstream manual review. 
   
 Morover, we plan to synergize SciLEx with Perspicacité-AI[@pradi:hal-05232923] and DataLens[@DataLens2025] projects to create a comprehensive AI-powered ecosystem for scientific research and education, empowering :
 - **Intelligent Dataset Discovery**: Integrate Perspicacité-AI's LLM and RAG capabilities with DataLens's network-based visualizations to enable context-aware dataset recommendations. Researchers will navigate from scientific questions to relevant datasets through AI-guided semantic understanding combined with interactive topology exploration.
