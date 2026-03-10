@@ -18,14 +18,14 @@ authors:
   - name: Catherine Faron
     orcid: 0000-0001-5959-5561
     affiliation: 1
+  - name: Anaïs Ollagnier
+    orcid: 0000-0003-4117-1191
+    affiliation: 1
   - name: Yousouf Taghzouti
     orcid: 0000-0003-4509-9537
     affiliation: 1
   - name: Genesis Montenegro
     orcid: 0009-0002-9354-2265
-    affiliation: 1
-  - name: Anaïs Ollagnier
-    orcid: 0000-0003-4117-1191
     affiliation: 1
 affiliations:
  - name: INRIA, 3IA, CNRS, I3S, Université Côte d'Azur
