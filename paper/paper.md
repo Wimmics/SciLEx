@@ -58,15 +58,15 @@ Finally, SciLEx exports all gathered information into a Zotero collection, facil
 
 SciLEx is built around the following core capabilities, each thoroughly documented in our [readthedocs.io](https://scilex.readthedocs.io/en/latest/):
 
-* Multi-source collection. Papers are retrieved concurrently from up to twelve academic APIs — Semantic Scholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — using parallel processing to minimise collection time.
-* Flexible query construction. Users can either supply a flat list of keywords, generating one query per keyword, or define two keyword groups whose terms are combined pairwise — implicitly encoding both OR logic (within groups) and AND logic (across groups) — without writing raw query strings — as illustrated in [Appendix A](#appendix-a). By abstracting the query into mandatory and optional components, SciLEx can automatically adapt searches to different APIs (e.g., PubMed, arXiv, HAL) regardless of their native search operators or field structures, ensuring consistent retrieval across diverse data sources.
-* Cross-source deduplication. Results are deduplicated across APIs using DOI matching, URL matching, and normalized exact title matching, ensuring that papers retrieved from multiple sources are merged into a single record.
-* Citation network extraction. SciLEx retrieves citation and reference lists via OpenCitations and Semantic Scholar, with results cached locally in SQLite to avoid redundant API calls across runs. This enables both impact-based filtering and citation snowballing.
-* Multi-stage quality filtering. Collected papers pass through a configurable pipeline that enforces time-aware citation thresholds, filters by item type, and ranks results by a composite relevance score computed from keyword matches and optional bonus keywords.
-* Hugging Face enrichment. For machine learning literature, SciLEx can enrich each paper with linked models, datasets, GitHub statistics, and AI-specific keywords sourced from Hugging Face.
-* Zotero integration. The full enriched corpus can be uploaded directly to a Zotero collection in batches, supporting collaborative annotation and selection.
-* Idempotent execution. All operations are safe to interrupt and re-run: completed queries are automatically detected and skipped, making SciLEx practical on standard personal hardware without dedicated infrastructure.
-* BibTeX export. The final curated bibliography can be exported as a BibTeX file for direct use in LaTeX-based workflows.
+* **Multi-source collection.** Papers are retrieved concurrently from up to twelve academic APIs — Semantic Scholar, OpenAlex, IEEE, ArXiv, Springer, Elsevier, HAL, DBLP, ORKG, OpenAIRE, Istex, and PubMed — using parallel processing to minimise collection time.
+* **Flexible query construction.** Users can either supply a flat list of keywords, generating one query per keyword, or define two keyword groups whose terms are combined pairwise — implicitly encoding both OR logic (within groups) and AND logic (across groups) — without writing raw query strings — as illustrated in [Appendix A](#appendix-a). By abstracting the query into mandatory and optional components, SciLEx can automatically adapt searches to different APIs (e.g., PubMed, arXiv, HAL) regardless of their native search operators or field structures, ensuring consistent retrieval across diverse data sources.
+* **Cross-source deduplication.** Results are deduplicated across APIs using DOI matching, URL matching, and normalized exact title matching, ensuring that papers retrieved from multiple sources are merged into a single record.
+* **Citation network extraction.** SciLEx retrieves citation and reference lists via OpenCitations and Semantic Scholar, with results cached locally in SQLite to avoid redundant API calls across runs. This enables both impact-based filtering and citation snowballing.
+* **Multi-stage quality filtering.** Collected papers pass through a configurable pipeline that enforces time-aware citation thresholds, filters by item type, and ranks results by a composite relevance score computed from keyword matches and optional bonus keywords.
+* **Hugging Face enrichment.** For machine learning literature, SciLEx can enrich each paper with linked models, datasets, GitHub statistics, and AI-specific keywords sourced from Hugging Face.
+* **Zotero integration.** The full enriched corpus can be uploaded directly to a Zotero collection in batches, supporting collaborative annotation and selection.
+* **Idempotent execution.** All operations are safe to interrupt and re-run: completed queries are automatically detected and skipped, making SciLEx practical on standard personal hardware without dedicated infrastructure.
+* **BibTeX export.** The final curated bibliography can be exported as a BibTeX file for direct use in LaTeX-based workflows.
 
 # Software Design
 
@@ -144,9 +144,9 @@ This work was supported by the French government through the France 2030 investm
 
 Tools used: Claude Code CLI (Anthropic) with Claude Sonnet 4.5 and Claude Opus 4.5 models, used from October 2025 through February 2026. Prior to October 2025, no AI tools were used by any contributor (C. Ringwald, F. Gandon).
 Scope of assistance: 
-  - Code development and refactoring: Claude Code was used to assist with implementing new features (PubMed collector, Hugging Face enrichment pipeline, BibTeX export, parallel aggregation, citation caching), refactoring the collector architecture (modular collector classes, multi-threading migration, state management removal), and bug fixing (API rate limiting, URL encoding, deduplication logic, metadata extraction).
-  - Code quality: Automated linting, formatting (via Ruff), and code style improvements.
-  - Documentation: Updating README, CLAUDE.md project instructions, documentation suite (docs/) and inline documentation.
+  - **Code development and refactoring:** Claude Code was used to assist with implementing new features (PubMed collector, Hugging Face enrichment pipeline, BibTeX export, parallel aggregation, citation caching), refactoring the collector architecture (modular collector classes, multi-threading migration, state management removal), and bug fixing (API rate limiting, URL encoding, deduplication logic, metadata extraction).
+  - **Code quality:** Automated linting, formatting (via Ruff), and code style improvements.
+  - **Documentation:** Updating README, CLAUDE.md project instructions, documentation suite (docs/) and inline documentation.
  
 
 
