@@ -145,7 +145,7 @@ Scope of assistance:
 
 ---
 
-## Appendix A: Keyword Combination examples {#appendix-a}
+## Appendix A: Keyword Combination Examples {#appendix-a}
 
 
 ![Examples of collects result given the 2 list of Keywords defined in SciLEx configuration](./img/KeywordsCombination.png)
@@ -158,7 +158,7 @@ The following example illustrates SciLEx's filtering pipeline applied to a real 
 
 <!-- ![ASCII representation of the filtering funnel.](./img/filtering_funnel_ascii.png) -->
 
-| Stage | Papers remaining | Removed | Cumulative removal |
+| Stage | # papers | # removed papers | Cumulative removal |
 |-------|----------------:|---------:|-------------------:|
 | Collected from APIs | 259,845 | — | — |
 | After format conversion + keyword filter | 186,308 | 73,537 (28.3%) | 28.3% |
