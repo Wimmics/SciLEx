@@ -129,8 +129,8 @@ Further planned extensions include:
 - **Enrichment extensions.** Adding open access status classification via Unpaywall (gold/green/bronze/closed), and author impact metrics (h-index) via the Semantic Scholar Author API.
   
 Morover, we plan to synergize SciLEx with Perspicacité-AI[@pradi:hal-05232923] and DataLens[@DataLens2025] projects to create a comprehensive AI-powered ecosystem for scientific research and education, empowering :
-* Intelligent Dataset Discovery: Integrate Perspicacité-AI's LLM and RAG capabilities with DataLens's network-based visualizations to enable context-aware dataset recommendations. Researchers will navigate from scientific questions to relevant datasets through AI-guided semantic understanding combined with interactive topology exploration.
-* Visual Knowledge Networks: Leverage DataLens's customizable network topologies to visualize the relationships between scientific literature, datasets, and methodologies retrieved by Perspicacité-AI, creating an intuitive interface that reveals hidden connections and accelerates the research discovery process.
+- **Intelligent Dataset Discovery**: Integrate Perspicacité-AI's LLM and RAG capabilities with DataLens's network-based visualizations to enable context-aware dataset recommendations. Researchers will navigate from scientific questions to relevant datasets through AI-guided semantic understanding combined with interactive topology exploration.
+- **Visual Knowledge Networks**: Leverage DataLens's customizable network topologies to visualize the relationships between scientific literature, datasets, and methodologies retrieved by Perspicacité-AI, creating an intuitive interface that reveals hidden connections and accelerates the research discovery process.
 
 # Acknowledgements
 
