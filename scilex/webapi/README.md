@@ -32,6 +32,11 @@ Complete web-based interface for SciLEx - combining a FastAPI REST backend with 
   - Real-time progress updates
   - Job history and status monitoring
 
+## Demo video ⏯️
+
+[![Scilex teaser video](/img/scilex_web_interface.png)](https://youtu.be/FXZtrlOJ-vU)
+
+
 ## Quick Start
 
 ### Installation
