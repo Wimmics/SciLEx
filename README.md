@@ -203,7 +203,7 @@ Run the pipeline step by step:
 
 See the [Quick Start Guide](https://scilex.readthedocs.io/en/latest/getting-started/quick-start.html) for a complete walkthrough.
 
-**Option C - 💻 Web Interface
+**Option C - 💻 Web Interface**
 * [Youtube Tutorial](https://www.youtube.com/watch?v=FXZtrlOJ-vU)
 * [Complete Documentation](https://scilex.readthedocs.io/en/latest/user-guides/WebInterfaceGuide.html)
 
