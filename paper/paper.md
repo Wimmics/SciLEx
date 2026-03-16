@@ -104,7 +104,7 @@ Programmatically, all components are importable as a Python library: the Collect
 
 SciLEx was originally developed to support a systematic literature review conducted during a PhD on pattern-based information extraction from natural language and knowledge graphs [@ringwald:tel-05551242]. The software is actually used by the Wimmics, Inria team where it was originially developped, and is actually actively disseminated in several academic ([Goblin Action Cost](https://www.cost.eu/actions/CA23147/), and the [ICN institute](https://icn.univ-cotedazur.fr/)) and private research [berger-levrault](https://www.berger-levrault.com/berger-levrault-group/) groups. The first systematic literature review based on SciLEx [@celian2025systematicreviewrelationextraction] is currently under review.
 
-# Comparison with Existing Software
+# State of the field
 
 **CoLRev (2024)**
 
