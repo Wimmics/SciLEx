@@ -79,39 +79,50 @@ st.markdown(
 # SIDEBAR - CONFIG & NAVIGATION
 # ============================================================================
 
-st.sidebar.title("⚙️ Configuration")
-api_base_url = st.sidebar.text_input(
-    "API Backend URL",
-    value="http://localhost:8000",
-    help="FastAPI backend URL used by the web interface",
-)
+with st.sidebar.expander("⚙️ Configuration", expanded=True):
+    api_base_url = st.text_input(
+        "API Backend URL",
+        value="http://localhost:8000",
+        help="FastAPI backend URL used by the web interface",
+    )
 
-# API Configuration Section
-st.sidebar.subheader("🔑 API Keys")
-saved_api_config = load_local_api_config()
+    # API Keys — flat list with status colors
+    st.subheader("🔑 API Keys")
+    saved_api_config = load_local_api_config()
 
-api_options = {
-    "SemanticScholar": {"api_key": "API Key"},
-    "IEEE": {"api_key": "API Key"},
-    "Elsevier": {
-        "api_key": "API Key",
-        "inst_token": "Institutional Token",
-    },
-    "Springer": {"api_key": "API Key"},
-    "Zotero": {
-        "api_key": "API Key",
-        "user_id": "User ID",
-        "user_mode": "User Mode (user/group)",
-    },
-    "HuggingFace": {"token": "Access Token"},
-}
+    api_options = {
+        "SemanticScholar": {"api_key": "API Key"},
+        "IEEE": {"api_key": "API Key"},
+        "Elsevier": {
+            "api_key": "API Key",
+            "inst_token": "Institutional Token",
+        },
+        "Springer": {"api_key": "API Key"},
+        "Zotero": {
+            "api_key": "API Key",
+            "user_id": "User ID",
+            "user_mode": "User Mode (user/group)",
+        },
+        "HuggingFace": {"token": "Access Token"},
+    }
 
-for api_name, fields in api_options.items():
-    api_saved = saved_api_config.get(api_name, {})
-    configured = [f for f in fields if api_saved.get(f)]
-    status = "✅" if configured else "⬚"
+    for api_name, fields in api_options.items():
+        api_saved = saved_api_config.get(api_name, {})
+        configured = [f for f in fields if api_saved.get(f)]
+        is_configured = bool(configured)
 
-    with st.sidebar.expander(f"{status} {api_name}", expanded=False):
+        # Green when configured, grey when not
+        if is_configured:
+            st.markdown(
+                f"<span style='color: #28a745; font-weight: 600;'>● {api_name}</span>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"<span style='color: #999; font-weight: 400;'>○ {api_name}</span>",
+                unsafe_allow_html=True,
+            )
+
         current_input_values = {}
         for field_name, field_label in fields.items():
             default_value = str(api_saved.get(field_name, "") or "")
@@ -123,9 +134,6 @@ for api_name, fields in api_options.items():
                 value=default_value,
                 key=f"api_{api_name}_{field_name}",
             )
-
-        if configured:
-            st.caption(f"Configured: {', '.join(configured)}")
 
         col_save, col_delete = st.columns(2)
 
@@ -166,13 +174,14 @@ for api_name, fields in api_options.items():
             st.success(f"{api_name} credentials cleared.")
             st.rerun()
 
-# Output directory
-st.sidebar.write("---")
-output_dir = st.sidebar.text_input(
-    "Output Directory",
-    value=DEFAULT_OUTPUT_DIR,
-    help="Where to save collected papers and results",
-)
+        st.divider()
+
+    # Output directory
+    output_dir = st.text_input(
+        "Output Directory",
+        value=DEFAULT_OUTPUT_DIR,
+        help="Where to save collected papers and results",
+    )
 
 # ============================================================================
 # MAIN CONTENT
