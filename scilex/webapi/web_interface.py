@@ -396,8 +396,21 @@ with tab1:
             k.strip() for k in bonus_keywords_text.split("\n") if k.strip()
         ]
 
+        # Check if this collection already has partial results
+        collect_path = Path(output_dir) / collect_name
+        has_partial = (
+            collect_path.exists() and any(collect_path.iterdir())
+            if collect_path.exists()
+            else False
+        )
+        if has_partial:
+            st.info(
+                "This collection already has data on disk. "
+                "Already completed queries will be skipped automatically."
+            )
+
         submitted = st.form_submit_button(
-            "🚀 Start Collection Pipeline",
+            "🔄 Resume Collection" if has_partial else "🚀 Start Collection Pipeline",
             width="stretch",
             type="primary",
         )
@@ -526,7 +539,10 @@ with tab1:
                     if data.get("stats"):
                         st.json(data["stats"])
                 elif data["status"] == "cancelled":
-                    st.warning("Pipeline was cancelled.")
+                    st.warning(
+                        "Pipeline was cancelled. You can restart with the same "
+                        "collection name — completed queries will be skipped."
+                    )
                 elif data["status"] == "failed":
                     st.error(f"Pipeline failed: {data.get('error', 'Unknown error')}")
                 del st.session_state["pipeline_job_id"]
