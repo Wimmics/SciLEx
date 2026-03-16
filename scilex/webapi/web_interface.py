@@ -281,7 +281,7 @@ with tab1:
 
         st.subheader("3️⃣ Data Sources")
 
-        col1, col2, col3 = st.columns(3)
+        col1, col2 = st.columns(2)
 
         with col1:
             st.write("**Free APIs**")
@@ -310,17 +310,7 @@ with tab1:
                 key="paid_apis",
             )
 
-        with col3:
-            st.write("**Other**")
-            other_apis = st.multiselect(
-                "Other sources",
-                options=["HuggingFace", "Zotero"],
-                default=[],
-                label_visibility="collapsed",
-                key="other_apis",
-            )
-
-        selected_apis = free_apis + paid_apis + other_apis
+        selected_apis = free_apis + paid_apis
 
         st.subheader("4️⃣ Quality Filters")
 
