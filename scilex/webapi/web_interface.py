@@ -1,5 +1,6 @@
 """Simple Streamlit web interface for SciLEx."""
 
+import contextlib
 import subprocess
 import sys
 import time
@@ -86,107 +87,84 @@ api_base_url = st.sidebar.text_input(
 )
 
 # API Configuration Section
-with st.sidebar.expander("🔑 API Keys", expanded=False):
-    st.subheader("Configure API Credentials")
-    saved_api_config = load_local_api_config()
+st.sidebar.subheader("🔑 API Keys")
+saved_api_config = load_local_api_config()
 
-    api_options = {
-        "SemanticScholar": {"api_key": "API Key"},
-        "IEEE": {"api_key": "API Key"},
-        "Elsevier": {
-            "api_key": "API Key",
-            "inst_token": "Institutional Token",
-        },
-        "Springer": {"api_key": "API Key"},
-        "Zotero": {
-            "api_key": "API Key",
-            "user_id": "User ID",
-            "user_mode": "User Mode (user/group)",
-        },
-        "HuggingFace": {"token": "Access Token"},
-    }
+api_options = {
+    "SemanticScholar": {"api_key": "API Key"},
+    "IEEE": {"api_key": "API Key"},
+    "Elsevier": {
+        "api_key": "API Key",
+        "inst_token": "Institutional Token",
+    },
+    "Springer": {"api_key": "API Key"},
+    "Zotero": {
+        "api_key": "API Key",
+        "user_id": "User ID",
+        "user_mode": "User Mode (user/group)",
+    },
+    "HuggingFace": {"token": "Access Token"},
+}
 
-    selected_api = st.selectbox("Select API", list(api_options.keys()))
-    selected_api_saved_values = saved_api_config.get(selected_api, {})
-    current_input_values = {}
+for api_name, fields in api_options.items():
+    api_saved = saved_api_config.get(api_name, {})
+    configured = [f for f in fields if api_saved.get(f)]
+    status = "✅" if configured else "⬚"
 
-    for field_name, field_label in api_options[selected_api].items():
-        default_value = str(selected_api_saved_values.get(field_name, "") or "")
-        if selected_api == "Zotero" and field_name == "user_mode" and not default_value:
-            default_value = "user"
-        current_input_values[field_name] = st.text_input(
-            field_label,
-            type="password",
-            value=default_value,
-            key=f"api_{selected_api}_{field_name}",
-        )
-
-    configured_fields = [
-        field_name
-        for field_name in api_options[selected_api]
-        if selected_api_saved_values.get(field_name)
-    ]
-    if configured_fields:
-        st.caption(
-            f"Loaded configured fields for {selected_api}: {', '.join(configured_fields)}"
-        )
-
-    field_to_delete = st.selectbox(
-        "Field to delete",
-        list(api_options[selected_api].keys()),
-        key=f"delete_field_{selected_api}",
-    )
-
-    col_save, col_delete = st.columns(2)
-
-    if col_save.button("✅ Save API Configuration"):
-        payload = {"api_name": selected_api}
-        for field_name in api_options[selected_api]:
-            field_value = current_input_values.get(field_name, "")
-            if field_value:
-                payload[field_name] = field_value
-
-        if len(payload) == 1:
-            st.warning("Please provide at least one credential field before saving.")
-        else:
-            try:
-                response = requests.post(
-                    f"{api_base_url.rstrip('/')}/api-config",
-                    json=payload,
-                    timeout=20,
-                )
-                if response.status_code == 200:
-                    st.success(f"Configuration for {selected_api} saved in backend.")
-                else:
-                    try:
-                        error_detail = response.json().get("detail", response.text)
-                    except Exception:
-                        error_detail = response.text
-                    st.error(
-                        f"Failed to save configuration ({response.status_code}): {error_detail}"
-                    )
-            except requests.RequestException as exc:
-                st.error(f"Could not reach backend at {api_base_url}. Error: {exc}")
-
-    if col_delete.button("🗑️ Delete Selected Field"):
-        try:
-            response = requests.delete(
-                f"{api_base_url.rstrip('/')}/api-config/{selected_api}/{field_to_delete}",
-                timeout=20,
+    with st.sidebar.expander(f"{status} {api_name}", expanded=False):
+        current_input_values = {}
+        for field_name, field_label in fields.items():
+            default_value = str(api_saved.get(field_name, "") or "")
+            if api_name == "Zotero" and field_name == "user_mode" and not default_value:
+                default_value = "user"
+            current_input_values[field_name] = st.text_input(
+                field_label,
+                type="password",
+                value=default_value,
+                key=f"api_{api_name}_{field_name}",
             )
-            if response.status_code == 200:
-                st.success(f"Deleted {field_to_delete} for {selected_api}.")
-                st.rerun()
+
+        if configured:
+            st.caption(f"Configured: {', '.join(configured)}")
+
+        col_save, col_delete = st.columns(2)
+
+        if col_save.button("💾 Save", key=f"save_{api_name}"):
+            payload = {"api_name": api_name}
+            for field_name in fields:
+                field_value = current_input_values.get(field_name, "")
+                if field_value:
+                    payload[field_name] = field_value
+
+            if len(payload) == 1:
+                st.warning("Provide at least one credential.")
             else:
                 try:
-                    error_detail = response.json().get("detail", response.text)
-                except Exception:
-                    error_detail = response.text
-                st.error(
-                    f"Failed to delete field ({response.status_code}): {error_detail}"
-                )
-        except requests.RequestException as exc:
-            st.error(f"Could not reach backend at {api_base_url}. Error: {exc}")
+                    response = requests.post(
+                        f"{api_base_url.rstrip('/')}/api-config",
+                        json=payload,
+                        timeout=20,
+                    )
+                    if response.status_code == 200:
+                        st.success(f"{api_name} saved.")
+                    else:
+                        try:
+                            error_detail = response.json().get("detail", response.text)
+                        except Exception:
+                            error_detail = response.text
+                        st.error(f"Failed ({response.status_code}): {error_detail}")
+                except requests.RequestException as exc:
+                    st.error(f"Backend unreachable: {exc}")
+
+        if col_delete.button("🗑️ Clear", key=f"delete_{api_name}"):
+            for field_name in fields:
+                with contextlib.suppress(requests.RequestException):
+                    requests.delete(
+                        f"{api_base_url.rstrip('/')}/api-config/{api_name}/{field_name}",
+                        timeout=20,
+                    )
+            st.success(f"{api_name} credentials cleared.")
+            st.rerun()
 
 # Output directory
 st.sidebar.write("---")
