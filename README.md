@@ -21,6 +21,7 @@
     <img src="https://img.shields.io/badge/Docs-Read%20the%20Docs-blue?style=flat-square&logo=readthedocs" alt="docs">
     </a>
     <img src="https://github.com/Wimmics/SciLEx/actions/workflows/tests.yml/badge.svg" alt="tests">
+    <a href="https://joss.theoj.org/papers/9fc1db5f4db530c036dd7744e2147b2d"><img src="https://joss.theoj.org/papers/9fc1db5f4db530c036dd7744e2147b2d/status.svg"></a>
 </p>
 
 ---
