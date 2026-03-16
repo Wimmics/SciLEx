@@ -249,25 +249,6 @@ with tab1:
                 value=False,
                 help="Enrich papers with HuggingFace tags, URLs, and GitHub repos",
             )
-            enrichment_threshold = 85
-            enrichment_limit = None
-            if enable_enrichment:
-                enrichment_threshold = st.slider(
-                    "Match Threshold",
-                    min_value=50,
-                    max_value=100,
-                    value=85,
-                    help="Fuzzy matching threshold for title matching (0-100)",
-                )
-                enrichment_limit = st.number_input(
-                    "Enrichment Limit",
-                    min_value=0,
-                    max_value=10000,
-                    value=0,
-                    help="Max papers to enrich (0 = all)",
-                )
-                if enrichment_limit == 0:
-                    enrichment_limit = None
 
         st.subheader("2️⃣ Keywords")
 
@@ -437,8 +418,6 @@ with tab1:
                         "aggregate_get_citations": aggregate_citations,
                         "output_dir": output_dir,
                         "enable_enrichment": enable_enrichment,
-                        "enrichment_threshold": enrichment_threshold,
-                        "enrichment_limit": enrichment_limit,
                     },
                     "api_config": load_local_api_config(),
                     "quality_filters": {
@@ -951,73 +930,42 @@ with tab3:
                 st.write("---")
                 st.subheader("🤗 Enrich with HuggingFace")
 
-                hf_col1, hf_col2, hf_col3 = st.columns(3)
+                if st.button("🤗 Enrich Papers", width="stretch", type="primary"):
+                    try:
+                        st.info(
+                            "⏳ Running HuggingFace enrichment (this may take a while)..."
+                        )
 
-                with hf_col1:
-                    hf_threshold = st.slider(
-                        "Match Threshold",
-                        min_value=50,
-                        max_value=100,
-                        value=85,
-                        key="hf_threshold",
-                        help="Fuzzy matching threshold for title matching",
-                    )
+                        result = subprocess.run(
+                            ["scilex-enrich"],
+                            capture_output=True,
+                            text=True,
+                            timeout=300,
+                        )
 
-                with hf_col2:
-                    hf_limit = st.number_input(
-                        "Limit (0 = all)",
-                        min_value=0,
-                        max_value=10000,
-                        value=0,
-                        key="hf_limit",
-                        help="Max papers to enrich",
-                    )
+                        if result.returncode == 0:
+                            st.success("✅ HuggingFace enrichment completed!")
+                            if result.stderr:
+                                stderr_tail = (
+                                    result.stderr[-500:]
+                                    if len(result.stderr) > 500
+                                    else result.stderr
+                                )
+                                st.caption(f"Output:\n{stderr_tail}")
+                        else:
+                            st.error("❌ Enrichment failed")
+                            if result.stderr:
+                                error_msg = (
+                                    result.stderr[-500:]
+                                    if len(result.stderr) > 500
+                                    else result.stderr
+                                )
+                                st.error(f"Error: {error_msg}")
 
-                with hf_col3:
-                    if st.button("🤗 Enrich Papers", width="stretch", type="primary"):
-                        try:
-                            st.info(
-                                "⏳ Running HuggingFace enrichment (this may take a while)..."
-                            )
-
-                            enrich_cmd = [
-                                "scilex-enrich",
-                                "--threshold",
-                                str(hf_threshold),
-                            ]
-                            if hf_limit > 0:
-                                enrich_cmd += ["--limit", str(hf_limit)]
-
-                            result = subprocess.run(
-                                enrich_cmd,
-                                capture_output=True,
-                                text=True,
-                                timeout=300,
-                            )
-
-                            if result.returncode == 0:
-                                st.success("✅ HuggingFace enrichment completed!")
-                                if result.stderr:
-                                    stderr_tail = (
-                                        result.stderr[-500:]
-                                        if len(result.stderr) > 500
-                                        else result.stderr
-                                    )
-                                    st.caption(f"Output:\n{stderr_tail}")
-                            else:
-                                st.error("❌ Enrichment failed")
-                                if result.stderr:
-                                    error_msg = (
-                                        result.stderr[-500:]
-                                        if len(result.stderr) > 500
-                                        else result.stderr
-                                    )
-                                    st.error(f"Error: {error_msg}")
-
-                        except subprocess.TimeoutExpired:
-                            st.error("❌ Enrichment timed out (took >5 minutes)")
-                        except Exception as e:
-                            st.error(f"❌ Error running enrichment: {str(e)}")
+                    except subprocess.TimeoutExpired:
+                        st.error("❌ Enrichment timed out (took >5 minutes)")
+                    except Exception as e:
+                        st.error(f"❌ Error running enrichment: {str(e)}")
 
         except Exception as e:
             st.error(f"Error loading results: {str(e)}")
