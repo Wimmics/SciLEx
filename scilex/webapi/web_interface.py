@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -365,7 +366,6 @@ with tab1:
                 )
 
         with col2:
-
             allowed_types = st.multiselect(
                 "Allowed Publication Types",
                 options=[
@@ -411,7 +411,7 @@ with tab1:
 
         submitted = st.form_submit_button(
             "🚀 Start Collection Pipeline",
-            width='stretch',
+            width="stretch",
             type="primary",
         )
 
@@ -494,7 +494,73 @@ with tab1:
                         )
 
                 except requests.RequestException as exc:
-                    st.error(f"❌ Could not reach backend at {api_base_url}. Error: {exc}")
+                    st.error(
+                        f"❌ Could not reach backend at {api_base_url}. Error: {exc}"
+                    )
+
+    # ── Pipeline Progress Monitor ──
+    if st.session_state.get("pipeline_job_id"):
+        st.write("---")
+        st.subheader("Pipeline Progress")
+        job_id = st.session_state["pipeline_job_id"]
+
+        try:
+            resp = requests.get(
+                f"{api_base_url.rstrip('/')}/pipelines/{job_id}/status",
+                timeout=5,
+            )
+            data = resp.json()
+
+            # Show progress bar
+            progress_value = max(0, min(data.get("progress", 0), 100))
+            st.progress(progress_value / 100, text=data.get("message", ""))
+
+            # Show per-API stats if available
+            api_stats = data.get("api_stats")
+            if api_stats:
+                cols = st.columns(min(len(api_stats), 4))
+                for idx, (api_name, stats) in enumerate(api_stats.items()):
+                    with cols[idx % len(cols)]:
+                        completed = stats.get("completed", 0)
+                        total = stats.get("total", 0)
+                        articles = stats.get("articles", 0)
+                        st.metric(
+                            api_name,
+                            f"{articles} papers",
+                            delta=f"{completed}/{total} queries",
+                        )
+
+            # Terminal states
+            if data["status"] in ("completed", "failed", "cancelled"):
+                if data["status"] == "completed":
+                    st.success("Pipeline completed successfully!")
+                    if data.get("stats"):
+                        st.json(data["stats"])
+                elif data["status"] == "cancelled":
+                    st.warning("Pipeline was cancelled.")
+                elif data["status"] == "failed":
+                    st.error(f"Pipeline failed: {data.get('error', 'Unknown error')}")
+                del st.session_state["pipeline_job_id"]
+            else:
+                # Cancel button
+                if st.button("⏹️ Cancel Pipeline", type="secondary"):
+                    try:
+                        requests.post(
+                            f"{api_base_url.rstrip('/')}/pipelines/{job_id}/cancel",
+                            timeout=5,
+                        )
+                        st.warning("Cancellation requested...")
+                    except requests.RequestException:
+                        st.error("Could not reach backend to cancel.")
+
+                # Auto-refresh
+                time.sleep(2)
+                st.rerun()
+
+        except requests.RequestException:
+            st.warning("Cannot reach backend, retrying...")
+            time.sleep(3)
+            st.rerun()
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TAB 2: VIEW RESULTS
@@ -580,7 +646,7 @@ with tab2:
 
             with col1:
                 if (
-                    st.button("⬅️ Previous", width='stretch')
+                    st.button("⬅️ Previous", width="stretch")
                     and st.session_state.page > 0
                 ):
                     st.session_state.page -= 1
@@ -597,7 +663,7 @@ with tab2:
 
             with col3:
                 if (
-                    st.button("Next ➡️", width='stretch')
+                    st.button("Next ➡️", width="stretch")
                     and st.session_state.page < total_pages - 1
                 ):
                     st.session_state.page += 1
@@ -623,7 +689,7 @@ with tab2:
 
             st.dataframe(
                 display_df[display_columns],
-                width='stretch',
+                width="stretch",
                 height=400,
             )
 
@@ -729,7 +795,7 @@ with tab3:
 
                 apply_filters = st.form_submit_button(
                     "✅ Apply Filters",
-                    width='stretch',
+                    width="stretch",
                     type="primary",
                 )
 
@@ -742,115 +808,134 @@ with tab3:
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
-                    if st.button("📊 Download as CSV", width='stretch'):
+                    if st.button("📊 Download as CSV", width="stretch"):
                         csv_content = df.to_csv(index=False, sep=";")
                         st.download_button(
                             label="Download CSV",
                             data=csv_content.encode(),
                             file_name=f"{selected_collection}_filtered.csv",
                             mime="text/csv",
-                            width='stretch',
+                            width="stretch",
                         )
 
                 with col2:
-                    if st.button("📚 Download as BibTeX", width='stretch'):
+                    if st.button("📚 Download as BibTeX", width="stretch"):
                         try:
                             # Prepare BibTeX export output
                             bib_output_dir = output_path / selected_collection
                             bib_file_path = bib_output_dir / "aggregated_results.bib"
-                            
+
                             # Run BibTeX export command with CLI arguments
                             result = subprocess.run(
                                 [
                                     "scilex-export-bibtex",
-                                    "--collect-name", selected_collection,
-                                    "--output-dir", str(output_dir),
+                                    "--collect-name",
+                                    selected_collection,
+                                    "--output-dir",
+                                    str(output_dir),
                                 ],
                                 capture_output=True,
                                 text=True,
                                 timeout=30,
                             )
-                            
+
                             if result.returncode == 0 and bib_file_path.exists():
                                 # Read BibTeX content
                                 with bib_file_path.open("r", encoding="utf-8") as f:
                                     bib_content = f.read()
-                                
+
                                 st.download_button(
                                     label="⬇️ Download BibTeX File",
                                     data=bib_content.encode(),
                                     file_name=f"{selected_collection}.bib",
                                     mime="text/plain",
-                                    width='stretch',
+                                    width="stretch",
                                 )
-                                st.success(f"✅ BibTeX file generated ({len(bib_content)} bytes)")
+                                st.success(
+                                    f"✅ BibTeX file generated ({len(bib_content)} bytes)"
+                                )
                             else:
                                 st.error("❌ Failed to generate BibTeX file")
                                 if result.stderr:
                                     st.error(f"Error: {result.stderr}")
-                                
+
                         except subprocess.TimeoutExpired:
                             st.error("❌ BibTeX export timed out (took >30 seconds)")
                         except Exception as e:
                             st.error(f"❌ Error generating BibTeX: {str(e)}")
 
                 with col3:
-                    if st.button("📋 Download as JSON", width='stretch'):
+                    if st.button("📋 Download as JSON", width="stretch"):
                         json_content = df.to_json(orient="records", indent=2)
                         st.download_button(
                             label="Download JSON",
                             data=json_content.encode(),
                             file_name=f"{selected_collection}_filtered.json",
                             mime="application/json",
-                            width='stretch',
+                            width="stretch",
                         )
 
                 # Zotero push option
                 st.write("---")
                 st.subheader("📤 Push to Zotero")
-                
+
                 zotero_col1, zotero_col2 = st.columns(2)
-                
+
                 with zotero_col1:
                     zotero_collection_name = st.text_input(
                         "Zotero Collection Name",
                         value=selected_collection,
                         help="Name of the Zotero collection to push papers to",
                     )
-                
+
                 with zotero_col2:
-                    if st.button("📚 Push to Zotero", width='stretch', type="primary"):
+                    if st.button("📚 Push to Zotero", width="stretch", type="primary"):
                         try:
-                            st.info("⏳ Pushing papers to Zotero (this may take a moment)...")
-                            
+                            st.info(
+                                "⏳ Pushing papers to Zotero (this may take a moment)..."
+                            )
+
                             # Run push to Zotero command
                             result = subprocess.run(
                                 [
                                     "scilex-push-zotero",
-                                    "--collect-name", zotero_collection_name,
-                                    "--output-dir", str(output_dir),
+                                    "--collect-name",
+                                    zotero_collection_name,
+                                    "--output-dir",
+                                    str(output_dir),
                                 ],
                                 capture_output=True,
                                 text=True,
                                 timeout=120,
                             )
-                            
+
                             if result.returncode == 0:
                                 st.info(f"**Collection:** {zotero_collection_name}")
                                 # Display the command output which contains summary stats
                                 if result.stderr:
                                     # Log output is in stderr for the logging handler
                                     st.warning("Zotero push completed:")
-                                    st.caption("Output:\n" + result.stderr[-500:] if len(result.stderr) > 500 else result.stderr)
+                                    stderr_tail = (
+                                        result.stderr[-500:]
+                                        if len(result.stderr) > 500
+                                        else result.stderr
+                                    )
+                                    st.caption(f"Output:\n{stderr_tail}")
                                 else:
-                                    st.success("✅ Successfully pushed papers to Zotero!")
+                                    st.success(
+                                        "✅ Successfully pushed papers to Zotero!"
+                                    )
                             else:
                                 st.error("❌ Failed to push papers to Zotero")
                                 if result.stderr:
                                     # Show last 500 chars of error
-                                    error_msg = result.stderr[-500:] if len(result.stderr) > 500 else result.stderr
+                                    error_msg = (
+                                        result.stderr[-500:]
+                                        if len(result.stderr) > 500
+                                        else result.stderr
+                                    )
                                     st.error(f"Error details:\n{error_msg}")
-                                
+
                         except subprocess.TimeoutExpired:
                             st.error("❌ Zotero push timed out (took >2 minutes)")
                         except Exception as e:
@@ -900,7 +985,7 @@ with tab4:
         if collections_data:
             st.dataframe(
                 pd.DataFrame(collections_data),
-                width='stretch',
+                width="stretch",
                 hide_index=True,
             )
         else:

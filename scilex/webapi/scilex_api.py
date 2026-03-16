@@ -3,9 +3,11 @@
 Provides REST endpoints for paper collection, aggregation, filtering, and configuration management.
 """
 
+import asyncio
 import logging
 import os
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -187,6 +189,7 @@ async def run_collection_task(
     job_id: str,
     main_config: dict[str, Any],
     api_config: dict[str, Any],
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """Run the collection task in background."""
     try:
@@ -204,28 +207,58 @@ async def run_collection_task(
             yaml.dump(main_config, f)
 
         pipeline_jobs[job_id]["progress"] = 20
-        pipeline_jobs[job_id][
-            "message"
-        ] = "Configuration saved, starting API collection..."
+        pipeline_jobs[job_id]["message"] = (
+            "Configuration saved, starting API collection..."
+        )
 
         # Ensure aggregate_collect can resolve runtime config from scilex/scilex.config.yml
         save_main_config(main_config)
 
-        # Run collection
-        collector = CollectCollection(main_config, api_config)
-        collector.create_collects_jobs()
+        # Progress callback: maps collection progress to 20-70% range
+        def on_collection_progress(api_stats, completed, total):
+            ratio = completed / max(total, 1)
+            pipeline_jobs[job_id]["progress"] = 20 + int(ratio * 50)
+            pipeline_jobs[job_id]["message"] = (
+                f"Collecting papers... {completed}/{total} queries done"
+            )
+            pipeline_jobs[job_id]["api_stats"] = {
+                k: dict(v) for k, v in api_stats.items()
+            }
 
-        pipeline_jobs[job_id]["progress"] = 80
-        pipeline_jobs[job_id][
-            "message"
-        ] = "Collection completed, aggregating results..."
+        # Run collection with progress callback and cancel event
+        collector = CollectCollection(
+            main_config,
+            api_config,
+            progress_callback=on_collection_progress,
+            cancel_event=cancel_event,
+        )
+        # Offload blocking call to thread pool so event loop stays responsive
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, collector.create_collects_jobs)
 
-        # Run aggregation
+        # Check if cancelled during collection
+        if cancel_event and cancel_event.is_set():
+            pipeline_jobs[job_id]["status"] = "cancelled"
+            pipeline_jobs[job_id]["message"] = "Pipeline cancelled during collection."
+            return
+
+        pipeline_jobs[job_id]["progress"] = 75
+        pipeline_jobs[job_id]["message"] = (
+            "Collection completed, aggregating results..."
+        )
+
+        # Run aggregation (offloaded to thread pool)
         os.chdir(PROJECT_ROOT)
         sys.argv = ["aggregate", "--skip-citations", "--workers", "3"]
         from scilex.aggregate_collect import main as aggregate_main
 
-        aggregate_main()
+        await loop.run_in_executor(None, aggregate_main)
+
+        # Check if cancelled during aggregation
+        if cancel_event and cancel_event.is_set():
+            pipeline_jobs[job_id]["status"] = "cancelled"
+            pipeline_jobs[job_id]["message"] = "Pipeline cancelled after aggregation."
+            return
 
         pipeline_jobs[job_id]["progress"] = 95
         pipeline_jobs[job_id]["message"] = "Aggregation completed."
@@ -480,7 +513,8 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
                 exclude_unset=True
             )
 
-        # Initialize job
+        # Initialize job with cancel event
+        cancel_event = threading.Event()
         pipeline_jobs[job_id] = {
             "id": job_id,
             "status": "pending",
@@ -488,11 +522,16 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
             "message": "Initializing...",
             "created_at": datetime.now().isoformat(),
             "config": main_config,
+            "cancel_event": cancel_event,
         }
 
         # Run collection in background
         background_tasks.add_task(
-            run_collection_task, job_id, main_config, request.api_config
+            run_collection_task,
+            job_id,
+            main_config,
+            request.api_config,
+            cancel_event,
         )
 
         return {
@@ -521,7 +560,31 @@ async def get_pipeline_status(job_id: str):
         "created_at": job.get("created_at"),
         "error": job.get("error"),
         "stats": job.get("stats"),
+        "api_stats": job.get("api_stats"),
     }
+
+
+@app.post("/pipelines/{job_id}/cancel")
+async def cancel_pipeline(job_id: str):
+    """Cancel a running pipeline job."""
+    if job_id not in pipeline_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = pipeline_jobs[job_id]
+    if job["status"] in ("completed", "failed", "cancelled"):
+        return {"message": f"Job already finished ({job['status']})", "job_id": job_id}
+    if job["status"] not in ("pending", "running"):
+        raise HTTPException(
+            status_code=400, detail=f"Job is not running (status: {job['status']})"
+        )
+
+    cancel_event = job.get("cancel_event")
+    if cancel_event:
+        cancel_event.set()
+
+    job["status"] = "cancelling"
+    job["message"] = "Cancellation requested, finishing current queries..."
+    return {"message": "Cancellation requested", "job_id": job_id}
 
 
 @app.get("/pipelines")
@@ -558,7 +621,7 @@ async def get_results(collect_name: str, limit: int = 100, skip: int = 0):
 
         # Apply limit and skip
         total = len(df)
-        df = df.iloc[skip: skip + limit]
+        df = df.iloc[skip : skip + limit]
 
         # Convert to dict, handling NaN values
         records = df.fillna("").to_dict(orient="records")
