@@ -403,19 +403,37 @@ with tab1:
             if collect_path.exists()
             else False
         )
+        start_fresh = False
         if has_partial:
             st.info(
                 "This collection already has data on disk. "
-                "Already completed queries will be skipped automatically."
+                "Completed queries will be skipped automatically."
+            )
+            start_fresh = st.checkbox(
+                "Start fresh (delete existing data)",
+                value=False,
+                help="Clear all previous results and start from scratch",
             )
 
         submitted = st.form_submit_button(
-            "🔄 Resume Collection" if has_partial else "🚀 Start Collection Pipeline",
+            "🚀 Start Fresh"
+            if start_fresh
+            else (
+                "🔄 Resume Collection"
+                if has_partial
+                else "🚀 Start Collection Pipeline"
+            ),
             width="stretch",
             type="primary",
         )
 
         if submitted:
+            # Delete existing data if starting fresh
+            if start_fresh and collect_path.exists():
+                import shutil
+
+                shutil.rmtree(collect_path)
+                st.info("Previous data deleted.")
             # Validation
             if not keywords_list[0]:
                 st.error("❌ Please enter at least one primary keyword")
