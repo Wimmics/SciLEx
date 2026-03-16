@@ -6,13 +6,7 @@ Get your first paper collection running. This assumes you've [installed SciLEx](
 
 ### 1. Create Configuration
 
-```bash
-# Copy example configs
-cp scilex/api.config.yml.example scilex/api.config.yml
-cp scilex/scilex.config.yml.example scilex/scilex.config.yml
-```
-
-Edit `scilex/scilex.config.yml` with a minimal search:
+Create a `test_collection.yml` file at the project root:
 
 ```yaml
 keywords:
@@ -25,19 +19,17 @@ apis:
   - OpenAlex
   - Arxiv
 
+fields: ["title", "abstract"]
+
+collect: true
 collect_name: "test"
+max_results_per_api: 50
 ```
 
 ### 2. Run Collection
 
 ```bash
-# With uv (no activation needed)
-uv run scilex-collect
-
-# With pip: activate your environment first
-source .venv/bin/activate       # macOS/Linux
-# .venv\Scripts\activate        # Windows
-scilex-collect
+uv run python src/run_collecte.py
 ```
 
 You'll see progress like:
@@ -50,68 +42,23 @@ Progress: 2/4 (50%) collections completed
 ### 3. Aggregate Results
 
 ```bash
-# With uv
-uv run scilex-aggregate
-
-# With pip
-scilex-aggregate
+uv run python src/aggregate_collect.py
 ```
 
-Results saved to `output/{collect_name}/aggregated_results.csv`
+Results saved to `output/collect_*/aggregated_data.csv`
 
-### 4. Enrich with HuggingFace (optional)
-
-Adds ML metadata (tags, GitHub repos, HuggingFace URLs) to your papers:
+### 4. View Results
 
 ```bash
-# With uv
-uv run scilex-enrich
-
-# With pip
-scilex-enrich
-```
-
-This updates the CSV in-place. Use `--dry-run --limit 10` to preview matches first.
-
-### 5. Export Results
-
-Choose **one** output format:
-
-**Push to Zotero** (requires Zotero API key in `api.config.yml`):
-
-```bash
-# With uv
-uv run scilex-push-zotero
-
-# With pip
-scilex-push-zotero
-```
-
-**Export to BibTeX** (for LaTeX, Overleaf, JabRef):
-
-```bash
-# With uv
-uv run scilex-export-bibtex
-
-# With pip
-scilex-export-bibtex
-```
-
-Output: `output/{collect_name}/aggregated_results.bib`
-
-### 6. View Raw CSV
-
-You can also inspect the aggregated CSV directly:
-
-```bash
-head output/test/aggregated_results.csv
+# View first few lines
+head output/collect_*/aggregated_data.csv
 ```
 
 Or open in spreadsheet software.
 
 ## Real Collection Example
 
-For a proper research collection, edit `scilex/scilex.config.yml`:
+For a proper research collection, edit `src/scilex.config.yml`:
 
 ```yaml
 keywords:
@@ -125,7 +72,10 @@ apis:
   - OpenAlex
   - Arxiv
 
+fields: ["title", "abstract"]
+
 aggregate_get_citations: true
+
 quality_filters:
   enable_itemtype_filter: true
   allowed_item_types:
@@ -137,24 +87,24 @@ quality_filters:
 
 Then run:
 ```bash
-# With uv
-uv run scilex-collect
-uv run scilex-aggregate
-uv run scilex-enrich              # Optional: add HuggingFace metadata
-uv run scilex-push-zotero         # Export to Zotero
-# or: uv run scilex-export-bibtex  # Export to BibTeX
-
-# With pip (venv activated)
-scilex-collect
-scilex-aggregate
-scilex-enrich                     # Optional: add HuggingFace metadata
-scilex-push-zotero                # Export to Zotero
-# or: scilex-export-bibtex        # Export to BibTeX
+uv run python src/run_collecte.py
+uv run python src/aggregate_collect.py
 ```
+
+## CSV Output Columns
+
+- `title` - Paper title
+- `authors` - Author list
+- `year` - Publication year
+- `DOI` - Digital Object Identifier
+- `abstract` - Full abstract
+- `itemType` - Publication type
+- `citation_count` - Citations (if enabled)
+- `quality_score` - Metadata completeness (0-100)
+- `relevance_score` - Relevance (0-10)
 
 ## Next Steps
 
-- [Configuration Guide](configuration.md) — All config options and API keys
-- [Basic Workflow](../user-guides/basic-workflow.md) — Detailed pipeline walkthrough with CSV column reference
-- [Advanced Filtering](../user-guides/advanced-filtering.md) — Full filtering pipeline with flowchart
-- [BibTeX Export](../reference/bibtex-export.md) — BibTeX field reference and PDF link sources
+- [Configuration Guide](configuration.md) - All config options
+- [Basic Workflow](../user-guides/basic-workflow.md) - Detailed workflow
+- [Advanced Filtering](../user-guides/advanced-filtering.md) - Filtering options

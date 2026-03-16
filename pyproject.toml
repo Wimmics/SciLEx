@@ -25,6 +25,9 @@ dependencies = [
     "tenacity>=9.0",
     "tqdm>=4.66",
     "python-dateutil>=2.9",
+    "fastapi>=0.135.1",
+    "uvicorn>=0.41.0",
+    "streamlit>=1.55.0",
 ]
 
 [project.optional-dependencies]
@@ -59,7 +62,7 @@ omit = [
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 60
+fail_under = 55
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.",

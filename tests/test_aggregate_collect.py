@@ -30,7 +30,7 @@ def _patch_aggregate_collect_configs():
     # Only patch if not already imported
     if "scilex.aggregate_collect" not in sys.modules:
         with (
-            patch("scilex.aggregate_collect.load_all_configs", return_value=_MOCK_CONFIGS),
+            patch("scilex.crawlers.utils.load_all_configs", return_value=_MOCK_CONFIGS),
             patch("scilex.logging_config.setup_logging"),
         ):
             # Force import with mocked configs

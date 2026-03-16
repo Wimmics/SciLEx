@@ -4,11 +4,12 @@ This guide explains how to configure SciLEx for your research needs.
 
 ## Configuration Files
 
-SciLEx uses up to three configuration files:
+SciLEx uses two main configuration files:
 
-1. **`scilex/scilex.config.yml`** - Search and collection settings (required)
-2. **`scilex/api.config.yml`** - API credentials and rate limits (required)
-3. **`scilex/scilex.advanced.yml`** - Advanced overrides (optional, for power users)
+1. **`src/scilex.config.yml`** - Search and collection settings
+2. **`scilex/api.config.yml`** - API credentials and rate limits
+
+An example for API credentials is provided at `src/api.config.yml.example`.
 
 ## Basic Configuration
 
@@ -26,11 +27,8 @@ keywords:
   - ["knowledge graph", "ontology"]      # Group 1
   - ["large language model", "LLM"]      # Group 2
 
-# Optional: Bonus keywords boost relevance without filtering
-bonus_keywords: ["temporal reasoning", "multi-hop"]
-
 # Years to search
-years: [2023, 2024, 2025]
+years: [2022, 2023, 2024]
 
 # APIs to use (see API guide for options)
 apis:
@@ -38,69 +36,50 @@ apis:
   - OpenAlex
   - Arxiv
 
+# Fields to search in
+fields: ["title", "abstract"]
+
 # Collection settings
+collect: true
 collect_name: "my_collection"
-semantic_scholar_mode: "regular"  # or "bulk" (requires special access)
+output_dir: "output"
 ```
 
-### API Configuration (api.config.yml)
+### API Configuration (scilex/api.config.yml)
 
-YAML keys must use PascalCase to match API names:
+Note: key names use **snake_case** matching the internal API identifiers.
 
 ```yaml
-# Semantic Scholar (optional key improves rate limits)
-SemanticScholar:
+# Semantic Scholar (optional - increases rate limits when provided)
+sem_scholar:
   api_key: "your-key-here"
 
-# IEEE (required)
-IEEE:
+# IEEE (required if using IEEE Xplore)
+ieee:
   api_key: "your-ieee-key"
 
-# Elsevier (required)
-Elsevier:
+# Elsevier (required if using)
+elsevier:
   api_key: "your-elsevier-key"
-  inst_token: null  # Optional institutional token
 
-# Springer (required)
-Springer:
+# Springer (required if using)
+springer:
   api_key: "your-springer-key"
 
-# PubMed (optional - 3 req/sec free, 10 req/sec with key)
-PubMed:
-  api_key: "your-ncbi-key"
-
-# OpenAlex (optional - 100 req/day free, 100k/day with key)
-OpenAlex:
-  api_key: "your-openalex-key"
-
-# CrossRef (optional - faster citation fetching with polite pool)
-CrossRef:
-  mailto: "your.email@institution.org"
-
 # Zotero (for export)
-Zotero:
+zotero:
   api_key: "your-zotero-key"
-  user_id: "your-user-id"
-  user_mode: "user"  # or "group"
-```
+  user_mode: "user"  # or "group" for group libraries
 
-Rate limits use a dual-value system (without_key / with_key) and are auto-selected
-based on whether an API key is configured. Override only if needed:
-
-```yaml
-# Optional rate limit overrides (requests per second)
+# Rate limits (requests per second) - override defaults here
 rate_limits:
   SemanticScholar: 1.0
   OpenAlex: 10.0
-  Arxiv: 0.33
-  PubMed: 10.0  # With key (3.0 without)
+  IEEE: 10.0
+  Arxiv: 3.0
+  OpenAIRE: 5.0
+  ORKG: 2.0
 ```
-
-### Advanced Configuration (scilex.advanced.yml)
-
-For power users. Copy `scilex/scilex.advanced.yml.example` and uncomment settings to override.
-Covers: custom relevance weights, itemtype bypass, abstract quality validation, open-access
-filtering, max_articles_per_query.
 
 ## Keyword Configuration
 
@@ -124,40 +103,51 @@ keywords:
   - ["prediction", "forecast", "model"]       # Method
 ```
 
-### Bonus Keywords (Relevance Boost)
-
-Boost relevance scores without filtering. Papers matching bonus keywords score higher
-but are not excluded if they don't match:
-
-```yaml
-bonus_keywords:
-  - "temporal reasoning"
-  - "multi-hop"
-  - "context windows"
-```
-
-Bonus keyword matches are weighted at 0.5x compared to mandatory keywords.
-
 ## Filtering Configuration
 
-Key `quality_filters` options:
+### Basic Quality Filters
 
 ```yaml
-aggregate_get_citations: true          # Fetch citation counts via CrossRef/OpenCitations
-
 quality_filters:
-  enable_itemtype_filter: true           # Keep only specified publication types
+  # Filter by publication type
+  enable_itemtype_filter: true
   allowed_item_types:
     - journalArticle
     - conferencePaper
-  validate_abstracts: true               # Remove papers with poor/truncated abstracts
-  min_abstract_quality_score: 60        # 0-100 scale (default: 60)
-  apply_citation_filter: true           # Apply time-aware citation thresholds
-  apply_relevance_ranking: true         # Score and limit to top N papers
-  max_papers: 500                        # Keep top 500 papers
+
+  # Abstract quality
+  validate_abstracts: true
+  min_abstract_quality_score: 60
+  filter_by_abstract_quality: true
 ```
 
-See [Advanced Filtering](../user-guides/advanced-filtering.md) for a detailed explanation of each phase, citation thresholds, scoring weights, and the full pipeline flowchart.
+### Citation Filtering
+
+```yaml
+# Enable citation fetching
+aggregate_get_citations: true
+
+quality_filters:
+  # Filter by citations (time-aware)
+  apply_citation_filter: true
+  min_citations_per_year: 2
+```
+
+### Relevance Ranking
+
+```yaml
+quality_filters:
+  # Rank and limit results
+  apply_relevance_ranking: true
+  max_papers: 500  # Keep top 500 papers
+
+  # Scoring weights (must sum to 1.0)
+  relevance_weights:
+    keywords: 0.45
+    quality: 0.25
+    itemtype: 0.20
+    citations: 0.10
+```
 
 ## Common Configurations
 
@@ -167,8 +157,7 @@ See [Advanced Filtering](../user-guides/advanced-filtering.md) for a detailed ex
 keywords: [["test"], []]
 years: [2024]
 apis: ["OpenAlex"]
-quality_filters:
-  max_papers: 10
+max_results_per_api: 10
 ```
 
 ### Comprehensive Search
@@ -183,6 +172,7 @@ apis:
   - OpenAlex
   - IEEE
   - Arxiv
+  - OpenAIRE
 aggregate_get_citations: true
 quality_filters:
   apply_relevance_ranking: true
@@ -205,18 +195,19 @@ quality_filters:
 
 ### APIs Without Keys
 
-These APIs work without configuration:
-- OpenAlex (key optional but recommended for higher quota)
+These APIs work without any configuration:
+- OpenAlex
 - Arxiv
 - DBLP
 - HAL
-- PubMed (key optional but recommended for higher rate)
-- Istex
+- ISTEX
+- OpenAIRE
+- ORKG
 
 ### APIs Requiring Keys
 
-Must be configured in `api.config.yml`:
-- SemanticScholar (optional but recommended)
+Must be configured in `scilex/api.config.yml`:
+- SemanticScholar (optional but recommended for higher rate limits)
 - IEEE
 - Elsevier
 - Springer
@@ -236,7 +227,7 @@ export LOG_COLOR=false
 ## Tips
 
 1. **Start Small**: Test with one year and one API
-2. **Use Open APIs First**: No keys needed
+2. **Use Open APIs First**: No keys needed (OpenAlex, Arxiv, OpenAIRE, ORKG)
 3. **Add APIs Gradually**: Test each one separately
 4. **Check Rate Limits**: Respect API quotas
 5. **Save Working Configs**: Keep successful configurations for reuse

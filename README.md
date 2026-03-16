@@ -21,10 +21,13 @@
     <img src="https://img.shields.io/badge/Docs-Read%20the%20Docs-blue?style=flat-square&logo=readthedocs" alt="docs">
     </a>
     <img src="https://github.com/Wimmics/SciLEx/actions/workflows/tests.yml/badge.svg" alt="tests">
+    <a href="https://joss.theoj.org/papers/9fc1db5f4db530c036dd7744e2147b2d"><img src="https://joss.theoj.org/papers/9fc1db5f4db530c036dd7744e2147b2d/status.svg"></a>
 </p>
 
 ---
 > SciLEx — like the silex stone that early humans relied on to spark fire from raw material — is a lightweight, portable tool designed to ignite research exploration. Rather than navigating fragmented databases, confronting redundant results, and manually sifting through noise, SciLEx strikes directly at the core challenge: it queries heterogeneous digital library APIs, applies smart deduplication and quality filtering, and delivers a clean, curated corpus ready for export to Zotero or BibTeX. It is not a full-scale review platform — it is the essential flint in the researcher's toolkit, engineered to quick-start systematic literature reviews with precision and minimal friction.
+
+![SciLEx Web Interface](https://github.com/Wimmics/SciLEx/blob/main/img/ScreenSciLEx.png)
 
 ## Table of Contents
 
@@ -201,6 +204,10 @@ Run the pipeline step by step:
 
 See the [Quick Start Guide](https://scilex.readthedocs.io/en/latest/getting-started/quick-start.html) for a complete walkthrough.
 
+**Option C - 💻 Web Interface**
+* [Youtube Tutorial](https://www.youtube.com/watch?v=FXZtrlOJ-vU)
+* [Complete Documentation](https://scilex.readthedocs.io/en/latest/user-guides/WebInterfaceGuide.html)
+
 ### Testing
 
 Install dev dependencies first (not included in the default install):
@@ -218,6 +225,7 @@ Then run the tests:
 ```
 
 ---
+
 
 ## Citation
 

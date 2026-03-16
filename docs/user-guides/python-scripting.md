@@ -4,18 +4,26 @@ Use SciLEx as a Python library to integrate paper collection into your own scrip
 
 ## Setup
 
-All SciLEx modules rely on YAML config files. Load them using `load_all_configs()`:
+All SciLEx modules in `src/` rely on YAML config files. Add `src/` to your Python path before importing:
 
 ```python
-from scilex.crawlers.utils import load_all_configs
+import sys
+import os
 
-config_files = {
-    "main_config": "scilex.config.yml",
-    "api_config": "api.config.yml",
-}
-configs = load_all_configs(config_files)
-main_config = configs["main_config"]
-api_config = configs["api_config"]
+# Add src/ to path so crawlers and other modules are importable
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+```
+
+Load configs using `yaml`:
+
+```python
+import yaml
+
+with open("src/scilex.config.yml") as f:
+    main_config = yaml.safe_load(f)
+
+with open("scilex/api.config.yml") as f:
+    api_config = yaml.safe_load(f)
 ```
 
 Or build configs entirely in Python (no YAML files needed):
@@ -33,7 +41,7 @@ main_config = {
 }
 
 api_config = {
-    "SemanticScholar": {"api_key": "your-key-here"},
+    "SemanticScholar": {},
     "OpenAlex": {},
 }
 ```
@@ -44,8 +52,11 @@ Run API collection programmatically using `CollectCollection`:
 
 ```python
 import os
+import sys
 import yaml
-from scilex.crawlers.collector_collection import CollectCollection
+
+sys.path.insert(0, 'src')
+from crawlers.collector_collection import CollectCollection
 
 # Ensure output directory exists
 output_dir = main_config.get("output_dir", "output")
@@ -62,15 +73,17 @@ collector.create_collects_jobs()
 
 ## Aggregate and Filter
 
-The aggregation module uses `argparse` and reads config at import time. Invoke it via `sys.argv`:
+The aggregation script reads config at import time. Invoke it via `sys.argv`:
 
 ```python
 import sys
 
+sys.path.insert(0, 'src')
+
 # Set arguments before importing
 sys.argv = ["aggregate", "--skip-citations", "--workers", "3"]
 
-from scilex.aggregate_collect import main as aggregate_main
+from aggregate_collect import main as aggregate_main
 
 aggregate_main()
 ```
@@ -89,122 +102,29 @@ print(f"\nTop 10 cited:")
 print(df.nlargest(10, "nb_citation")[["title", "nb_citation"]])
 ```
 
-## Enrich with HuggingFace
-
-Add ML metadata (tags, GitHub repos) to your aggregated CSV:
-
-```python
-import sys
-
-sys.argv = ["enrich", "--limit", "50"]  # Process first 50 papers
-
-from scilex.enrich_with_hf import main as enrich_main
-
-enrich_main()
-```
-
-For a dry run (preview matches without modifying the CSV):
-
-```python
-import sys
-
-sys.argv = ["enrich", "--dry-run", "--limit", "10"]
-
-from scilex.enrich_with_hf import main as enrich_main
-
-enrich_main()
-```
-
 ## Export to BibTeX
 
-### High-level export
-
 ```python
-from scilex.export_to_bibtex import main as bibtex_main
+import sys
+
+sys.path.insert(0, 'src')
+
+from export_to_bibtex import main as bibtex_main
 
 bibtex_main()
-# Creates: output/{collect_name}/aggregated_results.bib
-```
-
-### Granular control with `format_bibtex_entry()`
-
-Generate BibTeX for individual papers:
-
-```python
-import pandas as pd
-from scilex.export_to_bibtex import (
-    format_bibtex_entry,
-    generate_citation_key,
-    load_aggregated_data,
-    load_config,
-)
-
-config = load_config()
-data = load_aggregated_data(config)
-
-used_keys = set()
-entries = []
-
-for row in data.itertuples(index=False):
-    doi = getattr(row, "DOI", None)
-    key = generate_citation_key(doi, row, used_keys)
-    entry = format_bibtex_entry(row, key)
-    entries.append(entry)
-
-# Write to custom output path
-with open("my_papers.bib", "w") as f:
-    f.write("\n\n".join(entries))
-
-print(f"Exported {len(entries)} entries")
+# Creates: output/collect_*/aggregated_results.bib
 ```
 
 ## Push to Zotero
 
-### High-level push
-
 ```python
-from scilex.push_to_zotero import main as zotero_main
+import sys
+
+sys.path.insert(0, 'src')
+
+from push_to_Zotero_collect import main as zotero_main
 
 zotero_main()
-```
-
-### Direct Zotero API usage
-
-For fine-grained control over Zotero operations:
-
-```python
-from scilex.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
-from scilex.push_to_zotero import load_aggregated_data, prefetch_templates
-
-# Initialize client
-zotero = ZoteroAPI(
-    user_id="your-user-id",
-    user_role="user",  # or "group"
-    api_key="your-api-key",
-)
-
-# Get or create a collection
-collection = zotero.get_or_create_collection("My Review")
-collection_key = collection["data"]["key"]
-
-# Load and prepare papers
-config = {
-    "output_dir": "output",
-    "collect_name": "collect_20250101_120000",
-    "aggregate_file": "aggregated_results.csv",
-}
-data = load_aggregated_data(config)
-templates = prefetch_templates(data)
-
-# Get existing URLs to skip duplicates
-existing_urls = zotero.get_existing_item_urls(collection_key)
-
-# Prepare and upload individual items
-for row in data.itertuples(index=False):
-    item = prepare_zotero_item(row, collection_key, templates)
-    if item and item.get("url") not in existing_urls:
-        result = zotero.post_items_bulk([item])
-        print(f"Uploaded: {getattr(row, 'title', 'Unknown')[:60]}")
 ```
 
 ## Full Pipeline Script
@@ -212,12 +132,15 @@ for row in data.itertuples(index=False):
 A complete end-to-end script combining all steps:
 
 ```python
-"""Full SciLEx pipeline: collect, aggregate, enrich, export."""
+"""Full SciLEx pipeline: collect, aggregate, export."""
 
 import os
 import sys
 
 import yaml
+
+# ── Path setup ────────────────────────────────────────────────────
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 # ── 1. Configuration ──────────────────────────────────────────────
 
@@ -245,7 +168,7 @@ api_config = {
 
 # ── 2. Collection ─────────────────────────────────────────────────
 
-from scilex.crawlers.collector_collection import CollectCollection
+from crawlers.collector_collection import CollectCollection
 
 output_dir = main_config["output_dir"]
 os.makedirs(output_dir, exist_ok=True)
@@ -263,28 +186,12 @@ print("Collection complete.")
 
 sys.argv = ["aggregate", "--skip-citations"]
 
-from scilex.aggregate_collect import main as aggregate_main
+from aggregate_collect import main as aggregate_main
 
 aggregate_main()
 print("Aggregation complete.")
 
-# ── 4. Enrich (optional) ──────────────────────────────────────────
-
-sys.argv = ["enrich"]
-
-from scilex.enrich_with_hf import main as enrich_main
-
-enrich_main()
-print("Enrichment complete.")
-
-# ── 5. Export ─────────────────────────────────────────────────────
-
-from scilex.export_to_bibtex import main as bibtex_main
-
-bibtex_main()
-print("BibTeX export complete.")
-
-# ── 6. Analyze results ────────────────────────────────────────────
+# ── 4. Analyze results ────────────────────────────────────────────
 
 import pandas as pd
 
@@ -300,10 +207,11 @@ print(f"Years: {df['year'].value_counts().sort_index().to_dict()}")
 
 ## Important Notes
 
-- **Config files**: The `aggregate_collect` and `enrich_with_hf` modules load config at import time via `load_all_configs()`. Make sure your YAML config files exist in the `scilex/` directory before importing these modules.
-- **Working directory**: `load_all_configs()` looks for config files relative to the current working directory. Run scripts from the project root.
-- **Threading**: Collection uses threading (1 thread per API). Safe to call without `__main__` guard, but recommended for scripts.
+- **Working directory**: Run scripts from the project root so relative paths resolve correctly.
+- **Path setup**: Always add `src/` to `sys.path` before importing SciLEx modules.
+- **Multiprocessing**: Collection uses spawn mode. Always run collection code inside an `if __name__ == "__main__":` guard.
 - **sys.argv**: Modules that use `argparse` parse `sys.argv` in their `main()`. Set `sys.argv` before calling `main()` to pass arguments programmatically.
+- **CSV delimiter**: The output CSV uses `;` as delimiter, not `,`.
 
 ## Next Steps
 

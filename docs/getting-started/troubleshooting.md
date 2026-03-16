@@ -8,7 +8,7 @@ Common issues and solutions when using SciLEx.
 
 **Problem**:
 ```
-Error: Python >=3.10 required
+Error: Python 3.13+ required
 ```
 
 **Solution**:
@@ -16,10 +16,10 @@ Error: Python >=3.10 required
 # Check your Python version
 python --version
 
-# Install Python 3.10+ from python.org
+# Install Python 3.13+ from python.org
 # Or use pyenv
-pyenv install 3.12
-pyenv local 3.12
+pyenv install 3.13
+pyenv local 3.13
 ```
 
 ### Module Not Found
@@ -34,7 +34,7 @@ ModuleNotFoundError: No module named 'pandas'
 # Reinstall dependencies
 uv sync
 # Or with pip
-pip install -e .
+pip install -r requirements.txt
 ```
 
 ### uv Command Not Found
@@ -49,7 +49,7 @@ bash: uv: command not found
 # Install uv
 curl -LsSf https://astral.sh/uv/install.sh | sh
 # Or use pip instead
-pip install -e .
+pip install -r requirements.txt
 ```
 
 ## API Issues
@@ -63,9 +63,10 @@ Error: IEEE API key validation failed
 
 **Solution**:
 1. Check your API key is correct in `scilex/api.config.yml`
-2. Remove any extra spaces or quotes
-3. Verify key is active on API provider's dashboard
-4. Check if key has expired
+2. Verify the key name matches the expected snake_case form (e.g., `sem_scholar`, not `semantic_scholar`)
+3. Remove any extra spaces or quotes
+4. Verify key is active on API provider's dashboard
+5. Check if key has expired
 
 ### Rate Limit Errors (429)
 
@@ -76,10 +77,10 @@ HTTP 429: Too Many Requests
 
 **Solution**:
 ```yaml
-# Lower rate limits in api.config.yml
+# Lower rate limits in scilex/api.config.yml
 rate_limits:
   SemanticScholar: 0.5  # Reduce from 1.0
-  IEEE: 1.0  # Reduce from 2.0
+  IEEE: 5.0  # Reduce from 10.0
 ```
 
 ### Connection Timeout
@@ -94,8 +95,8 @@ requests.exceptions.Timeout: Request timed out
 # Check internet connection
 ping api.semanticscholar.org
 
-# Try again with longer timeout
-# Or check if API is down
+# Try again - timeouts can be transient
+# Or check if the API is down
 ```
 
 ### SSL Certificate Error
@@ -121,7 +122,10 @@ pip install --upgrade certifi
 2. Try broader search terms
 3. Try different years
 4. Try different APIs
-5. Use more specific keywords or dual-group mode
+5. Search only in titles first:
+   ```yaml
+   fields: ["title"]
+   ```
 
 ### Too Many Results
 
@@ -148,10 +152,10 @@ pip install --upgrade certifi
 **Problem**: Collection appears frozen
 
 **Solution**:
-1. Check if it's actually making progress (logs update slowly)
+1. Check if it's actually making progress (logs update slowly for large queries)
 2. Enable debug logging:
    ```bash
-   LOG_LEVEL=DEBUG scilex-collect
+   LOG_LEVEL=DEBUG uv run python src/run_collecte.py
    ```
 3. Check API rate limits aren't too low
 4. Try with fewer APIs first
@@ -201,10 +205,9 @@ MemoryError: Unable to allocate array
 **Solution**:
 ```bash
 # Use parallel mode with batching (default)
-scilex-aggregate
+uv run python src/aggregate_collect.py
 
-# Or reduce batch size
-scilex-aggregate --batch-size 1000
+# Or reduce the year range and re-collect
 ```
 
 ### Slow Aggregation
@@ -214,11 +217,10 @@ scilex-aggregate --batch-size 1000
 **Solution**:
 ```bash
 # Ensure parallel mode is used (default)
-scilex-aggregate
+uv run python src/aggregate_collect.py
 
-# Skip citations if not needed
-# In config:
-aggregate_get_citations: false
+# Skip citations if not needed - edit src/scilex.config.yml:
+# aggregate_get_citations: false
 ```
 
 ## Zotero Issues
@@ -228,9 +230,9 @@ aggregate_get_citations: false
 **Problem**: Papers don't appear in Zotero
 
 **Solution**:
-1. Check API key in `api.config.yml`
-2. Verify `user_id` is correct
-3. Check `collection_id` exists
+1. Check API key in `scilex/api.config.yml`
+2. Verify `user_mode` is set correctly (`"user"` or `"group"`)
+3. Check that the target Zotero collection exists
 4. Check Zotero storage quota
 
 ### Duplicate Papers
@@ -239,9 +241,9 @@ aggregate_get_citations: false
 
 **Solution**:
 ```bash
-# The system checks URLs to avoid duplicates
-# If papers have different URLs, they will be duplicated
-# You can manually deduplicate in Zotero
+# The system checks URLs to avoid duplicates.
+# If papers have different URLs they will be treated as distinct.
+# You can manually deduplicate in Zotero using its built-in merge tool.
 ```
 
 ## Configuration Issues
@@ -270,11 +272,11 @@ FileNotFoundError: scilex.config.yml not found
 
 **Solution**:
 ```bash
-# Copy example config
-cp scilex/scilex.config.yml.example scilex/scilex.config.yml
+# Check that src/scilex.config.yml exists
+ls src/scilex.config.yml
 
-# Edit with your settings
-nano scilex/scilex.config.yml
+# Edit to match your needs
+nano src/scilex.config.yml
 ```
 
 ## Data Quality Issues
@@ -283,7 +285,7 @@ nano scilex/scilex.config.yml
 
 **Problem**: Many papers have "NA" for abstracts
 
-**Explanation**: Some APIs don't provide abstracts (e.g., DBLP by policy). This is expected.
+**Explanation**: Some APIs don't provide abstracts (e.g., DBLP by policy, ORKG by design). This is expected.
 
 **Solution**: Use APIs with better abstract coverage:
 - SemanticScholar (95%)
@@ -309,26 +311,25 @@ nano scilex/scilex.config.yml
 ### Enable Debug Logging
 
 ```bash
-LOG_LEVEL=DEBUG scilex-collect
+LOG_LEVEL=DEBUG uv run python src/run_collecte.py
 ```
 
 ### Check Logs
 
 Look for errors in console output or check the collection directory for state files.
 
-### Run Tests
+### Test Individual APIs
 
 ```bash
-uv sync --extra dev                          # Install dev dependencies if not already done
-uv run python -m pytest tests/ -v           # All tests
-uv run python -m pytest tests/ -v -m "not live"  # Offline tests only
+uv run python "src/API tests/SemanticScholarAPI.py"
+uv run python "src/API tests/OpenAlexAPI.py"
 ```
 
 ### Verify Configuration
 
 ```bash
 # Check YAML syntax
-python -c "import yaml; yaml.safe_load(open('scilex/scilex.config.yml'))"
+uv run python -c "import yaml; yaml.safe_load(open('src/scilex.config.yml'))"
 ```
 
 ## Getting Help
@@ -358,4 +359,4 @@ If none of these solutions work:
 
 **Meaning**: Results already exist for this query
 
-**Action**: This is normal (idempotent behavior). Delete output directory to re-collect.
+**Action**: This is normal (idempotent behavior). Delete the output directory to re-collect.

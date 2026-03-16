@@ -11,118 +11,105 @@ Collection System → APIs → JSON Storage
     ↓
 Aggregation Pipeline → Filtering
     ↓
-CSV Output / BibTeX / Zotero Export
+CSV Output / Zotero Export
 ```
 
 ## Core Components
 
 ### 1. Collection System
 
-**Location**: `scilex/crawlers/collector_collection.py`
+**Location**: `src/crawlers/collector_collection.py`
 
 Orchestrates parallel API collection:
 - Creates jobs from config (keywords × years × APIs)
-- Runs collectors in parallel (threading, 1 thread per API)
-- Tracks progress via Queue and tqdm
+- Runs collectors in parallel (multiprocessing)
+- Tracks progress and handles errors
 - Skips completed queries (idempotent)
 
-**API Collectors** (`scilex/crawlers/collectors/`):
-- Base class: `API_collector` in `base.py`
-- 10 active implementations (SemanticScholar, OpenAlex, IEEE, Arxiv, Springer, Elsevier, PubMed, HAL, DBLP, Istex)
-- Each handles query building, pagination, parsing
+**API Collectors** (`src/crawlers/collectors.py`):
+- Base class: `API_collector`
+- 11 active implementations: SemanticScholar, OpenAlex, IEEE, Elsevier, Springer, arXiv, HAL, DBLP, ISTEX, OpenAIRE, ORKG
+- 1 deprecated: GoogleScholar
+- Each handles query building, pagination, and response parsing
 
 ### 2. Aggregation Pipeline
 
-**Location**: `scilex/aggregate_collect.py`
+**Location**: `src/aggregate_collect.py`
 
 Processes collected papers:
 1. Load JSON files from all APIs
 2. Convert to unified format
-3. Deduplicate (DOI + normalized title exact match)
+3. Deduplicate (DOI, URL, fuzzy title)
 4. Apply keyword filtering
 5. Score quality
 6. Filter by citations
 7. Rank by relevance
 8. Output to CSV
 
-**Parallel Mode** (`scilex/crawlers/aggregate_parallel.py`):
+**Parallel Mode** (`src/crawlers/aggregate_parallel.py`):
 - Multiprocessing for speed
 - Batch processing (5000 papers/batch)
 - Auto-detects CPU count
 
 ### 3. Format Converters
 
-**Location**: `scilex/crawlers/aggregate.py`
+**Location**: `src/crawlers/aggregate.py`
 
 Convert API-specific formats to unified schema:
-- One converter per API
+- One converter function per API
 - Maps to Zotero-compatible format
-- Uses `MISSING_VALUE` for missing fields
+- Uses `MISSING_VALUE` sentinel for missing fields (never `None` or `""`)
+
+Converters registered in `FORMAT_CONVERTERS` dict:
+- `SemanticScholartoZoteroFormat`
+- `IstextoZoteroFormat`
+- `ArxivtoZoteroFormat`
+- `DBLPtoZoteroFormat`
+- `HALtoZoteroFormat`
+- `OpenAlextoZoteroFormat`
+- `IEEEtoZoteroFormat`
+- `SpringertoZoteroFormat`
+- `ElseviertoZoteroFormat`
+- `OpenAIREtoZoteroFormat`
+- `ORKGtoZoteroFormat`
 
 ### 4. Filtering Engine
 
-**Location**: `scilex/aggregate_collect.py`
+**Location**: `src/aggregate_collect.py`
 
 5-phase filtering:
 1. ItemType filter
-2. Keyword filter (`scilex/keyword_validation.py`)
-3. Quality filter (`scilex/quality_validation.py`)
+2. Keyword filter
+3. Quality filter
 4. Citation filter
 5. Relevance ranking
 
-### 5. Validation Modules
+### 5. Citation System
 
-- **`scilex/keyword_validation.py`** - Single/dual keyword matching logic
-- **`scilex/quality_validation.py`** - Quality scoring, abstract validation, author counting
-- **`scilex/abstract_validation.py`** - Detect truncation, boilerplate, encoding issues
-- **`scilex/duplicate_tracking.py`** - API overlap analysis and dedup statistics
+**Location**: `src/citations/citations_tools.py`
 
-### 6. Citation System
-
-**Location**: `scilex/citations/citations_tools.py`
-
-Four-tier strategy:
+Three-tier strategy:
 1. SQLite cache (instant)
-2. Semantic Scholar data (if available, in-memory)
-3. CrossRef live per-DOI API call (~3-10 req/sec with polite pool)
-4. OpenCitations API (1 req/sec fallback, only for CrossRef misses)
+2. Semantic Scholar data (if available)
+3. OpenCitations API (rate-limited)
 
 Cache location: `output/citation_cache.db`
 
-### 7. HuggingFace Enrichment
+### 6. Zotero Integration
 
-**Location**: `scilex/HuggingFace/`
-
-Modular enrichment system:
-- `hf_client.py` - HuggingFace API client
-- `title_matcher.py` - Fuzzy title matching
-- `tag_formatter.py` - Tag formatting (TASK:, PTM:, DATASET:, etc.)
-- `metadata_extractor.py` - Extract ML metadata
-
-Entry point: `scilex/enrich_with_hf.py` (CLI and programmatic)
-
-### 8. Zotero Integration
-
-**Location**: `scilex/Zotero/zotero_api.py`
+**Location**: `src/Zotero/push_to_Zotero.py`
 
 API client for Zotero:
 - Bulk uploads (50 items/batch)
 - Duplicate detection by URL
 - Collection management
 
-### 9. Infrastructure
-
-- **`scilex/config_defaults.py`** - All defaults, dual-value rate limits, quality schema
-- **`scilex/constants.py`** - MISSING_VALUE, is_valid(), circuit breaker config
-- **`scilex/logging_config.py`** - Centralized logging, progress tracking
-- **`scilex/crawlers/circuit_breaker.py`** - Circuit breaker pattern for API resilience
-
 ## Data Flow
 
 ### Collection
 
 ```
-Config → Job Generation → Thread Workers (1 per API) → API Calls → JSON Files
+Config → Job Generation → Parallel Workers → API Calls → JSON Files
 ```
 
 Each job:
@@ -131,7 +118,7 @@ Each job:
 - Year
 - Output path
 
-Output: `output/{collect_name}/{API}/{query_id}/page_*`
+Output: `output/collect_YYYYMMDD_HHMMSS/{API}/{query_id}/page_*`
 
 ### Aggregation
 
@@ -139,10 +126,10 @@ Output: `output/{collect_name}/{API}/{query_id}/page_*`
 JSON Files → Format Conversion → Deduplication → Filtering → CSV
 ```
 
-Output: `aggregated_results.csv` with columns:
+Output: `aggregated_data.csv` with columns:
 - Core: title, authors, year, DOI, abstract
 - Publication: itemType, publicationTitle, volume, issue
-- Metadata: nb_citation, quality_score, relevance_score
+- Metadata: nb_citation, quality_score, relevance_score, archive
 
 ## Design Patterns
 
@@ -152,6 +139,8 @@ API collectors created dynamically:
 api_collectors = {
     'SemanticScholar': SemanticScholar_collector,
     'OpenAlex': OpenAlex_collector,
+    'OpenAIRE': OpenAIRE_collector,
+    'ORKG': ORKG_collector,
     ...
 }
 collector = api_collectors[api_name](config)
@@ -162,7 +151,6 @@ Fails fast for broken APIs:
 - Tracks consecutive failures
 - Opens circuit after 5 failures
 - Skips requests when open
-- Auto-retries after timeout (60s)
 
 ### Repository Pattern
 Abstracts data storage:
@@ -170,26 +158,22 @@ Abstracts data storage:
 - CSV for aggregated results
 - SQLite for citation cache
 
-## Configuration System
-
-Hierarchical priority:
-1. Default values (`config_defaults.py`)
-2. Main config (`scilex.config.yml`)
-3. Advanced config (`scilex.advanced.yml`) — merges/overrides main config
-4. API config (`api.config.yml`)
-5. Environment variables
-6. Command-line arguments
-
-Build system defined in `pyproject.toml` (hatchling build backend, CLI entry points, dependencies, ruff/pytest config).
-
 ## Performance Features
 
-- **Threaded Collection**: Multiple APIs simultaneously (1 thread per API)
+- **Parallel Collection**: Multiple APIs simultaneously
 - **Parallel Aggregation**: Batch processing with multiprocessing
 - **Citation Caching**: SQLite cache avoids redundant API calls
 - **Circuit Breaker**: Skip broken APIs quickly
-- **Rate Limiting**: Per-API throttling with dual-value system (with/without key)
+- **Rate Limiting**: Per-API throttling
 - **Bulk Operations**: Zotero uploads in batches
+
+## Configuration System
+
+Hierarchical priority:
+1. Default values (in code)
+2. Config files (YAML)
+3. Environment variables
+4. Command-line arguments
 
 ## Error Handling
 
@@ -197,78 +181,62 @@ Build system defined in `pyproject.toml` (hatchling build backend, CLI entry poi
 - 30-second timeouts on all API calls
 - Retry logic with exponential backoff
 - State files for recovery
-- API key sanitization in error messages
 
 ## Directory Structure
 
 ```
-scilex/
+src/
 ├── crawlers/
-│   ├── collectors/               # API collector classes (one per API)
-│   │   ├── base.py               # API_collector base class
-│   │   ├── semantic_scholar.py
-│   │   ├── openalex.py
-│   │   ├── pubmed.py
-│   │   └── ...                   # 10 collectors total
-│   ├── collector_collection.py   # Collection orchestrator (threading)
-│   ├── aggregate.py              # Format converters
-│   ├── aggregate_parallel.py     # Parallel aggregation
-│   └── circuit_breaker.py        # Circuit breaker pattern
+│   ├── collectors.py          # All API collector classes (monolithic)
+│   ├── collector_collection.py  # Orchestration and job management
+│   ├── aggregate.py           # Format converters (one per API)
+│   └── aggregate_parallel.py  # Parallel aggregation
 ├── citations/
 │   └── citations_tools.py
-├── HuggingFace/
-│   ├── hf_client.py
-│   ├── title_matcher.py
-│   ├── tag_formatter.py
-│   └── metadata_extractor.py
 ├── Zotero/
-│   └── zotero_api.py
-├── constants.py                  # Shared constants, is_valid()
-├── config_defaults.py            # All defaults, rate limits
-├── keyword_validation.py         # Keyword matching logic
-├── quality_validation.py         # Quality scoring
-├── abstract_validation.py        # Abstract quality detection
-├── duplicate_tracking.py         # API overlap analysis
-├── logging_config.py             # Centralized logging
-├── run_collection.py             # Main collection script
-├── aggregate_collect.py          # Main aggregation script
-├── enrich_with_hf.py             # HuggingFace CSV enrichment
-├── push_to_zotero.py             # Zotero upload
-└── export_to_bibtex.py           # BibTeX export
+│   └── push_to_Zotero.py
+├── API tests/                 # Manual API test scripts
+├── run_collecte.py            # Main collection entry point
+├── aggregate_collect.py       # Main aggregation entry point
+├── push_to_Zotero_collect.py  # Zotero export entry point
+├── scilex.config.yml          # Search configuration
+└── api.config.yml.example     # API credentials template
+
+scilex/                        # Package stubs (in development)
+├── api.config.yml             # Active API credentials (not committed)
+└── ...
 
 output/
-└── {collect_name}/               # Named by collect_name in config
-    ├── {API}/                    # Per-API results
-    └── aggregated_results.csv    # Final output
+└── collect_*/                 # Timestamped collections
+    ├── {API}/                 # Per-API results
+    └── aggregated_data.csv    # Final output
 ```
 
 ## Adding New Components
 
 ### New API Collector
 
-1. Create collector class in `scilex/crawlers/collectors/` inheriting `API_collector`
-2. Implement: `__init__()`, `query_build()`, `run()`, `parsePageResults()`
-3. Add format converter in `scilex/crawlers/aggregate.py`
-4. Register in `api_collectors` dict in `collector_collection.py`
-5. Add rate limit defaults in `config_defaults.py`
-6. Add to config examples
+1. Create collector class in `src/crawlers/collectors.py`
+2. Implement abstract methods
+3. Add format converter in `src/crawlers/aggregate.py`
+4. Register in `api_collectors` dict in `src/crawlers/collector_collection.py`
+5. Add to config examples
 
 See [Adding Collectors](adding-collectors.md) for details.
 
 ### New Filter
 
-1. Add filter function in `aggregate_collect.py`
-2. Add config options in `config_defaults.py`
+1. Add filter function in `src/aggregate_collect.py`
+2. Add config options
 3. Insert in filtering pipeline
 4. Update documentation
 
 ## Testing
 
-376 tests across 16 files, 38% overall coverage. See `tests/README.md` for details.
+Tests in `tests/`:
+- `test_dual_keyword_logic.py` - Keyword matching
+- `test_openaire_collector.py` / `test_openaire_aggregation.py` - OpenAIRE
+- `test_orkg_collector.py` / `test_orkg_aggregation.py` - ORKG
+- Unit tests for collectors and format converters
 
-```bash
-uv run python -m pytest tests/                                        # All tests
-uv run python -m pytest tests/ --cov=scilex --cov-report=term-missing # With coverage
-```
-
-Shared fixtures in `tests/conftest.py`. PubMed XML fixtures in `tests/fixtures/pubmed/`.
+Run: `uv run python -m pytest tests/`
