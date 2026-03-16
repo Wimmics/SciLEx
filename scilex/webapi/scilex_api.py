@@ -79,6 +79,9 @@ class CollectionConfig(BaseModel):
     semantic_scholar_mode: str | None = "regular"
     aggregate_get_citations: bool | None = True
     output_dir: str | None = None
+    enable_enrichment: bool = False
+    enrichment_threshold: int = 85
+    enrichment_limit: int | None = None
 
 
 class FilterConfig(BaseModel):
@@ -260,8 +263,34 @@ async def run_collection_task(
             pipeline_jobs[job_id]["message"] = "Pipeline cancelled after aggregation."
             return
 
-        pipeline_jobs[job_id]["progress"] = 95
+        pipeline_jobs[job_id]["progress"] = 85
         pipeline_jobs[job_id]["message"] = "Aggregation completed."
+
+        # Optional: HuggingFace enrichment
+        if main_config.get("enable_enrichment"):
+            pipeline_jobs[job_id]["progress"] = 88
+            pipeline_jobs[job_id]["message"] = "Running HuggingFace enrichment..."
+
+            enrich_args = [
+                "enrich",
+                "--threshold",
+                str(main_config.get("enrichment_threshold", 85)),
+            ]
+            limit = main_config.get("enrichment_limit")
+            if limit:
+                enrich_args += ["--limit", str(limit)]
+
+            sys.argv = enrich_args
+            from scilex.enrich_with_hf import main as enrich_main
+
+            await loop.run_in_executor(None, enrich_main)
+
+        pipeline_jobs[job_id]["progress"] = 95
+        pipeline_jobs[job_id]["message"] = (
+            "Enrichment completed."
+            if main_config.get("enable_enrichment")
+            else "Preparing output..."
+        )
 
         # Prepare output
         collect_dir = os.path.join(
@@ -501,6 +530,9 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
             "output_dir": request.collection_config.output_dir or output_dir,
             "collect": True,
             "aggregate_get_citations": request.collection_config.aggregate_get_citations,
+            "enable_enrichment": request.collection_config.enable_enrichment,
+            "enrichment_threshold": request.collection_config.enrichment_threshold,
+            "enrichment_limit": request.collection_config.enrichment_limit,
         }
 
         if request.collection_config.semantic_scholar_mode:
