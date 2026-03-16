@@ -92,12 +92,15 @@ with st.sidebar.expander("⚙️ Configuration", expanded=True):
 
     api_options = {
         "SemanticScholar": {"api_key": "API Key"},
+        "OpenAlex": {"api_key": "API Key (optional, higher rate limits)"},
+        "PubMed": {"api_key": "API Key (optional, higher rate limits)"},
         "IEEE": {"api_key": "API Key"},
         "Elsevier": {
             "api_key": "API Key",
             "inst_token": "Institutional Token",
         },
         "Springer": {"api_key": "API Key"},
+        "CrossRef": {"mailto": "Email (for polite pool)"},
         "Zotero": {
             "api_key": "API Key",
             "user_id": "User ID",
