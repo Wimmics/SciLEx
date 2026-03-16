@@ -927,47 +927,6 @@ with tab3:
                         except Exception as e:
                             st.error(f"❌ Error pushing to Zotero: {str(e)}")
 
-                # HuggingFace Enrichment
-                st.write("---")
-                st.subheader("🤗 Enrich with HuggingFace")
-
-                if st.button("🤗 Enrich Papers", width="stretch", type="primary"):
-                    try:
-                        st.info(
-                            "⏳ Running HuggingFace enrichment (this may take a while)..."
-                        )
-
-                        result = subprocess.run(
-                            ["scilex-enrich"],
-                            capture_output=True,
-                            text=True,
-                            timeout=300,
-                        )
-
-                        if result.returncode == 0:
-                            st.success("✅ HuggingFace enrichment completed!")
-                            if result.stderr:
-                                stderr_tail = (
-                                    result.stderr[-500:]
-                                    if len(result.stderr) > 500
-                                    else result.stderr
-                                )
-                                st.caption(f"Output:\n{stderr_tail}")
-                        else:
-                            st.error("❌ Enrichment failed")
-                            if result.stderr:
-                                error_msg = (
-                                    result.stderr[-500:]
-                                    if len(result.stderr) > 500
-                                    else result.stderr
-                                )
-                                st.error(f"Error: {error_msg}")
-
-                    except subprocess.TimeoutExpired:
-                        st.error("❌ Enrichment timed out (took >5 minutes)")
-                    except Exception as e:
-                        st.error(f"❌ Error running enrichment: {str(e)}")
-
         except Exception as e:
             st.error(f"Error loading results: {str(e)}")
 
