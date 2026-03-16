@@ -466,6 +466,18 @@ async def get_available_apis():
             "free_tier": True,
         },
         {
+            "name": "PubMedCentral",
+            "description": "PubMed Central - Free full-text biomedical articles",
+            "requires_key": False,
+            "free_tier": True,
+        },
+        {
+            "name": "Istex",
+            "description": "ISTEX - French scientific full-text archive",
+            "requires_key": False,
+            "free_tier": True,
+        },
+        {
             "name": "IEEE",
             "description": "IEEE Xplore - IEEE digital library",
             "requires_key": True,
@@ -480,18 +492,6 @@ async def get_available_apis():
         {
             "name": "Springer",
             "description": "Springer - Springer journals and books",
-            "requires_key": True,
-            "free_tier": False,
-        },
-        {
-            "name": "HuggingFace",
-            "description": "HuggingFace - ML models/datasets enrichment",
-            "requires_key": False,
-            "free_tier": True,
-        },
-        {
-            "name": "Zotero",
-            "description": "Zotero - Push collected papers to Zotero",
             "requires_key": True,
             "free_tier": False,
         },
