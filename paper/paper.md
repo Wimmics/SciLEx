@@ -102,7 +102,7 @@ Programmatically, all components are importable as a Python library: the Collect
 
 #  Research impact statement
 
-SciLEx was originally developed to support a systematic literature review conducted during a PhD on pattern-based information extraction from natural language and knowledge graphs [@ringwald:tel-05551242]. The software is actually used by the [Wimmics, Inria team](https://team.inria.fr/wimmics/), and is actually actively disseminated in several research groups. The first systematic literature review based on SciLEx [@celian2025systematicreviewrelationextraction] is currently under review.
+SciLEx was originally developed to support a systematic literature review conducted during a PhD on pattern-based information extraction from natural language and knowledge graphs [@ringwald:tel-05551242]. The software is actually used by the Wimmics team at Inria where it was originially developped, and is actively disseminated in several academic (Goblin Action Cost, and the ICN institute) and private research berger-levrault groups. The first systematic literature review based on SciLEx [@celian2025systematicreviewrelationextraction] is currently under review.
 
 # Comparison with Existing Software
 
