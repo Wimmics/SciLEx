@@ -100,7 +100,6 @@ def main():
                 args.host,
                 "--port",
                 str(args.api_port),
-                "--reload",
             ]
 
             api_process = subprocess.Popen(api_cmd)

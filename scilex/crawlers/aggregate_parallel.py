@@ -12,7 +12,7 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from multiprocessing import Pool, cpu_count
+from multiprocessing import cpu_count
 
 import pandas as pd
 from tqdm import tqdm
@@ -452,10 +452,10 @@ def parallel_process_papers(
     start_time = time.time()
     all_results = []
 
-    with Pool(num_workers) as pool:
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
         results = list(
             tqdm(
-                pool.imap_unordered(_process_batch_worker, batches),
+                executor.map(_process_batch_worker, batches),
                 total=len(batches),
                 desc="Processing papers",
                 unit="batch",

@@ -1359,11 +1359,11 @@ def PubMedCentraltoZoteroFormat(row):
         zotero_temp["title"] = row["title"]
 
     # Authors - PMC returns list of "Surname GivenNames" strings
-    if is_valid(row.get("authors")):
-        authors = row["authors"]
+    authors = row.get("authors")
+    if authors:
         if isinstance(authors, list) and len(authors) > 0:
             zotero_temp["authors"] = ";".join(authors)
-        elif isinstance(authors, str):
+        elif isinstance(authors, str) and is_valid(authors):
             zotero_temp["authors"] = authors
 
     # Abstract
