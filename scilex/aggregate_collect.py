@@ -1867,7 +1867,9 @@ def main():
     log_section(logger, "SciLEx Data Aggregation")
 
     txt_filters = True  # Text filtering is always enabled (False path unimplemented)
-    get_citation = main_config.get("aggregate_get_citations", True) and not args.skip_citations
+    get_citation = (
+        main_config.get("aggregate_get_citations", True) and not args.skip_citations
+    )
     output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
     collect_name = normalize_path_component(main_config.get("collect_name"))
     dir_collect = os.path.join(output_dir, collect_name)
@@ -2236,6 +2238,23 @@ def main():
     # Display comprehensive filtering summary
     filtering_summary = filtering_tracker.generate_report()
     logging.info(filtering_summary)
+
+    # Save structured filtering summary as JSON for web UI
+    final_count = (
+        filtering_tracker.stages[-1]["papers"] if filtering_tracker.stages else 0
+    )
+    summary_data = {
+        "initial_count": filtering_tracker.initial_count,
+        "final_count": final_count,
+        "stages": filtering_tracker.stages,
+    }
+    summary_path = os.path.join(dir_collect, "filtering_summary.json")
+    try:
+        with open(summary_path, "w") as f:
+            json.dump(summary_data, f, indent=2)
+        logging.info(f"Filtering summary saved to {summary_path}")
+    except OSError as e:
+        logging.warning(f"Could not save filtering summary: {e}")
 
     # Save to CSV
     output_path = os.path.join(dir_collect, output_filename)

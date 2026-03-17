@@ -12,11 +12,37 @@ import streamlit as st
 import yaml
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
+from scilex.constants import is_valid
 
 # Add src/ to path for SciLEx imports
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 API_CONFIG_PATH = PROJECT_ROOT / "scilex" / "api.config.yml"
+
+
+def get_available_collections(base_dir: str) -> dict[str, int | None]:
+    """Scan output directory and return {name: paper_count} for each collection.
+
+    Returns paper count from aggregated CSV when available, or ``None``
+    for collections that were started but not yet aggregated (partial/interrupted).
+    Uses line counting instead of loading CSVs for performance.
+    """
+    output_path = Path(base_dir)
+    collections: dict[str, int | None] = {}
+    if not output_path.exists():
+        return collections
+    for item in output_path.iterdir():
+        if item.is_dir() and item.name not in ["text_to_sparql", "text2sparql"]:
+            csv_path = item / "aggregated_results.csv"
+            if csv_path.exists():
+                # Count lines minus header for paper count
+                with csv_path.open() as f:
+                    count = sum(1 for _ in f) - 1
+                collections[item.name] = max(count, 0)
+            elif any(item.iterdir()):
+                # Directory has files but no aggregated CSV yet (partial run)
+                collections[item.name] = None
+    return collections
 
 
 def load_local_api_config() -> dict:
@@ -86,21 +112,27 @@ with st.sidebar.expander("⚙️ Configuration", expanded=True):
         help="FastAPI backend URL used by the web interface",
     )
 
-    # API Keys — flat list with status colors
+    # API Keys — grouped by category
     st.subheader("🔑 API Keys")
     saved_api_config = load_local_api_config()
 
-    api_options = {
+    free_api_options = {
         "SemanticScholar": {"api_key": "API Key"},
         "OpenAlex": {"api_key": "API Key (optional, higher rate limits)"},
         "PubMed": {"api_key": "API Key (optional, higher rate limits)"},
+        "CrossRef": {"mailto": "Email (for polite pool)"},
+    }
+
+    paid_api_options = {
         "IEEE": {"api_key": "API Key"},
         "Elsevier": {
             "api_key": "API Key",
             "inst_token": "Institutional Token",
         },
         "Springer": {"api_key": "API Key"},
-        "CrossRef": {"mailto": "Email (for polite pool)"},
+    }
+
+    integration_options = {
         "Zotero": {
             "api_key": "API Key",
             "user_id": "User ID",
@@ -109,75 +141,87 @@ with st.sidebar.expander("⚙️ Configuration", expanded=True):
         "HuggingFace": {"token": "Access Token"},
     }
 
-    for api_name, fields in api_options.items():
-        api_saved = saved_api_config.get(api_name, {})
-        configured = [f for f in fields if api_saved.get(f)]
-        is_configured = bool(configured)
+    def _render_api_group(api_group: dict) -> None:
+        """Render API key inputs for a group of APIs."""
+        for api_name, fields in api_group.items():
+            api_saved = saved_api_config.get(api_name, {})
+            is_configured = any(api_saved.get(f) for f in fields)
 
-        # Green when configured, grey when not
-        if is_configured:
-            st.markdown(
-                f"<span style='color: #28a745; font-weight: 600;'>● {api_name}</span>",
-                unsafe_allow_html=True,
+            symbol, color, weight = (
+                ("●", "#28a745", 600) if is_configured else ("○", "#999", 400)
             )
-        else:
             st.markdown(
-                f"<span style='color: #999; font-weight: 400;'>○ {api_name}</span>",
+                f"<span style='color: {color}; font-weight: {weight};'>{symbol} {api_name}</span>",
                 unsafe_allow_html=True,
             )
 
-        current_input_values = {}
-        for field_name, field_label in fields.items():
-            default_value = str(api_saved.get(field_name, "") or "")
-            if api_name == "Zotero" and field_name == "user_mode" and not default_value:
-                default_value = "user"
-            current_input_values[field_name] = st.text_input(
-                field_label,
-                type="password",
-                value=default_value,
-                key=f"api_{api_name}_{field_name}",
-            )
+            current_input_values = {}
+            for field_name, field_label in fields.items():
+                default_value = str(api_saved.get(field_name, "") or "")
+                if (
+                    api_name == "Zotero"
+                    and field_name == "user_mode"
+                    and not default_value
+                ):
+                    default_value = "user"
+                current_input_values[field_name] = st.text_input(
+                    field_label,
+                    type="password",
+                    value=default_value,
+                    key=f"api_{api_name}_{field_name}",
+                )
 
-        col_save, col_delete = st.columns(2)
+            col_save, col_delete = st.columns(2)
 
-        if col_save.button("💾 Save", key=f"save_{api_name}"):
-            payload = {"api_name": api_name}
-            for field_name in fields:
-                field_value = current_input_values.get(field_name, "")
-                if field_value:
-                    payload[field_name] = field_value
+            if col_save.button("💾 Save", key=f"save_{api_name}"):
+                payload = {"api_name": api_name}
+                for field_name in fields:
+                    field_value = current_input_values.get(field_name, "")
+                    if field_value:
+                        payload[field_name] = field_value
 
-            if len(payload) == 1:
-                st.warning("Provide at least one credential.")
-            else:
-                try:
-                    response = requests.post(
-                        f"{api_base_url.rstrip('/')}/api-config",
-                        json=payload,
-                        timeout=20,
-                    )
-                    if response.status_code == 200:
-                        st.success(f"{api_name} saved.")
-                    else:
-                        try:
-                            error_detail = response.json().get("detail", response.text)
-                        except Exception:
-                            error_detail = response.text
-                        st.error(f"Failed ({response.status_code}): {error_detail}")
-                except requests.RequestException as exc:
-                    st.error(f"Backend unreachable: {exc}")
+                if len(payload) == 1:
+                    st.warning("Provide at least one credential.")
+                else:
+                    try:
+                        response = requests.post(
+                            f"{api_base_url.rstrip('/')}/api-config",
+                            json=payload,
+                            timeout=20,
+                        )
+                        if response.status_code == 200:
+                            st.success(f"{api_name} saved.")
+                        else:
+                            try:
+                                error_detail = response.json().get(
+                                    "detail", response.text
+                                )
+                            except Exception:
+                                error_detail = response.text
+                            st.error(f"Failed ({response.status_code}): {error_detail}")
+                    except requests.RequestException as exc:
+                        st.error(f"Backend unreachable: {exc}")
 
-        if col_delete.button("🗑️ Clear", key=f"delete_{api_name}"):
-            for field_name in fields:
-                with contextlib.suppress(requests.RequestException):
-                    requests.delete(
-                        f"{api_base_url.rstrip('/')}/api-config/{api_name}/{field_name}",
-                        timeout=20,
-                    )
-            st.success(f"{api_name} credentials cleared.")
-            st.rerun()
+            if col_delete.button("🗑️ Clear", key=f"delete_{api_name}"):
+                for field_name in fields:
+                    with contextlib.suppress(requests.RequestException):
+                        requests.delete(
+                            f"{api_base_url.rstrip('/')}/api-config/{api_name}/{field_name}",
+                            timeout=20,
+                        )
+                st.success(f"{api_name} credentials cleared.")
+                st.rerun()
 
-        st.divider()
+            st.divider()
+
+    with st.expander("🆓 Free APIs", expanded=False):
+        _render_api_group(free_api_options)
+
+    with st.expander("💳 Paid APIs", expanded=False):
+        _render_api_group(paid_api_options)
+
+    with st.expander("🔌 Integrations", expanded=False):
+        _render_api_group(integration_options)
 
     # Output directory
     output_dir = st.text_input(
@@ -227,6 +271,39 @@ with tab1:
         "Configure and launch a new paper collection workflow from multiple academic databases."
     )
 
+    # Load last-used config as defaults
+    _prev_config: dict = {}
+    _prev_config_path = PROJECT_ROOT / "scilex" / "scilex.config.yml"
+    if _prev_config_path.exists():
+        with open(_prev_config_path) as _f:
+            _prev_config = yaml.safe_load(_f) or {}
+    _prev_qf = _prev_config.get("quality_filters", {})
+
+    # Extract previous keywords as newline-separated text
+    _prev_kw = _prev_config.get("keywords", [])
+    _prev_kw1 = "\n".join(_prev_kw[0]) if _prev_kw else ""
+    _prev_kw2 = "\n".join(_prev_kw[1]) if len(_prev_kw) > 1 else ""
+
+    # Extract previous API selections
+    _prev_apis = _prev_config.get("apis", [])
+    _all_free = [
+        "SemanticScholar",
+        "OpenAlex",
+        "Arxiv",
+        "PubMed",
+        "PubMedCentral",
+        "DBLP",
+        "HAL",
+        "Istex",
+    ]
+    _all_paid = ["IEEE", "Elsevier", "Springer"]
+    _prev_free = [a for a in _prev_apis if a in _all_free] or [
+        "SemanticScholar",
+        "OpenAlex",
+        "Arxiv",
+    ]
+    _prev_paid = [a for a in _prev_apis if a in _all_paid]
+
     with st.form("collection_form"):
         st.subheader("1️⃣ Search Parameters")
 
@@ -235,7 +312,7 @@ with tab1:
         with col1:
             collect_name = st.text_input(
                 "Collection Name",
-                value="my_research_",
+                value=_prev_config.get("collect_name", "my_research_"),
                 help=(
                     "Becomes the output subfolder name (e.g. output/my_research_).\n"
                     "Re-using an existing name lets you resume a partial collection."
@@ -244,7 +321,7 @@ with tab1:
             years = st.multiselect(
                 "Publication Years",
                 options=list(range(2026, 2000, -1)),
-                default=[2025, 2026],
+                default=_prev_config.get("years", [2025, 2026]),
                 help=(
                     "Only papers published in these years will be collected.\n"
                     "Papers outside this range are filtered out during aggregation."
@@ -252,9 +329,12 @@ with tab1:
             )
 
         with col2:
+            _ss_modes = ["regular", "bulk"]
+            _ss_prev = _prev_config.get("semantic_scholar_mode", "regular")
             semantic_scholar_mode = st.selectbox(
                 "Semantic Scholar Mode",
-                ["regular", "bulk"],
+                _ss_modes,
+                index=_ss_modes.index(_ss_prev) if _ss_prev in _ss_modes else 0,
                 help=(
                     "regular: Standard search, 100 papers per request (recommended).\n"
                     "bulk: 1000 papers per request, much faster but requires "
@@ -263,7 +343,7 @@ with tab1:
             )
             aggregate_citations = st.checkbox(
                 "Fetch Citation Counts",
-                value=True,
+                value=_prev_config.get("aggregate_get_citations", True),
                 help=(
                     "Fetches citation counts "
                     "(cache → Semantic Scholar → CrossRef → OpenCitations).\n"
@@ -273,7 +353,7 @@ with tab1:
             )
             enable_enrichment = st.checkbox(
                 "Enable HuggingFace Enrichment",
-                value=False,
+                value=_prev_config.get("enable_enrichment", False),
                 help=(
                     "Detects ML/AI papers with linked models, datasets, "
                     "and GitHub repos on HuggingFace.\n"
@@ -289,7 +369,7 @@ with tab1:
             st.write("**Primary Keywords Group**")
             keywords_group1 = st.text_area(
                 "Primary keywords (one per line)",
-                value="RAG\nRetrieval Augmented Generation\nLLM\nLarge Language Model",
+                value=_prev_kw1,
                 help=(
                     "Papers must contain at least ONE of these keywords (OR logic).\n"
                     "Case-insensitive matching against title and abstract."
@@ -301,7 +381,7 @@ with tab1:
             st.write("**Secondary Keywords Group (Optional)**")
             keywords_group2 = st.text_area(
                 "Secondary keywords (one per line, or leave empty)",
-                value="Knowledge Graph\nknowledge graphs\nsemantic network",
+                value=_prev_kw2,
                 help=(
                     "Papers must match at least one keyword from EACH group "
                     "(AND between groups, OR within).\n"
@@ -310,9 +390,10 @@ with tab1:
                 key="keywords2",
             )
 
+        _prev_bonus = _prev_config.get("bonus_keywords", [])
         bonus_keywords_text = st.text_area(
             "Bonus Keywords (Optional)",
-            value="",
+            value="\n".join(_prev_bonus) if _prev_bonus else "",
             help=(
                 "Increase a paper's relevance score during ranking, "
                 "but never exclude papers.\n"
@@ -329,17 +410,8 @@ with tab1:
         with col1:
             free_apis = st.multiselect(
                 "Free APIs",
-                options=[
-                    "SemanticScholar",
-                    "OpenAlex",
-                    "Arxiv",
-                    "PubMed",
-                    "PubMedCentral",
-                    "DBLP",
-                    "HAL",
-                    "Istex",
-                ],
-                default=["SemanticScholar", "OpenAlex", "Arxiv"],
+                options=_all_free,
+                default=_prev_free,
                 key="free_apis",
                 help=(
                     "Academic databases that don't require API keys.\n"
@@ -351,8 +423,8 @@ with tab1:
         with col2:
             paid_apis = st.multiselect(
                 "Paid APIs (requires key)",
-                options=["IEEE", "Elsevier", "Springer"],
-                default=[],
+                options=_all_paid,
+                default=_prev_paid,
                 key="paid_apis",
                 help=(
                     "Require an API key configured in the sidebar.\n"
@@ -365,70 +437,75 @@ with tab1:
 
         st.subheader("4️⃣ Quality Filters")
 
-        col1, col2 = st.columns(2)
+        # Defaults used when advanced filters are hidden
+        min_abstract = _prev_qf.get("min_abstract_words", 50)
+        max_abstract = _prev_qf.get("max_abstract_words", 1000)
+        enable_base_filters = _prev_qf.get("enable_text_filter", True)
+        allowed_types = _prev_qf.get(
+            "allowed_item_types", ["journalArticle", "conferencePaper"]
+        ) or ["journalArticle", "conferencePaper"]
+        apply_relevance = _prev_qf.get("apply_relevance_ranking", True)
 
-        with col1:
-            min_abstract = 50
-            max_abstract = 1000
-            enable_base_filters = st.checkbox(
-                "Enable Base Filters",
-                value=True,
-                help=(
-                    "Requires DOI, abstract, publication year, "
-                    "and at least 2 authors.\n"
-                    "Also applies abstract length checks. "
-                    "Disable for exploratory searches."
-                ),
-            )
+        with st.expander("Advanced quality filters", expanded=False):
+            col1, col2 = st.columns(2)
 
-            if enable_base_filters:
-                min_abstract = st.slider(
-                    "Minimum Abstract Length (words)",
-                    min_value=0,
-                    max_value=500,
-                    value=50,
+            with col1:
+                enable_base_filters = st.checkbox(
+                    "Enable Base Filters",
+                    value=enable_base_filters,
                     help=(
-                        "Detects truncated or stub abstracts. "
-                        "Typical range: 50–100 words.\n"
-                        "Set to 0 to disable this check."
-                    ),
-                )
-                max_abstract = st.slider(
-                    "Maximum Abstract Length (words)",
-                    min_value=100,
-                    max_value=2000,
-                    value=1000,
-                    help=(
-                        "Detects copy-paste errors or non-abstract text. "
-                        "Typical range: 500–1000.\n"
-                        "Set to the maximum to effectively disable."
+                        "Requires DOI, abstract, publication year, "
+                        "and at least 2 authors.\n"
+                        "Also applies abstract length checks. "
+                        "Disable for exploratory searches."
                     ),
                 )
 
-        with col2:
-            allowed_types = st.multiselect(
-                "Allowed Publication Types",
-                options=[
-                    "journalArticle",
-                    "conferencePaper",
-                    "bookSection",
-                    "book",
-                    "preprint",
-                ],
-                default=["journalArticle", "conferencePaper"],
-                help=(
-                    "Whitelist: only papers matching these types are kept.\n"
-                    "journalArticle and conferencePaper cover "
-                    "most peer-reviewed work."
-                ),
-            )
+                if enable_base_filters:
+                    min_abstract = st.slider(
+                        "Minimum Abstract Length (words)",
+                        min_value=0,
+                        max_value=500,
+                        value=min_abstract,
+                        help=(
+                            "Detects truncated or stub abstracts. "
+                            "Typical range: 50–100 words.\n"
+                            "Set to 0 to disable this check."
+                        ),
+                    )
+                    max_abstract = st.slider(
+                        "Maximum Abstract Length (words)",
+                        min_value=100,
+                        max_value=2000,
+                        value=max_abstract,
+                        help=(
+                            "Detects copy-paste errors or non-abstract text. "
+                            "Typical range: 500–1000.\n"
+                            "Set to the maximum to effectively disable."
+                        ),
+                    )
 
-        col1, col2 = st.columns(2)
+            with col2:
+                allowed_types = st.multiselect(
+                    "Allowed Publication Types",
+                    options=[
+                        "journalArticle",
+                        "conferencePaper",
+                        "bookSection",
+                        "book",
+                        "preprint",
+                    ],
+                    default=allowed_types,
+                    help=(
+                        "Whitelist: only papers matching these types are kept.\n"
+                        "journalArticle and conferencePaper cover "
+                        "most peer-reviewed work."
+                    ),
+                )
 
-        with col1:
             apply_relevance = st.checkbox(
                 "Sort by Relevance Score",
-                value=True,
+                value=apply_relevance,
                 help=(
                     "Composite 0–10 score: keyword density (45%), "
                     "metadata completeness (25%),\n"
@@ -437,19 +514,19 @@ with tab1:
                 ),
             )
 
-        with col2:
-            max_papers = st.number_input(
-                "Maximum Papers to Keep",
-                min_value=10,
-                max_value=10000,
-                value=500,
-                step=50,
-                help=(
-                    "Final cap applied after all filtering and ranking.\n"
-                    "500–1000 for a focused review, "
-                    "higher for comprehensive surveys."
-                ),
-            )
+        st.subheader("5️⃣ Maximum Papers")
+        max_papers = st.number_input(
+            "Maximum Papers to Keep",
+            min_value=10,
+            max_value=10000,
+            value=_prev_qf.get("max_papers", 500),
+            step=50,
+            help=(
+                "Final cap applied after all filtering and ranking.\n"
+                "500–1000 for a focused review, "
+                "higher for comprehensive surveys."
+            ),
+        )
 
         # Parse keywords
         keywords_list = [[k.strip() for k in keywords_group1.split("\n") if k.strip()]]
@@ -462,52 +539,42 @@ with tab1:
             k.strip() for k in bonus_keywords_text.split("\n") if k.strip()
         ]
 
-        # Check if this collection already has partial results
-        collect_path = Path(output_dir) / collect_name
-        has_partial = (
-            collect_path.exists() and any(collect_path.iterdir())
-            if collect_path.exists()
-            else False
-        )
-        start_fresh = False
-        if has_partial:
-            st.info(
-                "This collection already has data on disk. "
-                "Completed queries will be skipped automatically."
-            )
-            start_fresh = st.checkbox(
-                "Start fresh (delete existing data)",
-                value=False,
-                help="Clear all previous results and start from scratch",
-            )
-
         submitted = st.form_submit_button(
-            "🚀 Start Fresh"
-            if start_fresh
-            else (
-                "🔄 Resume Collection"
-                if has_partial
-                else "🚀 Start Collection Pipeline"
-            ),
+            "Start Collection",
             width="stretch",
             type="primary",
         )
 
         if submitted:
-            # Delete existing data if starting fresh
-            if start_fresh and collect_path.exists():
-                import shutil
-
-                shutil.rmtree(collect_path)
-                st.info("Previous data deleted.")
             # Validation
-            if not keywords_list[0]:
+            if not collect_name.strip():
+                st.error("❌ Please enter a collection name")
+            elif not keywords_list[0]:
                 st.error("❌ Please enter at least one primary keyword")
             elif not selected_apis:
                 st.error("❌ Please select at least one data source")
             elif not years:
                 st.error("❌ Please select at least one year")
             else:
+                # Check if this collection already has data
+                collect_path = Path(output_dir) / collect_name
+                has_results = collect_path.exists() and any(collect_path.iterdir())
+
+                if has_results:
+                    has_aggregated = (collect_path / "aggregated_results.csv").exists()
+                    if has_aggregated:
+                        st.info(
+                            "A collection with this name already has completed results. "
+                            "Resubmitting will skip already-collected queries. "
+                            "To start a fresh collection, use a different name."
+                        )
+                    else:
+                        st.warning(
+                            "A collection with this name has partial data from a "
+                            "previous run. Submitting will resume where it left off. "
+                            "To start fresh, use a different name."
+                        )
+
                 request_payload = {
                     "collection_config": {
                         "keywords": keywords_list,
@@ -606,9 +673,35 @@ with tab1:
 
             data = resp.json()
 
+            # ── Phase stepper (dynamic based on enrichment) ──
+            enrichment_enabled = data.get("enrichment_enabled", False)
+            phases = ["Initializing", "Collecting", "Aggregating"]
+            if enrichment_enabled:
+                phases.append("Enriching")
+            phases.append("Completed")
+
+            phase_map = {p.lower(): i for i, p in enumerate(phases)}
+            # "enriching" maps to "aggregating" when enrichment is disabled
+            if not enrichment_enabled:
+                phase_map["enriching"] = phase_map["aggregating"]
+            current_phase_idx = phase_map.get(data.get("phase", "initializing"), 0)
+            step_cols = st.columns(len(phases))
+            for i, phase_label in enumerate(phases):
+                with step_cols[i]:
+                    if i < current_phase_idx:
+                        st.markdown(f"✅ **{phase_label}**")
+                    elif i == current_phase_idx:
+                        st.markdown(f"🔵 **{phase_label}**")
+                    else:
+                        st.markdown(f"⚪ {phase_label}")
+
             # Show progress bar
             progress_value = max(0, min(data.get("progress", 0), 100))
-            st.progress(progress_value / 100, text=data.get("message", ""))
+
+            st.progress(
+                progress_value / 100,
+                text=data.get("message", ""),
+            )
 
             # Show per-API stats if available
             api_stats = data.get("api_stats")
@@ -625,13 +718,105 @@ with tab1:
                             delta=f"{completed}/{total} queries",
                         )
 
+            # Pipeline log viewer
+            logs = data.get("logs", [])
+            if logs:
+                with st.expander("📋 Pipeline Logs", expanded=False):
+                    st.code("\n".join(logs[-100:]), language="text")
+
             # Terminal states
             status = data.get("status")
             if status in ("completed", "failed", "cancelled"):
                 if status == "completed":
                     st.success("Pipeline completed successfully!")
-                    if data.get("stats"):
-                        st.json(data["stats"])
+
+                    # ── Filtering pipeline summary ──
+                    filtering_summary = data.get("filtering_summary")
+                    if filtering_summary:
+                        with st.expander(
+                            "🔬 Filtering Pipeline Summary", expanded=True
+                        ):
+                            # Summary metrics row
+                            fs1, fs2, fs3 = st.columns(3)
+                            initial = filtering_summary.get("initial_count", 0)
+                            final = filtering_summary.get("final_count", 0)
+                            retention = (final / initial * 100) if initial > 0 else 0
+                            with fs1:
+                                st.metric("Started With", f"{initial:,}")
+                            with fs2:
+                                st.metric("Final Output", f"{final:,}")
+                            with fs3:
+                                st.metric("Retention Rate", f"{retention:.1f}%")
+
+                            # Stage-by-stage table
+                            stages = filtering_summary.get("stages", [])
+                            if stages:
+                                table_data = [
+                                    {
+                                        "Stage": s.get("stage", "Unknown"),
+                                        "Description": s.get("description", ""),
+                                        "Papers": s.get("papers", 0),
+                                        "Removed": s.get("removed", 0),
+                                        "Removal %": f"{s.get('removal_rate', 0.0):.1f}%",
+                                    }
+                                    for s in stages
+                                ]
+                                st.dataframe(
+                                    pd.DataFrame(table_data),
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+
+                    stats = data.get("stats")
+                    if stats:
+                        # Metric cards
+                        mc1, mc2, mc3 = st.columns(3)
+                        with mc1:
+                            st.metric("📄 Total Papers", stats.get("total_papers", 0))
+                        with mc2:
+                            by_year = stats.get("by_year", {})
+                            if by_year:
+                                years_sorted = sorted(by_year.keys())
+                                st.metric(
+                                    "📅 Year Range",
+                                    f"{years_sorted[0]}–{years_sorted[-1]}",
+                                )
+                            else:
+                                st.metric("📅 Year Range", "—")
+                        with mc3:
+                            # Count unique base API names
+                            by_source_raw = stats.get("by_source", {})
+                            unique_apis = {
+                                part.strip().rstrip("*")
+                                for name in by_source_raw
+                                for part in str(name).split(";")
+                                if part.strip().rstrip("*")
+                            }
+                            st.metric("🗂️ Sources", len(unique_apis))
+
+                        # Mini bar chart of sources (aggregate by base API name)
+                        by_source = stats.get("by_source", {})
+                        if by_source:
+                            from collections import Counter
+
+                            source_counts: Counter[str] = Counter()
+                            for composite_name, count in by_source.items():
+                                # Extract individual API names from composite
+                                # e.g. "OpenAlex*;SemanticScholar*" → ["OpenAlex", "SemanticScholar"]
+                                for part in str(composite_name).split(";"):
+                                    base_name = part.strip().rstrip("*")
+                                    if base_name:
+                                        source_counts[base_name] += count
+                            source_df = pd.DataFrame(
+                                list(source_counts.items()),
+                                columns=["Source", "Papers"],
+                            ).set_index("Source")
+                            st.bar_chart(source_df)
+
+                        st.info(
+                            "Switch to the **📊 View Results** tab above "
+                            "to browse papers and see detailed statistics."
+                        )
                 elif status == "cancelled":
                     st.warning(
                         "Pipeline was cancelled. You can restart with the same "
@@ -668,32 +853,45 @@ with tab1:
 with tab2:
     st.header("View Collection Results")
 
-    # Check for existing collections
+    # Use shared collection helper
     output_path = Path(output_dir)
-    collections = []
+    collections_with_counts = get_available_collections(output_dir)
 
-    if output_path.exists():
-        for item in output_path.iterdir():
-            if item.is_dir() and item.name not in ["text_to_sparql", "text2sparql"]:
-                csv_path = item / "aggregated_results.csv"
-                if csv_path.exists():
-                    collections.append(item.name)
-
-    if not collections:
+    if not collections_with_counts:
         st.info(
             "📭 No collections found. Start a new collection in the **New Collection** tab."
         )
     else:
+        collection_names = list(collections_with_counts.keys())
         selected_collection = st.selectbox(
             "Select a Collection",
-            collections,
-            format_func=lambda x: f"📦 {x}",
+            collection_names,
+            key="view_collection",
+            format_func=lambda x: (
+                f"📦 {x} ({collections_with_counts[x]} papers)"
+                if collections_with_counts.get(x) is not None
+                else f"📦 {x} (partial)"
+            ),
         )
+
+        # Sync selection to shared session state
+        st.session_state["selected_collection"] = selected_collection
+
+        if collections_with_counts.get(selected_collection) is None:
+            st.warning(
+                "This collection has partial data and no aggregated results yet. "
+                "Resume or re-run the collection pipeline first."
+            )
+            st.stop()
 
         csv_path = output_path / selected_collection / "aggregated_results.csv"
 
         try:
             df = pd.read_csv(csv_path, delimiter=";")
+
+            # Derive year from date if year column is missing
+            if "year" not in df.columns and "date" in df.columns:
+                df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
 
             col1, col2, col3, col4 = st.columns(4)
 
@@ -726,8 +924,17 @@ with tab2:
             with col2:
                 st.subheader("Papers by Source")
                 if "archive" in df.columns:
-                    source_counts = df["archive"].value_counts()
-                    st.bar_chart(source_counts)
+                    # Aggregate by base API name (strip * and split ;)
+                    base_sources = (
+                        df["archive"]
+                        .fillna("")
+                        .str.split(";")
+                        .explode()
+                        .str.strip()
+                        .str.rstrip("*")
+                    )
+                    base_sources = base_sources[base_sources != ""]
+                    st.bar_chart(base_sources.value_counts())
 
             st.write("---")
 
@@ -772,25 +979,73 @@ with tab2:
 
             display_df = df.iloc[start_idx:end_idx].copy()
 
-            # Select columns to display
+            # Build clickable link column from DOI or url
+            def _make_link(row):
+                if "DOI" in row.index and is_valid(row.get("DOI")):
+                    doi = str(row["DOI"])
+                    if not doi.startswith("http"):
+                        doi = f"https://doi.org/{doi}"
+                    return doi
+                if "url" in row.index and is_valid(row.get("url")):
+                    return str(row["url"])
+                return None
+
+            display_df["link"] = display_df.apply(_make_link, axis=1)
+
+            # Columns to display (abstract removed — shown in detail card below)
             display_columns = [
                 col
                 for col in [
                     "title",
+                    "link",
                     "authors",
                     "year",
                     "archive",
                     "nb_citation",
-                    "abstract",
                 ]
-                if col in df.columns
+                if col in display_df.columns
             ]
 
-            st.dataframe(
+            selection = st.dataframe(
                 display_df[display_columns],
                 width="stretch",
                 height=400,
+                column_config={
+                    "link": st.column_config.LinkColumn(
+                        "Link", display_text="Open", width="small"
+                    ),
+                },
+                on_select="rerun",
+                selection_mode="single-row",
+                hide_index=True,
             )
+
+            # Detail card on row selection
+            selected_rows = selection.selection.rows  # type: ignore[union-attr]
+            if selected_rows:
+                sel_idx = selected_rows[0]
+                paper = display_df.iloc[sel_idx]
+                with st.container(border=True):
+                    st.subheader(str(paper.get("title", "Untitled")))
+                    detail_cols = st.columns([2, 1])
+                    with detail_cols[0]:
+                        if "authors" in paper.index and is_valid(paper.get("authors")):
+                            st.markdown(f"**Authors:** {paper['authors']}")
+                        if "abstract" in paper.index and is_valid(
+                            paper.get("abstract")
+                        ):
+                            st.markdown("**Abstract:**")
+                            st.write(str(paper["abstract"]))
+                    with detail_cols[1]:
+                        if "year" in paper.index:
+                            st.metric("Year", paper["year"])
+                        if "nb_citation" in paper.index:
+                            st.metric("Citations", paper["nb_citation"])
+                        if "relevance_score" in paper.index:
+                            st.metric("Relevance", f"{paper['relevance_score']:.1f}/10")
+                        link = paper.get("link")
+                        if link:
+                            st.link_button("Open Paper →", str(link))
 
         except Exception as e:
             st.error(f"Error loading results: {str(e)}")
@@ -802,31 +1057,47 @@ with tab2:
 with tab3:
     st.header("Filter & Export Results")
 
-    # Check for existing collections
+    # Reuse shared collection helper
+    collections_with_counts_t3 = get_available_collections(output_dir)
     output_path = Path(output_dir)
-    collections = []
 
-    if output_path.exists():
-        for item in output_path.iterdir():
-            if item.is_dir() and item.name not in ["text_to_sparql", "text2sparql"]:
-                csv_path = item / "aggregated_results.csv"
-                if csv_path.exists():
-                    collections.append(item.name)
-
-    if not collections:
+    if not collections_with_counts_t3:
         st.info("📭 No collections found.")
     else:
+        collection_names_t3 = list(collections_with_counts_t3.keys())
+        # Default to the same collection selected in Tab 2 if available
+        default_idx = 0
+        shared = st.session_state.get("selected_collection")
+        if shared and shared in collection_names_t3:
+            default_idx = collection_names_t3.index(shared)
+
         selected_collection = st.selectbox(
             "Select a Collection",
-            collections,
+            collection_names_t3,
+            index=default_idx,
             key="export_collection",
-            format_func=lambda x: f"📦 {x}",
+            format_func=lambda x: (
+                f"📦 {x} ({collections_with_counts_t3[x]} papers)"
+                if collections_with_counts_t3.get(x) is not None
+                else f"📦 {x} (partial)"
+            ),
         )
+
+        if collections_with_counts_t3.get(selected_collection) is None:
+            st.warning(
+                "This collection has partial data and no aggregated results yet. "
+                "Resume or re-run the collection pipeline first."
+            )
+            st.stop()
 
         csv_path = output_path / selected_collection / "aggregated_results.csv"
 
         try:
             df = pd.read_csv(csv_path, delimiter=";")
+
+            # Derive year from date if year column is missing
+            if "year" not in df.columns and "date" in df.columns:
+                df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
 
             # Create filter panel
             st.subheader("🔍 Filters")
@@ -852,15 +1123,38 @@ with tab3:
                             & (df["year"] <= year_range[1])
                         ]
 
-                    # Source filter
+                    # Source filter (show base API names, not composite archive strings)
                     if "archive" in df.columns:
-                        sources = st.multiselect(
-                            "Sources",
-                            options=df["archive"].unique(),
-                            default=list(df["archive"].unique()),
+                        all_base_sources = sorted(
+                            {
+                                part.strip().rstrip("*")
+                                for val in df["archive"].dropna().unique()
+                                for part in str(val).split(";")
+                                if part.strip().rstrip("*")
+                            }
                         )
-                        if sources:
-                            df = df[df["archive"].isin(sources)]
+                        selected_sources = st.multiselect(
+                            "Sources",
+                            options=all_base_sources,
+                            default=all_base_sources,
+                        )
+                        if selected_sources:
+                            # Keep rows where archive contains any selected source
+                            mask = (
+                                df["archive"]
+                                .fillna("")
+                                .apply(
+                                    lambda x: any(
+                                        s
+                                        in {
+                                            p.strip().rstrip("*")
+                                            for p in str(x).split(";")
+                                        }
+                                        for s in selected_sources
+                                    )
+                                )
+                            )
+                            df = df[mask]
 
                 with col2:
                     # Citation filter
@@ -898,152 +1192,129 @@ with tab3:
                     type="primary",
                 )
 
-            if True:  # apply_filters can be used as trigger if needed
-                st.success(f"✅ Filtered to {len(df)} papers")
+            st.success(f"✅ Filtered to {len(df)} papers")
 
-                # Export options
-                st.subheader("📥 Export Options")
+            # Export options
+            st.subheader("📥 Export Options")
 
-                col1, col2, col3 = st.columns(3)
+            col1, col2, col3 = st.columns(3)
 
-                with col1:
-                    if st.button("📊 Download as CSV", width="stretch"):
-                        csv_content = df.to_csv(index=False, sep=";")
-                        st.download_button(
-                            label="Download CSV",
-                            data=csv_content.encode(),
-                            file_name=f"{selected_collection}_filtered.csv",
-                            mime="text/csv",
-                            width="stretch",
-                        )
+            # Prepare export data eagerly (df is already loaded)
+            csv_content = df.to_csv(index=False, sep=";")
+            json_content = df.to_json(orient="records", indent=2)
 
-                with col2:
-                    if st.button("📚 Download as BibTeX", width="stretch"):
-                        try:
-                            # Prepare BibTeX export output
-                            bib_output_dir = output_path / selected_collection
-                            bib_file_path = bib_output_dir / "aggregated_results.bib"
+            with col1:
+                st.download_button(
+                    label="📊 Download as CSV",
+                    data=csv_content.encode(),
+                    file_name=f"{selected_collection}_filtered.csv",
+                    mime="text/csv",
+                    width="stretch",
+                )
 
-                            # Run BibTeX export command with CLI arguments
-                            result = subprocess.run(
-                                [
-                                    "scilex-export-bibtex",
-                                    "--collect-name",
-                                    selected_collection,
-                                    "--output-dir",
-                                    str(output_dir),
-                                ],
-                                capture_output=True,
-                                text=True,
-                                timeout=30,
-                            )
-
-                            if result.returncode == 0 and bib_file_path.exists():
-                                # Read BibTeX content
-                                with bib_file_path.open("r", encoding="utf-8") as f:
-                                    bib_content = f.read()
-
-                                st.download_button(
-                                    label="⬇️ Download BibTeX File",
-                                    data=bib_content.encode(),
-                                    file_name=f"{selected_collection}.bib",
-                                    mime="text/plain",
-                                    width="stretch",
-                                )
-                                st.success(
-                                    f"✅ BibTeX file generated ({len(bib_content)} bytes)"
-                                )
-                            else:
-                                st.error("❌ Failed to generate BibTeX file")
-                                if result.stderr:
-                                    st.error(f"Error: {result.stderr}")
-
-                        except subprocess.TimeoutExpired:
-                            st.error("❌ BibTeX export timed out (took >30 seconds)")
-                        except Exception as e:
-                            st.error(f"❌ Error generating BibTeX: {str(e)}")
-
-                with col3:
-                    if st.button("📋 Download as JSON", width="stretch"):
-                        json_content = df.to_json(orient="records", indent=2)
-                        st.download_button(
-                            label="Download JSON",
-                            data=json_content.encode(),
-                            file_name=f"{selected_collection}_filtered.json",
-                            mime="application/json",
-                            width="stretch",
-                        )
-
-                # Zotero push option
-                st.write("---")
-                st.subheader("📤 Push to Zotero")
-
-                zotero_col1, zotero_col2 = st.columns(2)
-
-                with zotero_col1:
-                    zotero_collection_name = st.text_input(
-                        "Zotero Collection Name",
-                        value=selected_collection,
-                        help=(
-                            "Creates the collection in Zotero "
-                            "if it doesn't exist.\n"
-                            "If it already exists, "
-                            "papers are added to it."
-                        ),
+            with col2:
+                # BibTeX requires generation — check if file exists already
+                bib_file_path = (
+                    output_path / selected_collection / "aggregated_results.bib"
+                )
+                if bib_file_path.exists():
+                    bib_content = bib_file_path.read_text(encoding="utf-8")
+                    st.download_button(
+                        label="📚 Download as BibTeX",
+                        data=bib_content.encode(),
+                        file_name=f"{selected_collection}.bib",
+                        mime="text/plain",
+                        width="stretch",
                     )
+                elif st.button("📚 Generate BibTeX", width="stretch"):
+                    try:
+                        result = subprocess.run(
+                            [
+                                "scilex-export-bibtex",
+                                "--collect-name",
+                                selected_collection,
+                                "--output-dir",
+                                str(output_dir),
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
+                        )
+                        if result.returncode == 0 and bib_file_path.exists():
+                            st.success("✅ BibTeX generated — refresh to download.")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to generate BibTeX file")
+                            if result.stderr:
+                                st.error(f"Error: {result.stderr}")
+                    except subprocess.TimeoutExpired:
+                        st.error("❌ BibTeX export timed out (>30s)")
+                    except Exception as e:
+                        st.error(f"❌ Error generating BibTeX: {e!s}")
 
-                with zotero_col2:
-                    if st.button("📚 Push to Zotero", width="stretch", type="primary"):
-                        try:
-                            st.info(
-                                "⏳ Pushing papers to Zotero (this may take a moment)..."
-                            )
+            with col3:
+                st.download_button(
+                    label="📋 Download as JSON",
+                    data=json_content.encode(),
+                    file_name=f"{selected_collection}_filtered.json",
+                    mime="application/json",
+                    width="stretch",
+                )
 
-                            # Run push to Zotero command
-                            result = subprocess.run(
-                                [
-                                    "scilex-push-zotero",
-                                    "--collect-name",
-                                    zotero_collection_name,
-                                    "--output-dir",
-                                    str(output_dir),
-                                ],
-                                capture_output=True,
-                                text=True,
-                                timeout=120,
-                            )
+            # Zotero push option
+            st.write("---")
+            st.subheader("📤 Push to Zotero")
 
-                            if result.returncode == 0:
-                                st.info(f"**Collection:** {zotero_collection_name}")
-                                # Display the command output which contains summary stats
-                                if result.stderr:
-                                    # Log output is in stderr for the logging handler
-                                    st.warning("Zotero push completed:")
-                                    stderr_tail = (
-                                        result.stderr[-500:]
-                                        if len(result.stderr) > 500
-                                        else result.stderr
-                                    )
-                                    st.caption(f"Output:\n{stderr_tail}")
-                                else:
-                                    st.success(
-                                        "✅ Successfully pushed papers to Zotero!"
-                                    )
+            zotero_col1, zotero_col2 = st.columns(2)
+
+            with zotero_col1:
+                zotero_collection_name = st.text_input(
+                    "Zotero Collection Name",
+                    value=selected_collection,
+                    help=(
+                        "Creates the collection in Zotero "
+                        "if it doesn't exist.\n"
+                        "If it already exists, "
+                        "papers are added to it."
+                    ),
+                )
+
+            with zotero_col2:
+                if st.button("📚 Push to Zotero", width="stretch", type="primary"):
+                    try:
+                        st.info(
+                            "⏳ Pushing papers to Zotero (this may take a moment)..."
+                        )
+
+                        result = subprocess.run(
+                            [
+                                "scilex-push-zotero",
+                                "--collect-name",
+                                zotero_collection_name,
+                                "--output-dir",
+                                str(output_dir),
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                        )
+
+                        if result.returncode == 0:
+                            st.info(f"**Collection:** {zotero_collection_name}")
+                            if result.stderr:
+                                st.warning("Zotero push completed:")
+                                st.caption(f"Output:\n{result.stderr[-500:]}")
                             else:
-                                st.error("❌ Failed to push papers to Zotero")
-                                if result.stderr:
-                                    # Show last 500 chars of error
-                                    error_msg = (
-                                        result.stderr[-500:]
-                                        if len(result.stderr) > 500
-                                        else result.stderr
-                                    )
-                                    st.error(f"Error details:\n{error_msg}")
+                                st.success("✅ Successfully pushed papers to Zotero!")
+                        else:
+                            st.error("❌ Failed to push papers to Zotero")
+                            if result.stderr:
+                                st.error(f"Error details:\n{result.stderr[-500:]}")
 
-                        except subprocess.TimeoutExpired:
-                            st.error("❌ Zotero push timed out (took >2 minutes)")
-                        except Exception as e:
-                            st.error(f"❌ Error pushing to Zotero: {str(e)}")
+                    except subprocess.TimeoutExpired:
+                        st.error("❌ Zotero push timed out (took >2 minutes)")
+                    except Exception as e:
+                        st.error(f"❌ Error pushing to Zotero: {e!s}")
 
         except Exception as e:
             st.error(f"Error loading results: {str(e)}")
@@ -1056,44 +1327,86 @@ with tab4:
     st.header("📈 Collections History")
 
     output_path = Path(output_dir)
+    collections_with_counts_t4 = get_available_collections(output_dir)
 
-    if not output_path.exists():
-        st.info("📭 No collections yet.")
+    if not collections_with_counts_t4:
+        st.info("📭 No collections found.")
     else:
+        # Build display table with file metadata
         collections_data = []
-
-        for item in sorted(
-            output_path.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True
-        ):
-            if item.is_dir() and item.name not in ["text_to_sparql", "text2sparql"]:
-                csv_path = item / "aggregated_results.csv"
-                if csv_path.exists():
-                    try:
-                        df = pd.read_csv(csv_path, delimiter=";", nrows=1)
-                        size = csv_path.stat().st_size
-                        mtime = item.stat().st_mtime
-
-                        collections_data.append(
-                            {
-                                "Collection": item.name,
-                                "Papers": len(pd.read_csv(csv_path, delimiter=";")),
-                                "Size (KB)": f"{size / 1024:.1f}",
-                                "Created": pd.Timestamp(mtime, unit="s").strftime(
-                                    "%Y-%m-%d %H:%M"
-                                ),
-                            }
-                        )
-                    except Exception:
-                        pass
+        for name, paper_count in collections_with_counts_t4.items():
+            item_path = output_path / name
+            csv_path = item_path / "aggregated_results.csv"
+            try:
+                if paper_count is not None and csv_path.exists():
+                    row = {
+                        "Collection": name,
+                        "Status": "Completed",
+                        "Papers": paper_count,
+                        "Size (KB)": f"{csv_path.stat().st_size / 1024:.1f}",
+                        "Created": pd.Timestamp(
+                            item_path.stat().st_mtime, unit="s"
+                        ).strftime("%Y-%m-%d %H:%M"),
+                    }
+                else:
+                    row = {
+                        "Collection": name,
+                        "Status": "Partial",
+                        "Papers": None,
+                        "Size (KB)": None,
+                        "Created": pd.Timestamp(
+                            item_path.stat().st_mtime, unit="s"
+                        ).strftime("%Y-%m-%d %H:%M"),
+                    }
+                collections_data.append(row)
+            except OSError:
+                continue
 
         if collections_data:
+            # Sort by creation date descending
+            collections_data.sort(key=lambda c: c["Created"], reverse=True)
+
             st.dataframe(
                 pd.DataFrame(collections_data),
                 width="stretch",
                 hide_index=True,
             )
-        else:
-            st.info("📭 No collections found.")
+
+            # Delete collection
+            st.write("---")
+            st.subheader("🗑️ Delete a Collection")
+
+            delete_names = [c["Collection"] for c in collections_data]
+            delete_target = st.selectbox(
+                "Select collection to delete",
+                delete_names,
+                key="delete_collection_target",
+                format_func=lambda x: f"📦 {x}",
+            )
+
+            confirm_delete = st.checkbox(
+                f"I confirm I want to permanently delete **{delete_target}**",
+                key="confirm_delete",
+            )
+
+            if st.button(
+                "🗑️ Delete Collection",
+                disabled=not confirm_delete,
+                type="secondary",
+            ):
+                try:
+                    resp = requests.delete(
+                        f"{api_base_url.rstrip('/')}/collections/{delete_target}",
+                        timeout=10,
+                    )
+                    if resp.status_code == 200:
+                        st.success(f"✅ Collection '{delete_target}' deleted.")
+                        st.rerun()
+                    else:
+                        detail = resp.json().get("detail", resp.text)
+                        st.error(f"❌ Delete failed: {detail}")
+                except requests.RequestException as exc:
+                    st.error(f"❌ Could not reach backend: {exc}")
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TAB 5: HELP

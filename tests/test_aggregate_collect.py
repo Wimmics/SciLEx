@@ -245,45 +245,58 @@ class TestApplyTimeAwareCitationFilter:
 
         # Use 90 days ago — unambiguously within the 18-month (≈540-day) grace period
         recent_date = (date.today() - timedelta(days=90)).strftime("%Y-%m-%d")
-        df = self._make_df([
-            {"DOI": "10.1/a", "nb_citation": "0", "date": recent_date},
-        ])
+        df = self._make_df(
+            [
+                {"DOI": "10.1/a", "nb_citation": "0", "date": recent_date},
+            ]
+        )
         fn = self._get_filter()
         result = fn(df)
         assert len(result) == 1
 
     def test_old_paper_with_zero_citations_filtered(self):
         """Papers >36 months old with 0 citations should be removed."""
-        df = self._make_df([
-            {"DOI": "10.1/a", "nb_citation": "0", "date": "2020-01-01"},
-        ])
+        df = self._make_df(
+            [
+                {"DOI": "10.1/a", "nb_citation": "0", "date": "2020-01-01"},
+            ]
+        )
         fn = self._get_filter()
         result = fn(df)
         assert len(result) == 0
 
     def test_no_doi_bypasses_filter(self):
         """Papers without DOI should not be filtered regardless of citations."""
-        df = self._make_df([
-            {"DOI": "NA", "nb_citation": "0", "date": "2018-01-01"},
-        ])
+        df = self._make_df(
+            [
+                {"DOI": "NA", "nb_citation": "0", "date": "2018-01-01"},
+            ]
+        )
         fn = self._get_filter()
         result = fn(df)
         assert len(result) == 1
 
     def test_citation_threshold_column_added(self):
         """The citation_threshold column must be present in output."""
-        df = self._make_df([
-            {"DOI": "10.1/a", "nb_citation": "100", "date": "2024-01-01"},
-        ])
+        df = self._make_df(
+            [
+                {"DOI": "10.1/a", "nb_citation": "100", "date": "2024-01-01"},
+            ]
+        )
         fn = self._get_filter()
         result = fn(df)
         assert "citation_threshold" in result.columns
 
     def test_citation_threshold_value_for_established_paper(self):
         """Papers >36 months old must have threshold >= ESTABLISHED_BASE_CITATIONS."""
-        df = self._make_df([
-            {"DOI": "10.1/a", "nb_citation": "100", "date": "2020-01-01"},
-        ])
+        df = self._make_df(
+            [
+                {"DOI": "10.1/a", "nb_citation": "100", "date": "2020-01-01"},
+            ]
+        )
         fn = self._get_filter()
         result = fn(df)
-        assert result["citation_threshold"].iloc[0] >= CitationFilterConfig.ESTABLISHED_BASE_CITATIONS
+        assert (
+            result["citation_threshold"].iloc[0]
+            >= CitationFilterConfig.ESTABLISHED_BASE_CITATIONS
+        )

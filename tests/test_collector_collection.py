@@ -3,8 +3,6 @@
 Uses __new__ to bypass __init__ (which creates directories and writes YAML).
 """
 
-
-
 from scilex.crawlers.collector_collection import (
     CollectCollection,
     _sanitize_error_message,
@@ -65,12 +63,14 @@ class TestSanitizeErrorMessage:
 # -------------------------------------------------------------------------
 class TestQueryCompositor:
     def test_single_keyword_mode_wraps_in_list(self):
-        coll = _make_collection(main_config={
-            "keywords": [["machine learning"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["machine learning"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         assert "SemanticScholar" in result
         queries = result["SemanticScholar"]
@@ -81,87 +81,103 @@ class TestQueryCompositor:
         assert "max_articles_per_query" in q
 
     def test_dual_keyword_cartesian_product(self):
-        coll = _make_collection(main_config={
-            "keywords": [["LLM", "GPT"], ["knowledge graph"]],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["LLM", "GPT"], ["knowledge graph"]],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         queries = result["SemanticScholar"]
         # 2 × 1 = 2 combinations
         assert len(queries) == 2
 
     def test_multiple_apis_each_get_queries(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar", "OpenAlex"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar", "OpenAlex"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         assert "SemanticScholar" in result
         assert "OpenAlex" in result
 
     def test_semantic_scholar_gets_mode_field(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": -1,
-            "semantic_scholar_mode": "regular",
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": -1,
+                "semantic_scholar_mode": "regular",
+            }
+        )
         result = coll.queryCompositor()
         query = result["SemanticScholar"][0]
         assert "semantic_scholar_mode" in query
 
     def test_non_semantic_scholar_no_mode_field(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["OpenAlex"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["OpenAlex"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         query = result["OpenAlex"][0]
         assert "semantic_scholar_mode" not in query
 
     def test_max_articles_propagated(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": 500,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": 500,
+            }
+        )
         result = coll.queryCompositor()
         query = result["SemanticScholar"][0]
         assert query["max_articles_per_query"] == 500
 
     def test_year_in_every_query(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         for query in result["SemanticScholar"]:
             assert query["year"] == 2024
 
     def test_all_required_fields_present_in_every_query(self):
         """Every query dict must contain keyword, year and max_articles_per_query."""
-        coll = _make_collection(main_config={
-            "keywords": [["a", "b"], []],
-            "years": [2023, 2024],
-            "apis": ["SemanticScholar", "OpenAlex"],
-            "max_articles_per_query": 200,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["a", "b"], []],
+                "years": [2023, 2024],
+                "apis": ["SemanticScholar", "OpenAlex"],
+                "max_articles_per_query": 200,
+            }
+        )
         result = coll.queryCompositor()
         for api, queries in result.items():
             for q in queries:
                 assert "keyword" in q, f"Missing 'keyword' in {api} query"
                 assert "year" in q, f"Missing 'year' in {api} query"
-                assert "max_articles_per_query" in q, f"Missing 'max_articles_per_query' in {api} query"
+                assert "max_articles_per_query" in q, (
+                    f"Missing 'max_articles_per_query' in {api} query"
+                )
                 assert q["max_articles_per_query"] == 200
 
 

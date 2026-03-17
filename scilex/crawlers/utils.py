@@ -21,7 +21,6 @@ def load_yaml_config(file_path):
         return yaml.safe_load(ymlfile)
 
 
-
 def load_all_configs(config_files):
     """
     Load multiple YAML configurations based on a dictionary of file paths.

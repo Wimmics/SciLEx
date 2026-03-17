@@ -206,9 +206,9 @@ def main():
         default=None,
         help="Output directory (overrides scilex.config.yml)",
     )
-    
+
     args = parser.parse_args()
-    
+
     logging.info(f"Zotero push process started at {datetime.now()}")
     logging.info("=" * 60)
 
@@ -220,7 +220,7 @@ def main():
     configs = load_all_configs(config_files)
     main_config = configs["main_config"]
     api_config = configs["api_config"]
-    
+
     # Override with CLI arguments if provided
     if args.collect_name:
         main_config["collect_name"] = args.collect_name

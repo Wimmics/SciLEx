@@ -60,7 +60,10 @@ class TestDefaultRelevanceWeights:
         assert abs(total - 1.0) < 1e-9
 
     def test_keywords_weight_dominant(self):
-        assert DEFAULT_RELEVANCE_WEIGHTS["keywords"] > DEFAULT_RELEVANCE_WEIGHTS["citations"]
+        assert (
+            DEFAULT_RELEVANCE_WEIGHTS["keywords"]
+            > DEFAULT_RELEVANCE_WEIGHTS["citations"]
+        )
 
     def test_all_weights_positive(self):
         for key, val in DEFAULT_RELEVANCE_WEIGHTS.items():
@@ -93,6 +96,8 @@ class TestGetRateLimit:
         result = get_rate_limit("SemanticScholar")
         assert isinstance(result, float)
 
-    @pytest.mark.parametrize("api", ["SemanticScholar", "OpenAlex", "IEEE", "Springer", "HAL"])
+    @pytest.mark.parametrize(
+        "api", ["SemanticScholar", "OpenAlex", "IEEE", "Springer", "HAL"]
+    )
     def test_known_apis_return_positive(self, api):
         assert get_rate_limit(api) > 0

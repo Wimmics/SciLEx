@@ -213,8 +213,12 @@ def process_paper_for_csv(
     return result
 
 
-def main():
-    """Main entry point for CSV enrichment."""
+def main(progress_callback=None):
+    """Main entry point for CSV enrichment.
+
+    Args:
+        progress_callback: Optional callback(processed, total, stats) for progress reporting.
+    """
     parser = argparse.ArgumentParser(
         description="Enrich aggregated CSV with HuggingFace metadata"
     )
@@ -340,6 +344,17 @@ def main():
                 stats["skipped"] += 1
                 continue
 
+            # Report progress every 10 papers
+            if progress_callback:
+                processed = stats["matched"] + stats["skipped"]
+                if processed % 10 == 0:
+                    progress_callback(processed, len(data), stats)
+
+        # Final progress report
+        if progress_callback:
+            total_processed = stats["matched"] + stats["skipped"]
+            progress_callback(total_processed, len(data), stats)
+
         # Write updated CSV
         if not args.dry_run:
             data.to_csv(csv_path, sep=";", index=False)
@@ -362,9 +377,13 @@ def main():
 
     except FileNotFoundError as e:
         logger.error(f"Configuration error: {e}")
+        if progress_callback is not None:
+            raise
         sys.exit(1)
     except Exception as e:
         logger.error(f"Error during enrichment: {e}", exc_info=True)
+        if progress_callback is not None:
+            raise
         sys.exit(1)
 
 

@@ -4,10 +4,13 @@ Provides REST endpoints for paper collection, aggregation, filtering, and config
 """
 
 import asyncio
+import json
 import logging
 import os
+import shutil
 import sys
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -32,6 +35,28 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class JobLogHandler(logging.Handler):
+    """Captures log lines into a pipeline job's log list."""
+
+    def __init__(self, job_dict: dict[str, Any], max_lines: int = 500):
+        super().__init__()
+        self._job = job_dict
+        self._max_lines = max_lines
+        self._job.setdefault("logs", [])
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            logs = self._job["logs"]
+            logs.append(msg)
+            # Trim in-place to avoid replacing the list object (thread-safety)
+            if len(logs) > self._max_lines:
+                del logs[: len(logs) - self._max_lines]
+        except Exception:
+            self.handleError(record)
+
 
 # ============================================================================
 # FASTAPI APP SETUP
@@ -193,10 +218,21 @@ async def run_collection_task(
     cancel_event: threading.Event | None = None,
 ) -> None:
     """Run the collection task in background."""
+    job = pipeline_jobs[job_id]
+
+    # Attach log handler to capture pipeline logs
+    log_handler = JobLogHandler(job)
+    log_handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    )
+    root_logger = logging.getLogger()
+    root_logger.addHandler(log_handler)
+
     try:
-        pipeline_jobs[job_id]["status"] = "running"
-        pipeline_jobs[job_id]["progress"] = 10
-        pipeline_jobs[job_id]["message"] = "Starting collection..."
+        job["status"] = "running"
+        job["phase"] = "initializing"
+        job["progress"] = 10
+        job["message"] = "Starting collection..."
 
         # Ensure output directory exists
         os_output_dir = main_config.get("output_dir", output_dir)
@@ -207,10 +243,9 @@ async def run_collection_task(
         with open(config_path, "w") as f:
             yaml.dump(main_config, f)
 
-        pipeline_jobs[job_id]["progress"] = 20
-        pipeline_jobs[job_id]["message"] = (
-            "Configuration saved, starting API collection..."
-        )
+        job["progress"] = 20
+        job["phase"] = "collecting"
+        job["message"] = "Configuration saved, starting API collection..."
 
         # Ensure aggregate_collect can resolve runtime config from scilex/scilex.config.yml
         save_main_config(main_config)
@@ -218,13 +253,9 @@ async def run_collection_task(
         # Progress callback: maps collection progress to 20-70% range
         def on_collection_progress(api_stats, completed, total):
             ratio = completed / max(total, 1)
-            pipeline_jobs[job_id]["progress"] = 20 + int(ratio * 50)
-            pipeline_jobs[job_id]["message"] = (
-                f"Collecting papers... {completed}/{total} queries done"
-            )
-            pipeline_jobs[job_id]["api_stats"] = {
-                k: dict(v) for k, v in api_stats.items()
-            }
+            job["progress"] = 20 + int(ratio * 50)
+            job["message"] = f"Collecting papers... {completed}/{total} queries done"
+            job["api_stats"] = {k: dict(v) for k, v in api_stats.items()}
 
         # Run collection with progress callback and cancel event
         collector = CollectCollection(
@@ -239,43 +270,66 @@ async def run_collection_task(
 
         # Check if cancelled during collection
         if cancel_event and cancel_event.is_set():
-            pipeline_jobs[job_id]["status"] = "cancelled"
-            pipeline_jobs[job_id]["message"] = "Pipeline cancelled during collection."
+            job["status"] = "cancelled"
+            job["message"] = "Pipeline cancelled during collection."
             return
 
-        pipeline_jobs[job_id]["progress"] = 75
-        pipeline_jobs[job_id]["message"] = (
-            "Collection completed, aggregating results..."
-        )
+        job["progress"] = 75
+        job["phase"] = "aggregating"
+        job["message"] = "Collection completed, aggregating results..."
 
         # Run aggregation (offloaded to thread pool)
         os.chdir(PROJECT_ROOT)
-        sys.argv = ["aggregate", "--skip-citations", "--workers", "3"]
+        aggregate_args = ["aggregate", "--workers", "3"]
+        if not main_config.get("aggregate_get_citations", True):
+            aggregate_args.append("--skip-citations")
+        sys.argv = aggregate_args
         from scilex.aggregate_collect import main as aggregate_main
 
         await loop.run_in_executor(None, aggregate_main)
 
         # Check if cancelled during aggregation
         if cancel_event and cancel_event.is_set():
-            pipeline_jobs[job_id]["status"] = "cancelled"
-            pipeline_jobs[job_id]["message"] = "Pipeline cancelled after aggregation."
+            job["status"] = "cancelled"
+            job["message"] = "Pipeline cancelled after aggregation."
             return
 
-        pipeline_jobs[job_id]["progress"] = 85
-        pipeline_jobs[job_id]["message"] = "Aggregation completed."
+        # Load filtering summary if available
+        collect_name = main_config.get("collect_name", "collection")
+        summary_path = os.path.join(
+            os_output_dir, collect_name, "filtering_summary.json"
+        )
+        if os.path.exists(summary_path):
+            with open(summary_path) as f:
+                job["filtering_summary"] = json.load(f)
+
+        job["progress"] = 85
+        job["message"] = "Aggregation completed."
 
         # Optional: HuggingFace enrichment
-        if main_config.get("enable_enrichment"):
-            pipeline_jobs[job_id]["progress"] = 88
-            pipeline_jobs[job_id]["message"] = "Running HuggingFace enrichment..."
+        if main_config.get("enable_enrichment", False):
+            job["progress"] = 88
+            job["phase"] = "enriching"
+            job["message"] = "Running HuggingFace enrichment..."
+
+            def on_enrichment_progress(processed, total, stats):
+                ratio = processed / max(total, 1)
+                job["progress"] = 88 + int(ratio * 7)  # Maps to 88-95% range
+                matched = stats.get("matched", 0)
+                job["message"] = (
+                    f"Enriching papers... {processed}/{total} ({matched} matched)"
+                )
 
             sys.argv = ["enrich"]
             from scilex.enrich_with_hf import main as enrich_main
 
-            await loop.run_in_executor(None, enrich_main)
+            await loop.run_in_executor(
+                None, lambda: enrich_main(progress_callback=on_enrichment_progress)
+            )
 
-        pipeline_jobs[job_id]["progress"] = 95
-        pipeline_jobs[job_id]["message"] = (
+        job["progress"] = 95
+        job["phase"] = "completed"
+        job["message"] = (
             "Enrichment completed."
             if main_config.get("enable_enrichment")
             else "Preparing output..."
@@ -288,12 +342,22 @@ async def run_collection_task(
         csv_path = os.path.join(collect_dir, "aggregated_results.csv")
 
         if os.path.exists(csv_path):
-            pipeline_jobs[job_id]["output_path"] = csv_path
+            job["output_path"] = csv_path
             df = pd.read_csv(csv_path, delimiter=";")
-            pipeline_jobs[job_id]["stats"] = {
+
+            # Derive year from date if year column is missing
+            if "year" not in df.columns and "date" in df.columns:
+                df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
+
+            job["stats"] = {
                 "total_papers": len(df),
                 "by_year": (
-                    df["year"].value_counts().sort_index().to_dict()
+                    df["year"]
+                    .dropna()
+                    .astype(int)
+                    .value_counts()
+                    .sort_index()
+                    .to_dict()
                     if "year" in df.columns
                     else {}
                 ),
@@ -304,15 +368,17 @@ async def run_collection_task(
                 ),
             }
 
-        pipeline_jobs[job_id]["progress"] = 100
-        pipeline_jobs[job_id]["status"] = "completed"
-        pipeline_jobs[job_id]["message"] = "Pipeline completed successfully!"
+        job["progress"] = 100
+        job["status"] = "completed"
+        job["message"] = "Pipeline completed successfully!"
 
     except Exception as e:
         logger.error(f"Pipeline job {job_id} failed: {str(e)}", exc_info=True)
-        pipeline_jobs[job_id]["status"] = "failed"
-        pipeline_jobs[job_id]["error"] = str(e)
-        pipeline_jobs[job_id]["message"] = f"Error: {str(e)}"
+        job["status"] = "failed"
+        job["error"] = str(e)
+        job["message"] = f"Error: {str(e)}"
+    finally:
+        root_logger.removeHandler(log_handler)
 
 
 # ============================================================================
@@ -537,11 +603,15 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
         pipeline_jobs[job_id] = {
             "id": job_id,
             "status": "pending",
+            "phase": "initializing",
             "progress": 0,
             "message": "Initializing...",
             "created_at": datetime.now().isoformat(),
+            "started_at": time.time(),
             "config": main_config,
             "cancel_event": cancel_event,
+            "logs": [],
+            "enrichment_enabled": main_config.get("enable_enrichment", False),
         }
 
         # Run collection in background
@@ -574,12 +644,17 @@ async def get_pipeline_status(job_id: str):
     return {
         "job_id": job_id,
         "status": job["status"],
+        "phase": job.get("phase", "initializing"),
         "progress": job["progress"],
         "message": job["message"],
         "created_at": job.get("created_at"),
+        "started_at": job.get("started_at"),
         "error": job.get("error"),
         "stats": job.get("stats"),
         "api_stats": job.get("api_stats"),
+        "logs": job.get("logs", []),
+        "filtering_summary": job.get("filtering_summary"),
+        "enrichment_enabled": job.get("enrichment_enabled", False),
     }
 
 
@@ -609,16 +684,15 @@ async def cancel_pipeline(job_id: str):
 @app.get("/pipelines")
 async def list_pipelines():
     """List all pipeline jobs."""
-    jobs = []
-    for job_id, job in pipeline_jobs.items():
-        jobs.append(
-            {
-                "job_id": job_id,
-                "status": job["status"],
-                "progress": job["progress"],
-                "created_at": job.get("created_at"),
-            }
-        )
+    jobs = [
+        {
+            "job_id": job_id,
+            "status": job["status"],
+            "progress": job["progress"],
+            "created_at": job.get("created_at"),
+        }
+        for job_id, job in pipeline_jobs.items()
+    ]
     return {"jobs": jobs}
 
 
@@ -668,6 +742,10 @@ async def get_results_stats(collect_name: str):
             raise HTTPException(status_code=404, detail="Results not found")
 
         df = pd.read_csv(csv_path, delimiter=";")
+
+        # Derive year from date if year column is missing
+        if "year" not in df.columns and "date" in df.columns:
+            df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
 
         stats = {
             "total_papers": len(df),
@@ -778,6 +856,32 @@ async def list_collections():
             )
         }
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.delete("/collections/{name}")
+async def delete_collection(name: str):
+    """Delete a collection directory with path traversal protection."""
+
+    # Validate name — must not be empty or contain path separators/special components
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        raise HTTPException(status_code=400, detail="Invalid collection name")
+
+    collection_path = Path(output_dir) / name
+
+    # Ensure the resolved path is actually under output_dir
+    try:
+        collection_path.resolve().relative_to(Path(output_dir).resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid collection path") from None
+
+    if not collection_path.is_dir():
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    try:
+        shutil.rmtree(collection_path)
+        return {"message": f"Collection '{name}' deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

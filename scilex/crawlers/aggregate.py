@@ -114,7 +114,6 @@ def getquality(df_row, column_names):
     return quality
 
 
-
 def _find_best_duplicate_index(duplicates_df, column_names):
     """Find the best duplicate record, preferring most recent then quality."""
     quality_list = []

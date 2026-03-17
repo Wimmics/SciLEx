@@ -28,23 +28,17 @@ class TestAbstractQualityScore:
 
     def test_critical_deducts_40(self):
         qs = AbstractQualityScore("text")
-        qs.add_issue(
-            AbstractQualityIssue("X", AbstractQualityIssue.CRITICAL, "desc")
-        )
+        qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.CRITICAL, "desc"))
         assert qs.get_score() == 60
 
     def test_warning_deducts_15(self):
         qs = AbstractQualityScore("text")
-        qs.add_issue(
-            AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc")
-        )
+        qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc"))
         assert qs.get_score() == 85
 
     def test_info_deducts_5(self):
         qs = AbstractQualityScore("text")
-        qs.add_issue(
-            AbstractQualityIssue("X", AbstractQualityIssue.INFO, "desc")
-        )
+        qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.INFO, "desc"))
         assert qs.get_score() == 95
 
     def test_score_floor_at_zero(self):
@@ -83,14 +77,18 @@ class TestAbstractQualityScore:
     def test_is_acceptable_fails_below_threshold(self):
         qs = AbstractQualityScore("text")
         for _ in range(3):
-            qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc"))
+            qs.add_issue(
+                AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc")
+            )
         # 100 - 3*15 = 55, which is >= 50 by default
         assert qs.is_acceptable() is True
 
     def test_is_acceptable_custom_threshold(self):
         qs = AbstractQualityScore("text")
         for _ in range(3):
-            qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc"))
+            qs.add_issue(
+                AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc")
+            )
         # 55 < 70
         assert qs.is_acceptable(min_score=70) is False
 
