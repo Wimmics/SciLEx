@@ -183,7 +183,10 @@ with st.sidebar.expander("⚙️ Configuration", expanded=True):
     output_dir = st.text_input(
         "Output Directory",
         value=DEFAULT_OUTPUT_DIR,
-        help="Where to save collected papers and results",
+        help=(
+            "Base folder for all results. Each collection creates its own subfolder.\n"
+            "Use an absolute path for consistency across runs."
+        ),
     )
 
 # ============================================================================
@@ -233,13 +236,19 @@ with tab1:
             collect_name = st.text_input(
                 "Collection Name",
                 value="my_research_",
-                help="Unique identifier for this collection",
+                help=(
+                    "Becomes the output subfolder name (e.g. output/my_research_).\n"
+                    "Re-using an existing name lets you resume a partial collection."
+                ),
             )
             years = st.multiselect(
                 "Publication Years",
                 options=list(range(2026, 2000, -1)),
                 default=[2025, 2026],
-                help="Select years to search",
+                help=(
+                    "Only papers published in these years will be collected.\n"
+                    "Papers outside this range are filtered out during aggregation."
+                ),
             )
 
         with col2:
@@ -247,19 +256,29 @@ with tab1:
                 "Semantic Scholar Mode",
                 ["regular", "bulk"],
                 help=(
-                    "regular: Standard search (100 papers/request)\n"
-                    "bulk: Fast mode for large collections (1000 papers/request, requires approval)"
+                    "regular: Standard search, 100 papers per request (recommended).\n"
+                    "bulk: 1000 papers per request, much faster but requires "
+                    "Semantic Scholar API approval."
                 ),
             )
             aggregate_citations = st.checkbox(
                 "Fetch Citation Counts",
                 value=True,
-                help="Include citation count from CrossRef/OpenCitations",
+                help=(
+                    "Fetches citation counts "
+                    "(cache → Semantic Scholar → CrossRef → OpenCitations).\n"
+                    "Enables time-aware citation filtering "
+                    "(e.g. ≥1 citation after 18 months)."
+                ),
             )
             enable_enrichment = st.checkbox(
                 "Enable HuggingFace Enrichment",
                 value=False,
-                help="Enrich papers with HuggingFace tags, URLs, and GitHub repos",
+                help=(
+                    "Detects ML/AI papers with linked models, datasets, "
+                    "and GitHub repos on HuggingFace.\n"
+                    "Rate-limited: 5 req/sec with API token, 1 req/sec without."
+                ),
             )
 
         st.subheader("2️⃣ Keywords")
@@ -271,7 +290,10 @@ with tab1:
             keywords_group1 = st.text_area(
                 "Primary keywords (one per line)",
                 value="RAG\nRetrieval Augmented Generation\nLLM\nLarge Language Model",
-                help="Papers must contain at least one of these keywords",
+                help=(
+                    "Papers must contain at least ONE of these keywords (OR logic).\n"
+                    "Case-insensitive matching against title and abstract."
+                ),
                 key="keywords1",
             )
 
@@ -280,14 +302,23 @@ with tab1:
             keywords_group2 = st.text_area(
                 "Secondary keywords (one per line, or leave empty)",
                 value="Knowledge Graph\nknowledge graphs\nsemantic network",
-                help="If provided, papers must match keywords from BOTH groups",
+                help=(
+                    "Papers must match at least one keyword from EACH group "
+                    "(AND between groups, OR within).\n"
+                    "Leave empty to use only primary keywords."
+                ),
                 key="keywords2",
             )
 
         bonus_keywords_text = st.text_area(
             "Bonus Keywords (Optional)",
             value="",
-            help="Optional keywords that boost relevance without filtering papers",
+            help=(
+                "Increase a paper's relevance score during ranking, "
+                "but never exclude papers.\n"
+                "Useful for related terms that indicate quality "
+                "without being required."
+            ),
             key="bonus_keywords",
         )
 
@@ -296,9 +327,8 @@ with tab1:
         col1, col2 = st.columns(2)
 
         with col1:
-            st.write("**Free APIs**")
             free_apis = st.multiselect(
-                "Free sources",
+                "Free APIs",
                 options=[
                     "SemanticScholar",
                     "OpenAlex",
@@ -310,18 +340,25 @@ with tab1:
                     "Istex",
                 ],
                 default=["SemanticScholar", "OpenAlex", "Arxiv"],
-                label_visibility="collapsed",
                 key="free_apis",
+                help=(
+                    "Academic databases that don't require API keys.\n"
+                    "Using multiple sources improves coverage; "
+                    "duplicates are removed automatically."
+                ),
             )
 
         with col2:
-            st.write("**Paid APIs** (requires key)")
             paid_apis = st.multiselect(
-                "Paid sources",
+                "Paid APIs (requires key)",
                 options=["IEEE", "Elsevier", "Springer"],
                 default=[],
-                label_visibility="collapsed",
                 key="paid_apis",
+                help=(
+                    "Require an API key configured in the sidebar.\n"
+                    "IEEE covers engineering; "
+                    "Elsevier and Springer cover broad science."
+                ),
             )
 
         selected_apis = free_apis + paid_apis
@@ -336,6 +373,12 @@ with tab1:
             enable_base_filters = st.checkbox(
                 "Enable Base Filters",
                 value=True,
+                help=(
+                    "Requires DOI, abstract, publication year, "
+                    "and at least 2 authors.\n"
+                    "Also applies abstract length checks. "
+                    "Disable for exploratory searches."
+                ),
             )
 
             if enable_base_filters:
@@ -344,12 +387,22 @@ with tab1:
                     min_value=0,
                     max_value=500,
                     value=50,
+                    help=(
+                        "Detects truncated or stub abstracts. "
+                        "Typical range: 50–100 words.\n"
+                        "Set to 0 to disable this check."
+                    ),
                 )
                 max_abstract = st.slider(
                     "Maximum Abstract Length (words)",
                     min_value=100,
                     max_value=2000,
                     value=1000,
+                    help=(
+                        "Detects copy-paste errors or non-abstract text. "
+                        "Typical range: 500–1000.\n"
+                        "Set to the maximum to effectively disable."
+                    ),
                 )
 
         with col2:
@@ -363,7 +416,11 @@ with tab1:
                     "preprint",
                 ],
                 default=["journalArticle", "conferencePaper"],
-                label_visibility="collapsed",
+                help=(
+                    "Whitelist: only papers matching these types are kept.\n"
+                    "journalArticle and conferencePaper cover "
+                    "most peer-reviewed work."
+                ),
             )
 
         col1, col2 = st.columns(2)
@@ -372,7 +429,12 @@ with tab1:
             apply_relevance = st.checkbox(
                 "Sort by Relevance Score",
                 value=True,
-                help="Rank papers by relevance to your keywords",
+                help=(
+                    "Composite 0–10 score: keyword density (45%), "
+                    "metadata completeness (25%),\n"
+                    "publication venue (20%), citations (10%).\n"
+                    "Disable to keep papers in their original collection order."
+                ),
             )
 
         with col2:
@@ -382,7 +444,11 @@ with tab1:
                 max_value=10000,
                 value=500,
                 step=50,
-                help="Return top N papers by relevance",
+                help=(
+                    "Final cap applied after all filtering and ranking.\n"
+                    "500–1000 for a focused review, "
+                    "higher for comprehensive surveys."
+                ),
             )
 
         # Parse keywords
@@ -908,7 +974,12 @@ with tab3:
                     zotero_collection_name = st.text_input(
                         "Zotero Collection Name",
                         value=selected_collection,
-                        help="Name of the Zotero collection to push papers to",
+                        help=(
+                            "Creates the collection in Zotero "
+                            "if it doesn't exist.\n"
+                            "If it already exists, "
+                            "papers are added to it."
+                        ),
                     )
 
                 with zotero_col2:
