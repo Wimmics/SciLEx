@@ -595,6 +595,15 @@ with tab1:
                 f"{api_base_url.rstrip('/')}/pipelines/{job_id}/status",
                 timeout=5,
             )
+
+            if resp.status_code == 404:
+                st.warning(
+                    "Job not found — the backend may have restarted. "
+                    "Clearing stale job reference."
+                )
+                del st.session_state["pipeline_job_id"]
+                st.rerun()
+
             data = resp.json()
 
             # Show progress bar
@@ -617,17 +626,18 @@ with tab1:
                         )
 
             # Terminal states
-            if data["status"] in ("completed", "failed", "cancelled"):
-                if data["status"] == "completed":
+            status = data.get("status")
+            if status in ("completed", "failed", "cancelled"):
+                if status == "completed":
                     st.success("Pipeline completed successfully!")
                     if data.get("stats"):
                         st.json(data["stats"])
-                elif data["status"] == "cancelled":
+                elif status == "cancelled":
                     st.warning(
                         "Pipeline was cancelled. You can restart with the same "
                         "collection name — completed queries will be skipped."
                     )
-                elif data["status"] == "failed":
+                elif status == "failed":
                     st.error(f"Pipeline failed: {data.get('error', 'Unknown error')}")
                 del st.session_state["pipeline_job_id"]
             else:
