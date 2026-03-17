@@ -15,12 +15,10 @@ import pandas as pd
 from scilex.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid, normalize_path_component
 from scilex.crawlers.utils import load_all_configs
+from scilex.logging_config import setup_logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+# Set up logging with centralized configuration
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

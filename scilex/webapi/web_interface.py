@@ -2,7 +2,6 @@
 
 import contextlib
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -14,9 +13,8 @@ import yaml
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid
 
-# Add src/ to path for SciLEx imports
+# Project root for config file paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 API_CONFIG_PATH = PROJECT_ROOT / "scilex" / "api.config.yml"
 
 

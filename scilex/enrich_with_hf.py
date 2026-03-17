@@ -36,13 +36,10 @@ from scilex.HuggingFace.hf_client import HFClient
 from scilex.HuggingFace.metadata_extractor import MetadataExtractor
 from scilex.HuggingFace.tag_formatter import TagFormatter
 from scilex.HuggingFace.title_matcher import TitleMatcher
+from scilex.logging_config import setup_logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+# Set up logging with centralized configuration
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

@@ -17,14 +17,11 @@ from tqdm import tqdm
 from scilex.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid, normalize_path_component
 from scilex.crawlers.utils import load_all_configs
+from scilex.logging_config import setup_logging
 from scilex.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
 
-# Set up logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+# Set up logging with centralized configuration
+setup_logging()
 
 
 def load_aggregated_data(config: dict) -> pd.DataFrame:

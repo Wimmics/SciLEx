@@ -25,9 +25,8 @@ from pydantic import BaseModel
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.crawlers.collector_collection import CollectCollection
 
-# Add src/ to path for SciLEx imports
+# Project root for config file paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # ============================================================================
 # LOGGING SETUP
@@ -278,15 +277,24 @@ async def run_collection_task(
         job["phase"] = "aggregating"
         job["message"] = "Collection completed, aggregating results..."
 
-        # Run aggregation (offloaded to thread pool)
-        os.chdir(PROJECT_ROOT)
-        aggregate_args = ["aggregate", "--workers", "3"]
-        if not main_config.get("aggregate_get_citations", True):
-            aggregate_args.append("--skip-citations")
-        sys.argv = aggregate_args
-        from scilex.aggregate_collect import main as aggregate_main
+        # Run aggregation via orchestrator (no sys.argv hack)
+        from scilex.config import SciLExConfig
+        from scilex.pipeline.orchestrator import AggregationOptions, run_aggregation
 
-        await loop.run_in_executor(None, aggregate_main)
+        agg_config = SciLExConfig.from_dicts(main_config, api_config)
+        agg_options = AggregationOptions(
+            skip_citations=not main_config.get("aggregate_get_citations", True),
+            workers=3,
+        )
+
+        def _on_agg_progress(phase, pct, message):
+            # Map aggregation 0-100 into job's 75-85 range
+            job["progress"] = 75 + int(pct * 0.10)
+            job["message"] = message
+
+        await loop.run_in_executor(
+            None, run_aggregation, agg_config, agg_options, _on_agg_progress
+        )
 
         # Check if cancelled during aggregation
         if cancel_event and cancel_event.is_set():
@@ -902,33 +910,10 @@ async def filter_results(collect_name: str, filters: FilterConfig):
 
         df = pd.read_csv(csv_path, delimiter=";")
 
-        # Apply filters
-        if (
-            filters.enable_itemtype_filter
-            and filters.allowed_item_types
-            and "item_type" in df.columns
-        ):
-            df = df[df["item_type"].isin(filters.allowed_item_types)]
+        # Apply filters using shared post-filter module
+        from scilex.pipeline.post_filter import apply_post_filters
 
-        if filters.min_abstract_words and "abstract" in df.columns:
-            df = df[
-                df["abstract"].fillna("").str.split().str.len()
-                >= filters.min_abstract_words
-            ]
-
-        if filters.max_abstract_words and "abstract" in df.columns:
-            df = df[
-                df["abstract"].fillna("").str.split().str.len()
-                <= filters.max_abstract_words
-            ]
-
-        # Sort by relevance if available
-        if filters.apply_relevance_ranking and "relevance_score" in df.columns:
-            df = df.sort_values("relevance_score", ascending=False)
-
-        # Apply max papers limit
-        if filters.max_papers:
-            df = df.head(filters.max_papers)
+        df = apply_post_filters(df, filters.dict())
 
         return {
             "total": len(df),
