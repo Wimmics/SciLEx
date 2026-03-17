@@ -103,3 +103,8 @@ ignore = [
 convention = "google"
 
 [tool.ruff.format]
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.0.0",
+]
