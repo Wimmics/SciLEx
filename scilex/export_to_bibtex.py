@@ -15,12 +15,10 @@ import pandas as pd
 from scilex.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid, normalize_path_component
 from scilex.crawlers.utils import load_all_configs
+from scilex.logging_config import setup_logging
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+# Set up logging with centralized configuration
+setup_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -61,11 +59,11 @@ BIBTEX_SPECIAL_CHARS = {
 
 def load_config(collect_name: str | None = None, output_dir: str | None = None) -> dict:
     """Load scilex.config.yml configuration, with optional CLI overrides.
-    
+
     Args:
         collect_name: Override collection name from CLI
         output_dir: Override output directory from CLI
-    
+
     Returns:
         Configuration dictionary
     """
@@ -74,13 +72,13 @@ def load_config(collect_name: str | None = None, output_dir: str | None = None) 
     }
     configs = load_all_configs(config_files)
     config = configs["main_config"]
-    
+
     # Override with CLI arguments if provided
     if collect_name:
         config["collect_name"] = collect_name
     if output_dir:
         config["output_dir"] = output_dir
-    
+
     return config
 
 
@@ -499,9 +497,9 @@ def main():
         default=None,
         help="Output directory (overrides scilex.config.yml)",
     )
-    
+
     args = parser.parse_args()
-    
+
     try:
         # Load configuration with CLI overrides
         config = load_config(
@@ -511,7 +509,9 @@ def main():
 
         # Validate required config
         if "collect_name" not in config:
-            raise ValueError("collect_name not specified in scilex.config.yml or --collect-name")
+            raise ValueError(
+                "collect_name not specified in scilex.config.yml or --collect-name"
+            )
 
         # Load aggregated data
         data = load_aggregated_data(config)

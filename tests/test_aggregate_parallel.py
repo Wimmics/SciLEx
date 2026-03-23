@@ -149,7 +149,9 @@ class TestReconstructQueryToKeywordsMapping:
 # -------------------------------------------------------------------------
 # TestSimpleDeduplicate
 # -------------------------------------------------------------------------
-def _make_paper(doi="10.1234/test", title="Test Paper", archive="SemanticScholar", **extras):
+def _make_paper(
+    doi="10.1234/test", title="Test Paper", archive="SemanticScholar", **extras
+):
     row = {
         "DOI": doi,
         "title": title,
@@ -164,21 +166,25 @@ def _make_paper(doi="10.1234/test", title="Test Paper", archive="SemanticScholar
 
 class TestSimpleDeduplicate:
     def test_no_duplicates_returns_same_count(self):
-        df = pd.DataFrame([
-            _make_paper(doi="10.1/a", title="Paper A"),
-            _make_paper(doi="10.1/b", title="Paper B"),
-            _make_paper(doi="10.1/c", title="Paper C"),
-        ])
+        df = pd.DataFrame(
+            [
+                _make_paper(doi="10.1/a", title="Paper A"),
+                _make_paper(doi="10.1/b", title="Paper B"),
+                _make_paper(doi="10.1/c", title="Paper C"),
+            ]
+        )
         result, stats = simple_deduplicate(df)
         assert len(result) == 3
         assert stats["doi_removed"] == 0
         assert stats["title_removed"] == 0
 
     def test_doi_duplicates_removed(self):
-        df = pd.DataFrame([
-            _make_paper(doi="10.1/a", title="Paper A", archive="SemanticScholar"),
-            _make_paper(doi="10.1/a", title="Paper A (copy)", archive="OpenAlex"),
-        ])
+        df = pd.DataFrame(
+            [
+                _make_paper(doi="10.1/a", title="Paper A", archive="SemanticScholar"),
+                _make_paper(doi="10.1/a", title="Paper A (copy)", archive="OpenAlex"),
+            ]
+        )
         result, stats = simple_deduplicate(df)
         assert len(result) == 1
         assert stats["doi_removed"] == 1
@@ -186,49 +192,69 @@ class TestSimpleDeduplicate:
     def test_doi_dedup_keeps_better_quality(self):
         # High quality: has abstract + authors + DOI
         # Low quality: only DOI
-        df = pd.DataFrame([
-            _make_paper(doi="10.1/a", title="Paper A", archive="OpenAlex",
-                        abstract="NA", authors="NA"),
-            _make_paper(doi="10.1/a", title="Paper A", archive="SemanticScholar",
-                        abstract="Full abstract here.", authors="John Smith"),
-        ])
+        df = pd.DataFrame(
+            [
+                _make_paper(
+                    doi="10.1/a",
+                    title="Paper A",
+                    archive="OpenAlex",
+                    abstract="NA",
+                    authors="NA",
+                ),
+                _make_paper(
+                    doi="10.1/a",
+                    title="Paper A",
+                    archive="SemanticScholar",
+                    abstract="Full abstract here.",
+                    authors="John Smith",
+                ),
+            ]
+        )
         result, stats = simple_deduplicate(df)
         assert len(result) == 1
         # The one with the better quality should be kept
         assert result.iloc[0]["abstract"] == "Full abstract here."
 
     def test_doi_dedup_merges_archives(self):
-        df = pd.DataFrame([
-            _make_paper(doi="10.1/a", title="Paper A", archive="SemanticScholar"),
-            _make_paper(doi="10.1/a", title="Paper A copy", archive="OpenAlex"),
-        ])
+        df = pd.DataFrame(
+            [
+                _make_paper(doi="10.1/a", title="Paper A", archive="SemanticScholar"),
+                _make_paper(doi="10.1/a", title="Paper A copy", archive="OpenAlex"),
+            ]
+        )
         result, _ = simple_deduplicate(df)
         archive_val = result.iloc[0]["archive"]
         # Both sources must be merged into the kept record
         assert "SemanticScholar" in archive_val and "OpenAlex" in archive_val
 
     def test_title_duplicates_removed(self):
-        df = pd.DataFrame([
-            _make_paper(doi="NA", title="Graph Neural Networks"),
-            _make_paper(doi="NA", title="Graph Neural Networks"),
-        ])
+        df = pd.DataFrame(
+            [
+                _make_paper(doi="NA", title="Graph Neural Networks"),
+                _make_paper(doi="NA", title="Graph Neural Networks"),
+            ]
+        )
         result, stats = simple_deduplicate(df)
         assert len(result) == 1
         assert stats["title_removed"] == 1
 
     def test_title_normalization_strips_punctuation(self):
-        df = pd.DataFrame([
-            _make_paper(doi="NA", title="Graph Neural Networks!"),
-            _make_paper(doi="NA", title="Graph Neural Networks"),
-        ])
+        df = pd.DataFrame(
+            [
+                _make_paper(doi="NA", title="Graph Neural Networks!"),
+                _make_paper(doi="NA", title="Graph Neural Networks"),
+            ]
+        )
         result, stats = simple_deduplicate(df)
         assert len(result) == 1
 
     def test_title_normalization_case_insensitive(self):
-        df = pd.DataFrame([
-            _make_paper(doi="NA", title="Machine Learning"),
-            _make_paper(doi="NA", title="machine learning"),
-        ])
+        df = pd.DataFrame(
+            [
+                _make_paper(doi="NA", title="Machine Learning"),
+                _make_paper(doi="NA", title="machine learning"),
+            ]
+        )
         result, stats = simple_deduplicate(df)
         assert len(result) == 1
 
@@ -251,10 +277,12 @@ class TestSimpleDeduplicate:
         assert "title_removed" in stats
 
     def test_missing_doi_not_deduped_by_doi(self):
-        df = pd.DataFrame([
-            _make_paper(doi="NA", title="Paper A"),
-            _make_paper(doi="NA", title="Paper B"),
-        ])
+        df = pd.DataFrame(
+            [
+                _make_paper(doi="NA", title="Paper A"),
+                _make_paper(doi="NA", title="Paper B"),
+            ]
+        )
         result, stats = simple_deduplicate(df)
         # Both should survive DOI dedup (NA is not a valid DOI)
         assert stats["doi_removed"] == 0

@@ -3,9 +3,14 @@
 Provides REST endpoints for paper collection, aggregation, filtering, and configuration management.
 """
 
+import asyncio
+import json
 import logging
 import os
+import shutil
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,9 +25,8 @@ from pydantic import BaseModel
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.crawlers.collector_collection import CollectCollection
 
-# Add src/ to path for SciLEx imports
+# Project root for config file paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # ============================================================================
 # LOGGING SETUP
@@ -30,6 +34,28 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class JobLogHandler(logging.Handler):
+    """Captures log lines into a pipeline job's log list."""
+
+    def __init__(self, job_dict: dict[str, Any], max_lines: int = 500):
+        super().__init__()
+        self._job = job_dict
+        self._max_lines = max_lines
+        self._job.setdefault("logs", [])
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            logs = self._job["logs"]
+            logs.append(msg)
+            # Trim in-place to avoid replacing the list object (thread-safety)
+            if len(logs) > self._max_lines:
+                del logs[: len(logs) - self._max_lines]
+        except Exception:
+            self.handleError(record)
+
 
 # ============================================================================
 # FASTAPI APP SETUP
@@ -77,6 +103,7 @@ class CollectionConfig(BaseModel):
     semantic_scholar_mode: str | None = "regular"
     aggregate_get_citations: bool | None = True
     output_dir: str | None = None
+    enable_enrichment: bool = False
 
 
 class FilterConfig(BaseModel):
@@ -187,12 +214,24 @@ async def run_collection_task(
     job_id: str,
     main_config: dict[str, Any],
     api_config: dict[str, Any],
+    cancel_event: threading.Event | None = None,
 ) -> None:
     """Run the collection task in background."""
+    job = pipeline_jobs[job_id]
+
+    # Attach log handler to capture pipeline logs
+    log_handler = JobLogHandler(job)
+    log_handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    )
+    root_logger = logging.getLogger()
+    root_logger.addHandler(log_handler)
+
     try:
-        pipeline_jobs[job_id]["status"] = "running"
-        pipeline_jobs[job_id]["progress"] = 10
-        pipeline_jobs[job_id]["message"] = "Starting collection..."
+        job["status"] = "running"
+        job["phase"] = "initializing"
+        job["progress"] = 10
+        job["message"] = "Starting collection..."
 
         # Ensure output directory exists
         os_output_dir = main_config.get("output_dir", output_dir)
@@ -203,32 +242,106 @@ async def run_collection_task(
         with open(config_path, "w") as f:
             yaml.dump(main_config, f)
 
-        pipeline_jobs[job_id]["progress"] = 20
-        pipeline_jobs[job_id][
-            "message"
-        ] = "Configuration saved, starting API collection..."
+        job["progress"] = 20
+        job["phase"] = "collecting"
+        job["message"] = "Configuration saved, starting API collection..."
 
         # Ensure aggregate_collect can resolve runtime config from scilex/scilex.config.yml
         save_main_config(main_config)
 
-        # Run collection
-        collector = CollectCollection(main_config, api_config)
-        collector.create_collects_jobs()
+        # Progress callback: maps collection progress to 20-70% range
+        def on_collection_progress(api_stats, completed, total):
+            ratio = completed / max(total, 1)
+            job["progress"] = 20 + int(ratio * 50)
+            job["message"] = f"Collecting papers... {completed}/{total} queries done"
+            job["api_stats"] = {k: dict(v) for k, v in api_stats.items()}
 
-        pipeline_jobs[job_id]["progress"] = 80
-        pipeline_jobs[job_id][
-            "message"
-        ] = "Collection completed, aggregating results..."
+        # Run collection with progress callback and cancel event
+        collector = CollectCollection(
+            main_config,
+            api_config,
+            progress_callback=on_collection_progress,
+            cancel_event=cancel_event,
+        )
+        # Offload blocking call to thread pool so event loop stays responsive
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, collector.create_collects_jobs)
 
-        # Run aggregation
-        os.chdir(PROJECT_ROOT)
-        sys.argv = ["aggregate", "--skip-citations", "--workers", "3"]
-        from scilex.aggregate_collect import main as aggregate_main
+        # Check if cancelled during collection
+        if cancel_event and cancel_event.is_set():
+            job["status"] = "cancelled"
+            job["message"] = "Pipeline cancelled during collection."
+            return
 
-        aggregate_main()
+        job["progress"] = 75
+        job["phase"] = "aggregating"
+        job["message"] = "Collection completed, aggregating results..."
 
-        pipeline_jobs[job_id]["progress"] = 95
-        pipeline_jobs[job_id]["message"] = "Aggregation completed."
+        # Run aggregation via orchestrator (no sys.argv hack)
+        from scilex.config import SciLExConfig
+        from scilex.pipeline.orchestrator import AggregationOptions, run_aggregation
+
+        agg_config = SciLExConfig.from_dicts(main_config, api_config)
+        agg_options = AggregationOptions(
+            skip_citations=not main_config.get("aggregate_get_citations", True),
+            workers=3,
+        )
+
+        def _on_agg_progress(phase, pct, message):
+            # Map aggregation 0-100 into job's 75-85 range
+            job["progress"] = 75 + int(pct * 0.10)
+            job["message"] = message
+
+        await loop.run_in_executor(
+            None, run_aggregation, agg_config, agg_options, _on_agg_progress
+        )
+
+        # Check if cancelled during aggregation
+        if cancel_event and cancel_event.is_set():
+            job["status"] = "cancelled"
+            job["message"] = "Pipeline cancelled after aggregation."
+            return
+
+        # Load filtering summary if available
+        collect_name = main_config.get("collect_name", "collection")
+        summary_path = os.path.join(
+            os_output_dir, collect_name, "filtering_summary.json"
+        )
+        if os.path.exists(summary_path):
+            with open(summary_path) as f:
+                job["filtering_summary"] = json.load(f)
+
+        job["progress"] = 85
+        job["message"] = "Aggregation completed."
+
+        # Optional: HuggingFace enrichment
+        if main_config.get("enable_enrichment", False):
+            job["progress"] = 88
+            job["phase"] = "enriching"
+            job["message"] = "Running HuggingFace enrichment..."
+
+            def on_enrichment_progress(processed, total, stats):
+                ratio = processed / max(total, 1)
+                job["progress"] = 88 + int(ratio * 7)  # Maps to 88-95% range
+                matched = stats.get("matched", 0)
+                job["message"] = (
+                    f"Enriching papers... {processed}/{total} ({matched} matched)"
+                )
+
+            sys.argv = ["enrich"]
+            from scilex.enrich_with_hf import main as enrich_main
+
+            await loop.run_in_executor(
+                None, lambda: enrich_main(progress_callback=on_enrichment_progress)
+            )
+
+        job["progress"] = 95
+        job["phase"] = "completed"
+        job["message"] = (
+            "Enrichment completed."
+            if main_config.get("enable_enrichment")
+            else "Preparing output..."
+        )
 
         # Prepare output
         collect_dir = os.path.join(
@@ -237,12 +350,22 @@ async def run_collection_task(
         csv_path = os.path.join(collect_dir, "aggregated_results.csv")
 
         if os.path.exists(csv_path):
-            pipeline_jobs[job_id]["output_path"] = csv_path
+            job["output_path"] = csv_path
             df = pd.read_csv(csv_path, delimiter=";")
-            pipeline_jobs[job_id]["stats"] = {
+
+            # Derive year from date if year column is missing
+            if "year" not in df.columns and "date" in df.columns:
+                df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
+
+            job["stats"] = {
                 "total_papers": len(df),
                 "by_year": (
-                    df["year"].value_counts().sort_index().to_dict()
+                    df["year"]
+                    .dropna()
+                    .astype(int)
+                    .value_counts()
+                    .sort_index()
+                    .to_dict()
                     if "year" in df.columns
                     else {}
                 ),
@@ -253,15 +376,17 @@ async def run_collection_task(
                 ),
             }
 
-        pipeline_jobs[job_id]["progress"] = 100
-        pipeline_jobs[job_id]["status"] = "completed"
-        pipeline_jobs[job_id]["message"] = "Pipeline completed successfully!"
+        job["progress"] = 100
+        job["status"] = "completed"
+        job["message"] = "Pipeline completed successfully!"
 
     except Exception as e:
         logger.error(f"Pipeline job {job_id} failed: {str(e)}", exc_info=True)
-        pipeline_jobs[job_id]["status"] = "failed"
-        pipeline_jobs[job_id]["error"] = str(e)
-        pipeline_jobs[job_id]["message"] = f"Error: {str(e)}"
+        job["status"] = "failed"
+        job["error"] = str(e)
+        job["message"] = f"Error: {str(e)}"
+    finally:
+        root_logger.removeHandler(log_handler)
 
 
 # ============================================================================
@@ -415,6 +540,18 @@ async def get_available_apis():
             "free_tier": True,
         },
         {
+            "name": "PubMedCentral",
+            "description": "PubMed Central - Free full-text biomedical articles",
+            "requires_key": False,
+            "free_tier": True,
+        },
+        {
+            "name": "Istex",
+            "description": "ISTEX - French scientific full-text archive",
+            "requires_key": False,
+            "free_tier": True,
+        },
+        {
             "name": "IEEE",
             "description": "IEEE Xplore - IEEE digital library",
             "requires_key": True,
@@ -429,18 +566,6 @@ async def get_available_apis():
         {
             "name": "Springer",
             "description": "Springer - Springer journals and books",
-            "requires_key": True,
-            "free_tier": False,
-        },
-        {
-            "name": "HuggingFace",
-            "description": "HuggingFace - ML models/datasets enrichment",
-            "requires_key": False,
-            "free_tier": True,
-        },
-        {
-            "name": "Zotero",
-            "description": "Zotero - Push collected papers to Zotero",
             "requires_key": True,
             "free_tier": False,
         },
@@ -468,6 +593,7 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
             "output_dir": request.collection_config.output_dir or output_dir,
             "collect": True,
             "aggregate_get_citations": request.collection_config.aggregate_get_citations,
+            "enable_enrichment": request.collection_config.enable_enrichment,
         }
 
         if request.collection_config.semantic_scholar_mode:
@@ -480,19 +606,29 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
                 exclude_unset=True
             )
 
-        # Initialize job
+        # Initialize job with cancel event
+        cancel_event = threading.Event()
         pipeline_jobs[job_id] = {
             "id": job_id,
             "status": "pending",
+            "phase": "initializing",
             "progress": 0,
             "message": "Initializing...",
             "created_at": datetime.now().isoformat(),
+            "started_at": time.time(),
             "config": main_config,
+            "cancel_event": cancel_event,
+            "logs": [],
+            "enrichment_enabled": main_config.get("enable_enrichment", False),
         }
 
         # Run collection in background
         background_tasks.add_task(
-            run_collection_task, job_id, main_config, request.api_config
+            run_collection_task,
+            job_id,
+            main_config,
+            request.api_config,
+            cancel_event,
         )
 
         return {
@@ -516,27 +652,55 @@ async def get_pipeline_status(job_id: str):
     return {
         "job_id": job_id,
         "status": job["status"],
+        "phase": job.get("phase", "initializing"),
         "progress": job["progress"],
         "message": job["message"],
         "created_at": job.get("created_at"),
+        "started_at": job.get("started_at"),
         "error": job.get("error"),
         "stats": job.get("stats"),
+        "api_stats": job.get("api_stats"),
+        "logs": job.get("logs", []),
+        "filtering_summary": job.get("filtering_summary"),
+        "enrichment_enabled": job.get("enrichment_enabled", False),
     }
+
+
+@app.post("/pipelines/{job_id}/cancel")
+async def cancel_pipeline(job_id: str):
+    """Cancel a running pipeline job."""
+    if job_id not in pipeline_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    job = pipeline_jobs[job_id]
+    if job["status"] in ("completed", "failed", "cancelled"):
+        return {"message": f"Job already finished ({job['status']})", "job_id": job_id}
+    if job["status"] not in ("pending", "running"):
+        raise HTTPException(
+            status_code=400, detail=f"Job is not running (status: {job['status']})"
+        )
+
+    cancel_event = job.get("cancel_event")
+    if cancel_event:
+        cancel_event.set()
+
+    job["status"] = "cancelling"
+    job["message"] = "Cancellation requested, finishing current queries..."
+    return {"message": "Cancellation requested", "job_id": job_id}
 
 
 @app.get("/pipelines")
 async def list_pipelines():
     """List all pipeline jobs."""
-    jobs = []
-    for job_id, job in pipeline_jobs.items():
-        jobs.append(
-            {
-                "job_id": job_id,
-                "status": job["status"],
-                "progress": job["progress"],
-                "created_at": job.get("created_at"),
-            }
-        )
+    jobs = [
+        {
+            "job_id": job_id,
+            "status": job["status"],
+            "progress": job["progress"],
+            "created_at": job.get("created_at"),
+        }
+        for job_id, job in pipeline_jobs.items()
+    ]
     return {"jobs": jobs}
 
 
@@ -558,7 +722,7 @@ async def get_results(collect_name: str, limit: int = 100, skip: int = 0):
 
         # Apply limit and skip
         total = len(df)
-        df = df.iloc[skip: skip + limit]
+        df = df.iloc[skip : skip + limit]
 
         # Convert to dict, handling NaN values
         records = df.fillna("").to_dict(orient="records")
@@ -586,6 +750,10 @@ async def get_results_stats(collect_name: str):
             raise HTTPException(status_code=404, detail="Results not found")
 
         df = pd.read_csv(csv_path, delimiter=";")
+
+        # Derive year from date if year column is missing
+        if "year" not in df.columns and "date" in df.columns:
+            df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
 
         stats = {
             "total_papers": len(df),
@@ -700,6 +868,32 @@ async def list_collections():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.delete("/collections/{name}")
+async def delete_collection(name: str):
+    """Delete a collection directory with path traversal protection."""
+
+    # Validate name — must not be empty or contain path separators/special components
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        raise HTTPException(status_code=400, detail="Invalid collection name")
+
+    collection_path = Path(output_dir) / name
+
+    # Ensure the resolved path is actually under output_dir
+    try:
+        collection_path.resolve().relative_to(Path(output_dir).resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid collection path") from None
+
+    if not collection_path.is_dir():
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    try:
+        shutil.rmtree(collection_path)
+        return {"message": f"Collection '{name}' deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 # ============================================================================
 # FILTER ENDPOINTS
 # ============================================================================
@@ -716,33 +910,10 @@ async def filter_results(collect_name: str, filters: FilterConfig):
 
         df = pd.read_csv(csv_path, delimiter=";")
 
-        # Apply filters
-        if (
-            filters.enable_itemtype_filter
-            and filters.allowed_item_types
-            and "item_type" in df.columns
-        ):
-            df = df[df["item_type"].isin(filters.allowed_item_types)]
+        # Apply filters using shared post-filter module
+        from scilex.pipeline.post_filter import apply_post_filters
 
-        if filters.min_abstract_words and "abstract" in df.columns:
-            df = df[
-                df["abstract"].fillna("").str.split().str.len()
-                >= filters.min_abstract_words
-            ]
-
-        if filters.max_abstract_words and "abstract" in df.columns:
-            df = df[
-                df["abstract"].fillna("").str.split().str.len()
-                <= filters.max_abstract_words
-            ]
-
-        # Sort by relevance if available
-        if filters.apply_relevance_ranking and "relevance_score" in df.columns:
-            df = df.sort_values("relevance_score", ascending=False)
-
-        # Apply max papers limit
-        if filters.max_papers:
-            df = df.head(filters.max_papers)
+        df = apply_post_filters(df, filters.dict())
 
         return {
             "total": len(df),

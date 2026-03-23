@@ -69,7 +69,6 @@ class ColoredFormatter(logging.Formatter):
         return super().format(record)
 
 
-
 def setup_logging(
     level: str | None = None,
     use_colors: bool | None = None,
@@ -153,7 +152,6 @@ def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
 
 
-
 def log_section(logger: logging.Logger, title: str, level: str = "INFO"):
     """
     Log a section header with visual separator.
@@ -168,5 +166,3 @@ def log_section(logger: logging.Logger, title: str, level: str = "INFO"):
     log_func(separator)
     log_func(title)
     log_func(separator)
-
-

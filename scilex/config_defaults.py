@@ -238,30 +238,32 @@ QUALITY_FILTER_SCHEMA = {
 
 def get_default_quality_filters():
     """Return all default quality filter settings as a dictionary."""
-    return copy.deepcopy({
-        "enable_itemtype_bypass": DEFAULT_ENABLE_ITEMTYPE_BYPASS,
-        "bypass_item_types": DEFAULT_BYPASS_ITEM_TYPES,
-        "enable_itemtype_filter": DEFAULT_ENABLE_ITEMTYPE_FILTER,
-        "allowed_item_types": DEFAULT_ALLOWED_ITEM_TYPES,
-        "require_abstract": DEFAULT_REQUIRE_ABSTRACT,
-        "require_doi": DEFAULT_REQUIRE_DOI,
-        "require_year": DEFAULT_REQUIRE_YEAR,
-        "require_open_access": DEFAULT_REQUIRE_OPEN_ACCESS,
-        "min_author_count": MIN_AUTHOR_COUNT,
-        "min_abstract_words": MIN_ABSTRACT_WORDS,
-        "max_abstract_words": MAX_ABSTRACT_WORDS,
-        "validate_year_range": DEFAULT_VALIDATE_YEAR_RANGE,
-        "validate_abstracts": DEFAULT_VALIDATE_ABSTRACTS,
-        "min_abstract_quality_score": MIN_ABSTRACT_QUALITY_SCORE,
-        "generate_quality_report": DEFAULT_GENERATE_QUALITY_REPORT,
-        "apply_citation_filter": DEFAULT_APPLY_CITATION_FILTER,
-        "use_semantic_scholar_citations": DEFAULT_USE_SEMANTIC_SCHOLAR_CITATIONS,
-        "apply_relevance_ranking": DEFAULT_APPLY_RELEVANCE_RANKING,
-        "relevance_weights": DEFAULT_RELEVANCE_WEIGHTS,
-        "itemtype_relevance_weights": DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
-        "max_papers": DEFAULT_MAX_PAPERS,
-        "track_duplicate_sources": DEFAULT_TRACK_DUPLICATE_SOURCES,
-    })
+    return copy.deepcopy(
+        {
+            "enable_itemtype_bypass": DEFAULT_ENABLE_ITEMTYPE_BYPASS,
+            "bypass_item_types": DEFAULT_BYPASS_ITEM_TYPES,
+            "enable_itemtype_filter": DEFAULT_ENABLE_ITEMTYPE_FILTER,
+            "allowed_item_types": DEFAULT_ALLOWED_ITEM_TYPES,
+            "require_abstract": DEFAULT_REQUIRE_ABSTRACT,
+            "require_doi": DEFAULT_REQUIRE_DOI,
+            "require_year": DEFAULT_REQUIRE_YEAR,
+            "require_open_access": DEFAULT_REQUIRE_OPEN_ACCESS,
+            "min_author_count": MIN_AUTHOR_COUNT,
+            "min_abstract_words": MIN_ABSTRACT_WORDS,
+            "max_abstract_words": MAX_ABSTRACT_WORDS,
+            "validate_year_range": DEFAULT_VALIDATE_YEAR_RANGE,
+            "validate_abstracts": DEFAULT_VALIDATE_ABSTRACTS,
+            "min_abstract_quality_score": MIN_ABSTRACT_QUALITY_SCORE,
+            "generate_quality_report": DEFAULT_GENERATE_QUALITY_REPORT,
+            "apply_citation_filter": DEFAULT_APPLY_CITATION_FILTER,
+            "use_semantic_scholar_citations": DEFAULT_USE_SEMANTIC_SCHOLAR_CITATIONS,
+            "apply_relevance_ranking": DEFAULT_APPLY_RELEVANCE_RANKING,
+            "relevance_weights": DEFAULT_RELEVANCE_WEIGHTS,
+            "itemtype_relevance_weights": DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
+            "max_papers": DEFAULT_MAX_PAPERS,
+            "track_duplicate_sources": DEFAULT_TRACK_DUPLICATE_SOURCES,
+        }
+    )
 
 
 def get_rate_limit(api_name: str, has_api_key: bool = False) -> float:

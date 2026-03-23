@@ -42,12 +42,7 @@ class ORKG_collector(API_collector):
         keywords_str = " ".join(all_keywords)
         encoded_keywords = urllib.parse.quote(keywords_str, safe="")
 
-        url = (
-            f"{self.api_url}"
-            f"?q={encoded_keywords}"
-            f"&size={self.max_by_page}"
-            f"&page={{}}"
-        )
+        url = f"{self.api_url}?q={encoded_keywords}&size={self.max_by_page}&page={{}}"
 
         logging.debug(f"ORKG configured URL: {url}")
         return url

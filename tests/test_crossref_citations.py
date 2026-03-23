@@ -6,7 +6,6 @@ Also tests batch cache functions and the phase-based _fetch_citations_parallel.
 """
 
 import sqlite3
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -254,29 +253,7 @@ class TestCrossRefBatchSize:
 # ============================================================================
 
 
-# Mock config loading for aggregate_collect import
-_MOCK_CONFIGS = {
-    "main_config": {
-        "collect_name": "test_collect",
-        "keywords": [["test"], []],
-        "years": [2024],
-        "apis": ["SemanticScholar"],
-        "output_dir": "/tmp/test_output",
-    },
-    "api_config": {},
-}
-
-
-@pytest.fixture(autouse=True)
-def _patch_aggregate_configs():
-    """Ensure aggregate_collect can be imported by mocking config loading."""
-    if "scilex.aggregate_collect" not in sys.modules:
-        with (
-            patch("scilex.crawlers.utils.load_all_configs", return_value=_MOCK_CONFIGS),
-            patch("scilex.logging_config.setup_logging"),
-        ):
-            import scilex.aggregate_collect  # noqa: F401
-    yield
+# No module-level config mocking needed — aggregate_collect has no import side effects
 
 
 def _get_fetch_fn():
@@ -694,7 +671,6 @@ class TestFetchCitationsParallelPhased:
             )
         return pd.DataFrame(rows)
 
-    @patch("scilex.aggregate_collect.api_config", {})
     @patch("scilex.citations.cache.get_cached_citations_batch")
     @patch("scilex.citations.cache.initialize_cache")
     @patch(
@@ -736,7 +712,6 @@ class TestFetchCitationsParallelPhased:
         assert nb_citeds[0] == 5
         assert nb_citations[1] == 3
 
-    @patch("scilex.aggregate_collect.api_config", {})
     @patch("scilex.citations.cache.cache_citations_batch")
     @patch("scilex.citations.cache.get_cached_citations_batch", return_value={})
     @patch("scilex.citations.cache.initialize_cache")
@@ -768,7 +743,6 @@ class TestFetchCitationsParallelPhased:
         mock_cache_write.assert_called_once()
         assert len(mock_cache_write.call_args[0][0]) == 2
 
-    @patch("scilex.aggregate_collect.api_config", {})
     @patch("scilex.citations.cache.cache_citations_batch")
     @patch("scilex.citations.cache.get_cached_citations_batch", return_value={})
     @patch("scilex.citations.cache.initialize_cache")
@@ -803,7 +777,6 @@ class TestFetchCitationsParallelPhased:
         # Batch cache should have been called for OA results
         mock_cache_write.assert_called()
 
-    @patch("scilex.aggregate_collect.api_config", {})
     @patch("scilex.citations.cache.cache_citations_batch")
     @patch("scilex.aggregate_collect.cit_tools.getCrossRefCitationsBatch")
     @patch("scilex.citations.cache.get_cached_citations_batch", return_value={})
@@ -837,7 +810,6 @@ class TestFetchCitationsParallelPhased:
         assert nb_citeds[0] == 15
         mock_cr_batch.assert_called_once()
 
-    @patch("scilex.aggregate_collect.api_config", {})
     @patch("scilex.citations.cache.cache_citation")
     @patch("scilex.citations.cache.get_cached_citation", return_value=None)
     @patch("scilex.aggregate_collect.cit_tools.getRefandCitFormatted")
@@ -877,7 +849,6 @@ class TestFetchCitationsParallelPhased:
         assert nb_citations[0] == 1  # len(["x"])
         mock_oc.assert_called_once()
 
-    @patch("scilex.aggregate_collect.api_config", {})
     def test_no_doi_papers_resolved_immediately(self):
         """Papers without DOI are resolved instantly (no API calls)."""
         df = self._make_df(
@@ -893,7 +864,6 @@ class TestFetchCitationsParallelPhased:
         assert stats["no_doi"] == 2
         assert stats["success"] == 0
 
-    @patch("scilex.aggregate_collect.api_config", {})
     @patch("scilex.citations.cache.cache_citations_batch")
     @patch("scilex.aggregate_collect.cit_tools.getCrossRefCitationsBatch")
     @patch("scilex.citations.cache.get_cached_citations_batch")
@@ -945,7 +915,6 @@ class TestFetchCitationsParallelPhased:
         assert nb_citations[2] == 75  # OpenAlex
         assert nb_citations[3] == 50  # CrossRef
 
-    @patch("scilex.aggregate_collect.api_config", {})
     @patch("scilex.citations.cache.cache_citations_batch")
     @patch("scilex.citations.cache.get_cached_citations_batch", return_value={})
     @patch("scilex.citations.cache.initialize_cache")

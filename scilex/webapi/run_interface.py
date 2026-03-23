@@ -15,7 +15,6 @@ import os
 import subprocess
 import sys
 import time
-import webbrowser
 from pathlib import Path
 
 # Get the directory where this script is located

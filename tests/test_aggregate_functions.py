@@ -324,9 +324,18 @@ class TestIstexPdfUrl:
     def test_fulltext_pdf_extraction(self):
         row = _minimal_istex_row(
             fulltext=[
-                {"extension": "zip", "uri": "https://api.istex.fr/doc/123/fulltext/zip"},
-                {"extension": "pdf", "uri": "https://api.istex.fr/doc/123/fulltext/pdf"},
-                {"extension": "tei", "uri": "https://api.istex.fr/doc/123/fulltext/tei"},
+                {
+                    "extension": "zip",
+                    "uri": "https://api.istex.fr/doc/123/fulltext/zip",
+                },
+                {
+                    "extension": "pdf",
+                    "uri": "https://api.istex.fr/doc/123/fulltext/pdf",
+                },
+                {
+                    "extension": "tei",
+                    "uri": "https://api.istex.fr/doc/123/fulltext/tei",
+                },
             ]
         )
         result = IstextoZoteroFormat(row)
@@ -340,7 +349,10 @@ class TestIstexPdfUrl:
     def test_fulltext_without_pdf(self):
         row = _minimal_istex_row(
             fulltext=[
-                {"extension": "zip", "uri": "https://api.istex.fr/doc/123/fulltext/zip"},
+                {
+                    "extension": "zip",
+                    "uri": "https://api.istex.fr/doc/123/fulltext/zip",
+                },
             ]
         )
         result = IstextoZoteroFormat(row)
@@ -390,7 +402,10 @@ class TestSpringerPdfUrl:
             ]
         )
         result = SpringertoZoteroFormat(row)
-        assert result["pdf_url"] == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        assert (
+            result["pdf_url"]
+            == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        )
         assert result["url"] == "https://link.springer.com/article/10.1234/test"
 
     def test_only_html_no_pdf_url(self):
@@ -418,7 +433,10 @@ class TestSpringerPdfUrl:
             ]
         )
         result = SpringertoZoteroFormat(row)
-        assert result["pdf_url"] == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        assert (
+            result["pdf_url"]
+            == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        )
         # url should fall back to the pdf value since no html format
         assert result["url"] == "https://link.springer.com/content/pdf/10.1234/test.pdf"
 

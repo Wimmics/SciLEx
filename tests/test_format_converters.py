@@ -79,7 +79,9 @@ class TestDBLPtoZoteroFormat:
         assert result["itemType"] == "journalArticle"
 
     def test_type_conference_papers(self):
-        result = DBLPtoZoteroFormat(_make_dblp_row(type="Conference and Workshop Papers"))
+        result = DBLPtoZoteroFormat(
+            _make_dblp_row(type="Conference and Workshop Papers")
+        )
         assert result["itemType"] == "conferencePaper"
 
     def test_type_informal_publications(self):
@@ -87,7 +89,9 @@ class TestDBLPtoZoteroFormat:
         assert result["itemType"] == "Manuscript"
 
     def test_type_informal_and_other(self):
-        result = DBLPtoZoteroFormat(_make_dblp_row(type="Informal and Other Publications"))
+        result = DBLPtoZoteroFormat(
+            _make_dblp_row(type="Informal and Other Publications")
+        )
         assert result["itemType"] == "Manuscript"
 
     def test_type_unknown_defaults_to_manuscript(self):
@@ -95,9 +99,7 @@ class TestDBLPtoZoteroFormat:
         assert result["itemType"] == "Manuscript"
 
     def test_doi_cleaned(self):
-        result = DBLPtoZoteroFormat(
-            _make_dblp_row(doi="https://doi.org/10.1234/test")
-        )
+        result = DBLPtoZoteroFormat(_make_dblp_row(doi="https://doi.org/10.1234/test"))
         assert result["DOI"] == "10.1234/test"
 
     def test_no_doi_stays_missing(self):
@@ -192,7 +194,9 @@ class TestHALtoZoteroFormat:
         assert result["rights"] == "open_access"
 
     def test_title_from_list(self):
-        result = HALtoZoteroFormat(_make_hal_row(title_s=["My Paper Title", "Alt Title"]))
+        result = HALtoZoteroFormat(
+            _make_hal_row(title_s=["My Paper Title", "Alt Title"])
+        )
         assert result["title"] == "My Paper Title"
 
     def test_title_from_string(self):
@@ -204,7 +208,9 @@ class TestHALtoZoteroFormat:
         assert result["title"] == MISSING_VALUE
 
     def test_abstract_from_list(self):
-        result = HALtoZoteroFormat(_make_hal_row(abstract_s=["The abstract text", "Alt"]))
+        result = HALtoZoteroFormat(
+            _make_hal_row(abstract_s=["The abstract text", "Alt"])
+        )
         assert result["abstract"] == "The abstract text"
 
     def test_abstract_from_string(self):
@@ -219,8 +225,12 @@ class TestHALtoZoteroFormat:
 
     def test_pdf_url_from_files_s(self):
         result = HALtoZoteroFormat(
-            _make_hal_row(files_s=["https://hal.science/hal-123/document.html",
-                                    "https://hal.science/hal-123/document.pdf"])
+            _make_hal_row(
+                files_s=[
+                    "https://hal.science/hal-123/document.html",
+                    "https://hal.science/hal-123/document.pdf",
+                ]
+            )
         )
         assert result["pdf_url"] == "https://hal.science/hal-123/document.pdf"
 
@@ -393,15 +403,11 @@ class TestIEEEtoZoteroFormat:
         assert result["authors"] == "Alice Smith;Bob Jones"
 
     def test_pages_from_start_end(self):
-        result = IEEEtoZoteroFormat(
-            _make_ieee_row(start_page="10", end_page="20")
-        )
+        result = IEEEtoZoteroFormat(_make_ieee_row(start_page="10", end_page="20"))
         assert result["pages"] == "10-20"
 
     def test_doi_cleaned(self):
-        result = IEEEtoZoteroFormat(
-            _make_ieee_row(doi="https://doi.org/10.1109/test")
-        )
+        result = IEEEtoZoteroFormat(_make_ieee_row(doi="https://doi.org/10.1109/test"))
         assert result["DOI"] == "10.1109/test"
 
     def test_rights_from_access_type(self):
@@ -419,7 +425,9 @@ class TestIEEEtoZoteroFormat:
         assert result["volume"] == "10"
 
     def test_journal_abbreviation_from_publication_title(self):
-        result = IEEEtoZoteroFormat(_make_ieee_row(publication_title="IEEE Trans. Neural Netw."))
+        result = IEEEtoZoteroFormat(
+            _make_ieee_row(publication_title="IEEE Trans. Neural Netw.")
+        )
         assert result["journalAbbreviation"] == "IEEE Trans. Neural Netw."
 
     @pytest.mark.parametrize(
@@ -463,14 +471,18 @@ class TestElseviertoZoteroFormat:
 
     def test_url_from_prism_url(self):
         result = ElseviertoZoteroFormat(_make_elsevier_row())
-        assert result["url"] == "https://api.elsevier.com/content/abstract/scopus_id/123"
+        assert (
+            result["url"] == "https://api.elsevier.com/content/abstract/scopus_id/123"
+        )
 
     def test_rights_from_openaccess(self):
         result = ElseviertoZoteroFormat(_make_elsevier_row(openaccess="1"))
         assert result["rights"] == "1"
 
     def test_pages_from_prism_page_range(self):
-        result = ElseviertoZoteroFormat(_make_elsevier_row(**{"prism:pageRange": "50-75"}))
+        result = ElseviertoZoteroFormat(
+            _make_elsevier_row(**{"prism:pageRange": "50-75"})
+        )
         assert result["pages"] == "50-75"
 
     def test_title_from_dc_title(self):
@@ -498,9 +510,7 @@ class TestElseviertoZoteroFormat:
         assert result["DOI"] == "10.1016/test"
 
     def test_volume_from_prism_volume(self):
-        result = ElseviertoZoteroFormat(
-            _make_elsevier_row(**{"prism:volume": "55"})
-        )
+        result = ElseviertoZoteroFormat(_make_elsevier_row(**{"prism:volume": "55"}))
         assert result["volume"] == "55"
 
     def test_issue_from_prism_issue_identifier(self):
@@ -540,9 +550,7 @@ class TestElseviertoZoteroFormat:
         assert result["itemType"] == "bookSection"
 
     def test_subtype_unknown_defaults_manuscript(self):
-        result = ElseviertoZoteroFormat(
-            _make_elsevier_row(subtypeDescription="Review")
-        )
+        result = ElseviertoZoteroFormat(_make_elsevier_row(subtypeDescription="Review"))
         assert result["itemType"] == "Manuscript"
 
     def test_no_subtype_defaults_manuscript(self):
@@ -559,9 +567,7 @@ class TestElseviertoZoteroFormat:
         ],
     )
     def test_subtype_mapping_parametrized(self, subtype, expected):
-        result = ElseviertoZoteroFormat(
-            _make_elsevier_row(subtypeDescription=subtype)
-        )
+        result = ElseviertoZoteroFormat(_make_elsevier_row(subtypeDescription=subtype))
         assert result["itemType"] == expected
 
 

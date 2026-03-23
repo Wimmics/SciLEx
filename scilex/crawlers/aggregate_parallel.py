@@ -352,37 +352,11 @@ def _process_batch_worker(
     """
     batch, keyword_groups = args
 
-    # Import format converters (in worker to avoid pickling issues)
-    from scilex.crawlers.aggregate import (
-        ArxivtoZoteroFormat,
-        DBLPtoZoteroFormat,
-        ElseviertoZoteroFormat,
-        HALtoZoteroFormat,
-        IEEEtoZoteroFormat,
-        IstextoZoteroFormat,
-        OpenAlextoZoteroFormat,
-        PubMedCentraltoZoteroFormat,
-        PubMedtoZoteroFormat,
-        SemanticScholartoZoteroFormat,
-        SpringertoZoteroFormat,
-    )
-
-    FORMAT_CONVERTERS = {
-        "SemanticScholar": SemanticScholartoZoteroFormat,
-        "OpenAlex": OpenAlextoZoteroFormat,
-        "IEEE": IEEEtoZoteroFormat,
-        "Elsevier": ElseviertoZoteroFormat,
-        "Springer": SpringertoZoteroFormat,
-        "HAL": HALtoZoteroFormat,
-        "DBLP": DBLPtoZoteroFormat,
-        "Istex": IstextoZoteroFormat,
-        "Arxiv": ArxivtoZoteroFormat,
-        "PubMed": PubMedtoZoteroFormat,
-        "PubMedCentral": PubMedCentraltoZoteroFormat,
-    }
+    # Import format converters registry (in worker to avoid pickling issues)
+    from scilex.crawlers.aggregate import FORMAT_CONVERTERS
 
     # Import text filtering helper
-    from scilex.aggregate_collect import _record_passes_text_filter
+    from scilex.pipeline.text_filter import record_passes_text_filter
 
     results = []
 
@@ -393,7 +367,7 @@ def _process_batch_worker(
                 converted = FORMAT_CONVERTERS[api_name](paper)
 
                 # Apply text filtering
-                if _record_passes_text_filter(
+                if record_passes_text_filter(
                     converted,
                     keywords,
                     keyword_groups=keyword_groups,

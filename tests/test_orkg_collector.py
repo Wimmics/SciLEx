@@ -83,13 +83,8 @@ class TestORKGCollector:
     def test_parse_empty_results(self):
         """Empty content list returns total from page metadata and empty results."""
         empty_response = {
-            "page": {
-                "total_elements": 0,
-                "total_pages": 0,
-                "number": 0,
-                "size": 25
-            },
-            "content": []
+            "page": {"total_elements": 0, "total_pages": 0, "number": 0, "size": 25},
+            "content": [],
         }
 
         mock_response = MagicMock()

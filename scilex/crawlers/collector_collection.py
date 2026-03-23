@@ -3,7 +3,7 @@ import os
 import threading
 from collections import defaultdict
 from itertools import product
-from queue import Queue
+from queue import Empty, Queue
 
 import yaml
 from tqdm import tqdm
@@ -64,7 +64,13 @@ def _sanitize_error_message(error_msg):
 
 
 def _run_job_collects_worker(
-    api_name, collect_list, api_config, output_dir, collect_name, progress_queue
+    api_name,
+    collect_list,
+    api_config,
+    output_dir,
+    collect_name,
+    progress_queue,
+    cancel_event=None,
 ):
     """
     Thread worker function for one API.
@@ -77,12 +83,17 @@ def _run_job_collects_worker(
         output_dir: Output directory path
         collect_name: Collection name
         progress_queue: Queue for sending progress updates to main thread
+        cancel_event: Optional threading.Event to signal cancellation
     """
     # Use absolute path
     repo = os.path.abspath(os.path.join(output_dir, collect_name))
 
     # Process each query for this API
     for coll_dict in collect_list:
+        # Check for cancellation before each query
+        if cancel_event and cancel_event.is_set():
+            logging.info(f"[{api_name}] Cancellation requested, stopping collection.")
+            return
         data_query = coll_dict["query"]
         query_id = data_query.get("id_collect", 0)
         collector_class = api_collectors[api_name]
@@ -148,10 +159,14 @@ def _run_job_collects_worker(
 
 
 class CollectCollection:
-    def __init__(self, main_config, api_config):
+    def __init__(
+        self, main_config, api_config, progress_callback=None, cancel_event=None
+    ):
         print("Initializing collection")
         self.main_config = main_config
         self.api_config = api_config
+        self.progress_callback = progress_callback
+        self.cancel_event = cancel_event
         self.init_collection_collect()
 
     def validate_api_keys(self):
@@ -467,6 +482,7 @@ class CollectCollection:
                     output_dir,
                     self.main_config["collect_name"],
                     progress_queue,
+                    self.cancel_event,
                 ),
                 name=f"Worker-{api_name}",
             )
@@ -481,6 +497,13 @@ class CollectCollection:
             # Redirect logging output to work with tqdm progress bars
             with logging_redirect_tqdm(loggers=[logging.root]):
                 while completed_count < total_queries:
+                    # Check for cancellation
+                    if self.cancel_event and self.cancel_event.is_set():
+                        logging.info(
+                            "Cancellation requested, stopping collection monitoring."
+                        )
+                        break
+
                     try:
                         # Get result from queue with timeout
                         result = progress_queue.get(timeout=0.1)
@@ -495,7 +518,9 @@ class CollectCollection:
                         if api_name in api_progress_bars:
                             pbar = api_progress_bars[api_name]
                             pbar.update(1)
-                            pbar.set_postfix({"papers": api_stats[api_name]["articles"]})
+                            pbar.set_postfix(
+                                {"papers": api_stats[api_name]["articles"]}
+                            )
 
                             # Log milestone when query completes
                             completed = api_stats[api_name]["completed"]
@@ -503,23 +528,35 @@ class CollectCollection:
                             total_articles = api_stats[api_name]["articles"]
 
                             # Log at 25%, 50%, 75%, and 100% completion
-                            if completed % max(1, total // 4) == 0 or completed == total:
+                            if (
+                                completed % max(1, total // 4) == 0
+                                or completed == total
+                            ):
                                 logging.debug(
                                     f"[{api_name}] Progress: {completed}/{total} queries | {total_articles} papers collected"
                                 )
 
                         completed_count += 1
 
-                    except Exception:
-                        # Check if all threads are done
+                        # Notify progress callback if set
+                        if self.progress_callback:
+                            self.progress_callback(
+                                api_stats, completed_count, total_queries
+                            )
+
+                    except Empty:
+                        # Queue timeout — check if all threads are done
                         if not any(t.is_alive() for t in threads):
                             break
                         continue
 
         finally:
-            # Wait for all threads to complete
+            # Wait for all threads to complete (with timeout if cancelled)
+            join_timeout = (
+                5 if (self.cancel_event and self.cancel_event.is_set()) else None
+            )
             for thread in threads:
-                thread.join()
+                thread.join(timeout=join_timeout)
 
             # Close all progress bars
             for pbar in api_progress_bars.values():

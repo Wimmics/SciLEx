@@ -114,7 +114,6 @@ def getquality(df_row, column_names):
     return quality
 
 
-
 def _find_best_duplicate_index(duplicates_df, column_names):
     """Find the best duplicate record, preferring most recent then quality."""
     quality_list = []
@@ -1755,3 +1754,37 @@ def ORKGtoZoteroFormat(row):
         pass
 
     return zotero_temp
+
+
+# ============================================================================
+# FORMAT CONVERTERS REGISTRY
+# ============================================================================
+
+FORMAT_CONVERTERS = {
+    "SemanticScholar": SemanticScholartoZoteroFormat,
+    "OpenAlex": OpenAlextoZoteroFormat,
+    "IEEE": IEEEtoZoteroFormat,
+    "Elsevier": ElseviertoZoteroFormat,
+    "Springer": SpringertoZoteroFormat,
+    "HAL": HALtoZoteroFormat,
+    "DBLP": DBLPtoZoteroFormat,
+    "Istex": IstextoZoteroFormat,
+    "Arxiv": ArxivtoZoteroFormat,
+    "PubMed": PubMedtoZoteroFormat,
+    "PubMedCentral": PubMedCentraltoZoteroFormat,
+    "OpenAIRE": OpenAIREtoZoteroFormat,
+    "ORKG": ORKGtoZoteroFormat,
+}
+"""Maps API names to their format converter functions."""
+
+
+def get_converter(api_name: str):
+    """Get format converter for a given API name.
+
+    Args:
+        api_name: Name of the API (e.g., 'SemanticScholar', 'OpenAlex')
+
+    Returns:
+        Converter function, or None if not found.
+    """
+    return FORMAT_CONVERTERS.get(api_name)
