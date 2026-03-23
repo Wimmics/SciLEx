@@ -100,11 +100,11 @@ API Collection → Deduplication → Item Type Filter → Keyword Filter → Qua
 
 Programmatically, all components are importable as a Python library: the CollectCollection class orchestrates collection directly from a Python dictionary config, removing the need for YAML files entirely, while aggregation and enrichment steps are invoked by calling their respective main() functions. This dual interface makes SciLEx suitable both for one-off interactive use in Jupyter notebooks and for embedding in larger, reproducible research pipelines. A full end-to-end example covering configuration, collection, aggregation, enrichment, and export is provided in the project documentation.
 
-# Research impact statement
+#  Research impact statement
 
-SciLEx was originally developed to support a systematic literature review conducted during a PhD on pattern-based information extraction from natural language and knowledge graphs [@ringwald:tel-05551242]. The software is actually used by the Wimmics, Inria team where it was originially developped, and is actually actively disseminated in several academic ([Goblin Action Cost](https://www.cost.eu/actions/CA23147/), and the [ICN institute](https://icn.univ-cotedazur.fr/)) and private research [berger-levrault](https://www.berger-levrault.com/berger-levrault-group/) groups. The first systematic literature review based on SciLEx [@celian2025systematicreviewrelationextraction] is currently under review.
+SciLEx was originally developed to support a systematic literature review conducted during a PhD on pattern-based information extraction from natural language and knowledge graphs [@ringwald:tel-05551242]. The software is actually used by the Wimmics team at Inria where it was originially developped, and is actively disseminated in several academic (Goblin Action Cost, and the ICN institute) and private research berger-levrault groups. The first systematic literature review based on SciLEx [@celian2025systematicreviewrelationextraction] is currently under review.
 
-# State of the field
+# Comparison with Existing Software
 
 **CoLRev (2024)**
 

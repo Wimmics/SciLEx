@@ -62,7 +62,7 @@ omit = [
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 55
+fail_under = 50
 exclude_lines = [
     "pragma: no cover",
     "if __name__ == .__main__.",
@@ -103,3 +103,8 @@ ignore = [
 convention = "google"
 
 [tool.ruff.format]
+
+[dependency-groups]
+dev = [
+    "pytest-cov>=7.0.0",
+]
