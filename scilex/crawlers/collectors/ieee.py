@@ -106,7 +106,7 @@ class IEEE_collector(API_collector):
         """
         # Process keywords: Join multiple keywords with ' AND '
         # keywords_list = self.get_keywords()  # Assuming this returns a list of keyword sets
-        query_keywords = f"({' AND '.join(self.get_keywords())})"
+        query_keywords = "(" + " AND ".join(f'"{kw}"' for kw in self.get_keywords()) + ")"
         encoded_keywords = urllib.parse.quote(query_keywords)
 
         # Handle year range: Use min and max to set start_year and end_year

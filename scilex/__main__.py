@@ -6,6 +6,7 @@ import sys
 COMMANDS = {
     "collect": "scilex.run_collection",
     "aggregate": "scilex.aggregate_collect",
+    "status": "scilex.collect_status",
     "enrich": "scilex.enrich_with_hf",
     "export-bibtex": "scilex.export_to_bibtex",
     "push-zotero": "scilex.push_to_zotero",
@@ -18,6 +19,7 @@ def main():
         print()
         print("Commands:")
         print("  collect        Collect papers from academic APIs")
+        print("  status         Show collection completeness (keywords, APIs, years)")
         print("  aggregate      Deduplicate, filter, and rank papers")
         print("  enrich         Enrich papers with HuggingFace metadata")
         print("  export-bibtex  Export aggregated papers to BibTeX")

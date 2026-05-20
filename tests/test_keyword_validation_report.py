@@ -44,7 +44,9 @@ class TestGenerateKeywordValidationReport:
             {"title": "deep learning survey", "abstract": ""},
         ])
         result = generate_keyword_validation_report(df, [["deep learning"]])
-        assert "Keywords (papers must match ANY)" in result
+        # Single-group mode should NOT show dual-group headers
+        assert "Group 1:" in result
+        assert "Group 2:" not in result
 
     def test_high_false_positive_rate_warning(self):
         # More than 30% papers don't contain keywords → warning

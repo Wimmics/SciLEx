@@ -181,13 +181,53 @@ class TestQueryIsComplete:
         result = coll._query_is_complete(str(tmp_path), "SemanticScholar", 0)
         assert result is False
 
-    def test_dir_with_files_returns_true(self, tmp_path):
+    def test_dir_with_pages_but_no_sentinel_returns_false(self, tmp_path):
+        # Partial collection: has page files but no _complete sentinel → not done
         query_dir = tmp_path / "SemanticScholar" / "0"
         query_dir.mkdir(parents=True)
-        (query_dir / "page_0").write_text("{}")
+        (query_dir / "page_1").write_text("{}")
+        coll = _make_collection()
+        result = coll._query_is_complete(str(tmp_path), "SemanticScholar", 0)
+        assert result is False
+
+    def test_dir_with_sentinel_returns_true(self, tmp_path):
+        # Complete collection: has _complete sentinel
+        query_dir = tmp_path / "SemanticScholar" / "0"
+        query_dir.mkdir(parents=True)
+        (query_dir / "page_1").write_text("{}")
+        (query_dir / "_complete").write_text("1")
         coll = _make_collection()
         result = coll._query_is_complete(str(tmp_path), "SemanticScholar", 0)
         assert result is True
+
+
+class TestGetLastCollectedPage:
+    def test_missing_dir_returns_zero(self, tmp_path):
+        coll = _make_collection()
+        assert coll._get_last_collected_page(str(tmp_path), "SemanticScholar", 0) == 0
+
+    def test_empty_dir_returns_zero(self, tmp_path):
+        query_dir = tmp_path / "SemanticScholar" / "0"
+        query_dir.mkdir(parents=True)
+        coll = _make_collection()
+        assert coll._get_last_collected_page(str(tmp_path), "SemanticScholar", 0) == 0
+
+    def test_returns_highest_page_number(self, tmp_path):
+        query_dir = tmp_path / "SemanticScholar" / "0"
+        query_dir.mkdir(parents=True)
+        for p in [1, 2, 3]:
+            (query_dir / f"page_{p}").write_text("{}")
+        coll = _make_collection()
+        assert coll._get_last_collected_page(str(tmp_path), "SemanticScholar", 0) == 3
+
+    def test_ignores_non_page_files(self, tmp_path):
+        query_dir = tmp_path / "SemanticScholar" / "0"
+        query_dir.mkdir(parents=True)
+        (query_dir / "page_2").write_text("{}")
+        (query_dir / "_complete").write_text("1")
+        (query_dir / "readme.txt").write_text("x")
+        coll = _make_collection()
+        assert coll._get_last_collected_page(str(tmp_path), "SemanticScholar", 0) == 2
 
 
 # -------------------------------------------------------------------------

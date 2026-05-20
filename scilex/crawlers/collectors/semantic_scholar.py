@@ -46,7 +46,7 @@ class SemanticScholar_collector(API_collector):
         self.load_rate_limit_from_config()
 
     def api_call_decorator(
-        self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES
+        self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES, headers=None
     ):
         """
         API call with SemanticScholar-specific headers.

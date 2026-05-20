@@ -146,16 +146,16 @@ class TestOpenAIREAggregation:
         assert result["itemType"] == "bookSection"
 
     def test_itemtype_preprint(self):
-        """resourcetype 'Preprint' maps to Manuscript."""
+        """resourcetype 'Preprint' maps to preprint (matches allowed_item_types)."""
         row = _make_result({"resourcetype": {"@classname": "Preprint"}})
         result = OpenAIREtoZoteroFormat(row)
-        assert result["itemType"] == "Manuscript"
+        assert result["itemType"] == "preprint"
 
-    def test_itemtype_unknown_defaults_to_manuscript(self):
-        """Unknown resourcetype defaults to Manuscript."""
+    def test_itemtype_unknown_defaults_to_journalarticle(self):
+        """Unknown resourcetype defaults to journalArticle (not Manuscript which is never allowed)."""
         row = _make_result({"resourcetype": {"@classname": "Dataset"}})
         result = OpenAIREtoZoteroFormat(row)
-        assert result["itemType"] == "Manuscript"
+        assert result["itemType"] == "journalArticle"
 
     def test_original_id_list_takes_first(self):
         """originalId list uses the first element as archiveID."""

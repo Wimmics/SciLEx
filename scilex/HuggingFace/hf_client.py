@@ -380,7 +380,7 @@ class HFClient:
             # Use HfApi.list_models() with search parameter
             models = list(
                 self.api.list_models(
-                    search=paper_title, limit=limit, sort="downloads", direction=-1
+                    search=paper_title, limit=limit, sort="downloads"
                 )
             )
 

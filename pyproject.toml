@@ -28,6 +28,7 @@ dependencies = [
     "fastapi>=0.135.1",
     "uvicorn>=0.41.0",
     "streamlit>=1.55.0",
+    "matplotlib>=3.7",
 ]
 
 [project.optional-dependencies]
@@ -43,6 +44,7 @@ scilex-aggregate = "scilex.aggregate_collect:main"
 scilex-enrich = "scilex.enrich_with_hf:main"
 scilex-push-zotero = "scilex.push_to_zotero:main"
 scilex-export-bibtex = "scilex.export_to_bibtex:main"
+scilex-report = "scilex.report_charts:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -10,6 +10,7 @@ import yaml
 
 from scilex.config_defaults import get_rate_limit
 from scilex.constants import CircuitBreakerConfig, RateLimitBackoffConfig
+from scilex.crawlers.adaptive_rate_limiter import AdaptiveRateLimiterRegistry
 from scilex.crawlers.circuit_breaker import (
     CircuitBreakerOpenError,
     CircuitBreakerRegistry,
@@ -53,7 +54,6 @@ class API_collector:
             ),  # Default to -1 (unlimited) if not in config
         )
         self.rate_limit = 10  # Will be overridden by load_rate_limit_from_config()
-        self._last_call_time = 0.0  # For rate limiting via _rate_limit_wait()
         self.datadir = data_path
         self.collectId = data_query["id_collect"]
         self.total_art = int(data_query["total_art"])
@@ -92,19 +92,16 @@ class API_collector:
             logging.debug(f"{self.api_name}: Session closed")
 
     def _rate_limit_wait(self):
-        """Enforce minimum interval between API calls.
+        """Enforce per-API rate limit, including inter-query gaps.
 
-        Uses time.monotonic() to track elapsed time since the last call
-        and sleeps if needed to respect the configured rate limit.
+        Delegates to the process-wide AdaptiveRateLimiterRegistry so the
+        timer persists across collector instances.  The registry also tracks
+        adaptive back-off: delay doubles on each persistent 429 and halves
+        after sustained success.
         """
         if self.rate_limit <= 0:
             return
-        min_interval = 1.0 / self.rate_limit
-        now = time.monotonic()
-        elapsed = now - self._last_call_time
-        if elapsed < min_interval:
-            time.sleep(min_interval - elapsed)
-        self._last_call_time = time.monotonic()
+        AdaptiveRateLimiterRegistry().get(self.api_name).wait(self.rate_limit)
 
     def load_rate_limit_from_config(self):
         """
@@ -282,6 +279,10 @@ class API_collector:
     def get_ratelimit(self):
         return self.rate_limit
 
+    def get_auth_headers(self):
+        """Return HTTP headers for authentication. Override in subclasses that need auth headers."""
+        return None
+
     def _get_auth_recovery_actions(self, status_code):
         """
         Get specific recovery actions for authentication errors based on API and status code.
@@ -352,6 +353,7 @@ class API_collector:
         url = re.sub(r"([?&]api_key=)[^&]+", r"\1***REDACTED***", url)
         url = re.sub(r"([?&]key=)[^&]+", r"\1***REDACTED***", url)
         url = re.sub(r"([?&]token=)[^&]+", r"\1***REDACTED***", url)
+        url = re.sub(r"([?&]access_token=)[^&]+", r"\1***REDACTED***", url)
         return url
 
     def api_call_decorator(
@@ -410,8 +412,9 @@ class API_collector:
                         f"{self.api_name} API: Request successful (attempt {attempt + 1}/{max_retries})"
                     )
 
-                    # Record success in circuit breaker
+                    # Record success in circuit breaker and adaptive limiter
                     breaker.record_success()
+                    AdaptiveRateLimiterRegistry().get(self.api_name).on_success()
 
                     return resp
 
@@ -419,7 +422,7 @@ class API_collector:
                     status_code = e.response.status_code
                     last_exception = e
 
-                    if status_code == 429:  # Too Many Requests
+                    if status_code in [409, 429]:  # Throttle / conflict (treat both as rate-limit)
                         # Respect Retry-After header if provided by server
                         retry_after = e.response.headers.get("Retry-After")
                         if retry_after:
@@ -430,7 +433,7 @@ class API_collector:
                                     2**attempt
                                 )
                             logging.warning(
-                                f"{self.api_name} API rate limit exceeded (429). "
+                                f"{self.api_name} API throttled ({status_code}). "
                                 f"Server Retry-After: {wait_time}s (attempt {attempt + 1}/{max_retries})"
                             )
                         else:
@@ -449,7 +452,7 @@ class API_collector:
                             else:
                                 wait_time = base_wait
                             logging.warning(
-                                f"{self.api_name} API rate limit exceeded (429). "
+                                f"{self.api_name} API throttled ({status_code}). "
                                 f"Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries}). "
                                 f"Strategy: {'exponential' if use_exponential else 'fixed'} backoff"
                             )
@@ -457,11 +460,11 @@ class API_collector:
                             time.sleep(wait_time)
                             continue
                         else:
-                            # Final retry failed - don't record as circuit breaker failure
-                            # Rate limits are temporary and don't indicate endpoint failure
+                            # Final retry failed — increase adaptive inter-request delay
+                            new_delay = AdaptiveRateLimiterRegistry().get(self.api_name).on_throttle()
                             logging.warning(
-                                f"{self.api_name} API: Rate limit persists after {max_retries} retries with {wait_time}s waits. "
-                                f"Consider reducing rate_limit in api.config.yml or increasing backoff time."
+                                f"{self.api_name} API: Throttle ({status_code}) persists after {max_retries} retries. "
+                                f"Inter-request delay increased to +{new_delay:.0f}s."
                             )
                             raise  # Re-raise to let caller handle
                     elif status_code in [401, 403]:  # Authentication errors
@@ -472,8 +475,10 @@ class API_collector:
                             f"{self.api_name} API authentication failed: {status_code}. "
                             f"Recovery actions:\n{recovery_actions}"
                         )
-                        # Record failure for circuit breaker
-                        breaker.record_failure()
+                        # Do NOT trip the circuit breaker for auth errors.
+                        # 401/403 are permanent configuration failures (bad/expired key),
+                        # not transient endpoint failures. Tripping the circuit breaker
+                        # here causes cascading noise for every remaining query.
                         raise  # Don't retry auth errors
                     elif status_code == 500:  # Internal server error
                         wait_time = 2**attempt
@@ -619,6 +624,7 @@ class API_collector:
         logging.debug(f"Starting collection from page {page}")
         # Determine if there are fewer than 10,000 results based on collection size
         fewer_than_10k_results = self.big_collect == 0
+        _first_results_logged = False
 
         # Import here to avoid circular imports
         from .arxiv import Arxiv_collector
@@ -709,7 +715,58 @@ class API_collector:
 
                 logging.debug(f"Fetching data from URL: {url}")
 
-                response = self.api_call_decorator(url)  # Call the API
+                try:
+                    response = self.api_call_decorator(url, headers=self.get_auth_headers())
+                except Exception as api_exc:
+                    self.createCollectDir()
+                    self._flush_buffer()
+                    exc_str = str(api_exc)
+                    is_throttle = "429" in exc_str or "409" in exc_str
+
+                    if is_throttle:
+                        throttle_code = "409" if "409" in exc_str else "429"
+                        # Before giving up, try rotating the VPN IP so the next
+                        # attempt comes from a fresh address.
+                        from scilex.vpn.rotator import get_vpn_rotator
+                        rotator = get_vpn_rotator()
+                        if rotator.should_rotate(self.api_name):
+                            logging.warning(
+                                f"[VPN] {self.api_name} Q{self.collectId} page {page}: "
+                                f"persistent {throttle_code} — triggering IP rotation "
+                                f"(rotation {rotator.rotation_count + 1}/{rotator.max_rotations})"
+                            )
+                            if rotator.rotate():
+                                logging.warning(
+                                    f"[VPN] {self.api_name} Q{self.collectId}: "
+                                    f"retrying page {page} with new IP"
+                                )
+                                continue  # Back to top of while loop, same page, new IP
+                            logging.warning(
+                                f"[VPN] {self.api_name} Q{self.collectId}: "
+                                f"rotation failed — giving up on this query"
+                            )
+
+                        # VPN rotation unavailable or failed — record and give up.
+                        CircuitBreakerRegistry().get_breaker(self.api_name).record_failure()
+                        if page == 1 and self.nb_art_collected == 0:
+                            logging.warning(
+                                f"{self.api_name}: persistent {throttle_code} on first page "
+                                f"of query {self.collectId} — marking complete to avoid resume loop."
+                            )
+                        else:
+                            logging.warning(
+                                f"{self.api_name}: persistent {throttle_code} on page {page} "
+                                f"of query {self.collectId} after {self.nb_art_collected} results "
+                                f"— marking complete (partial)."
+                            )
+                        state_data["state"] = 1
+                    else:
+                        logging.error(
+                            f"{self.api_name} API call failed for page {page} "
+                            f"(query {self.collectId}): {api_exc}"
+                        )
+                        state_data["state"] = 0
+                    return state_data
                 logging.debug(f"{self.api_name} API call completed for page {page}")
                 try:
                     page_data = self.parsePageResults(
@@ -723,6 +780,14 @@ class API_collector:
 
                     self.nb_art_collected += int(len(page_data["results"]))
                     nb_res = len(page_data["results"])
+
+                    if not _first_results_logged and nb_res > 0:
+                        kw_str = " + ".join(f'"{k}"' for k in self.get_keywords())
+                        logging.info(
+                            f"[{self.api_name}] Q{self.collectId} ({kw_str}, {self.get_year()}): "
+                            f"page {page} → {nb_res} results, {page_data['total']} total"
+                        )
+                        _first_results_logged = True
 
                     # Determine if more pages are available based on results returned
                     if nb_res != 0 and "total" in page_data and page_data["total"] > 0:
@@ -787,8 +852,14 @@ class API_collector:
 
         if not has_more_pages:
             logging.debug("No more pages to collect. Marking collection as complete.")
-            # self.flagAsComplete()
             state_data["state"] = 1
+            # Write completion sentinel so resume logic knows this query is fully done
+            self.createCollectDir()
+            try:
+                with open(os.path.join(self.get_collectDir(), "_complete"), "w") as _f:
+                    _f.write("1")
+            except OSError:
+                pass
         else:
             time_needed = page_data["total"] / self.get_max_by_page() / 60 / 60
             logging.info(

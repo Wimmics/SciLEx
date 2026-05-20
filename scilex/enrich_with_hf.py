@@ -8,17 +8,20 @@ This script:
 4. Writes updated CSV back
 
 Usage:
-    python src/enrich_with_hf.py [--dry-run] [--limit N]
+    python src/enrich_with_hf.py [--collect-dir DIR] [--dry-run] [--limit N]
 
 Examples:
-    # Normal run (updates CSV)
+    # Normal run (collect dir from config)
     python src/enrich_with_hf.py
 
+    # Pass collect dir directly
+    python src/enrich_with_hf.py --collect-dir output/my_collect
+
     # Dry run (show matches without updating)
-    python src/enrich_with_hf.py --dry-run
+    python src/enrich_with_hf.py --collect-dir output/my_collect --dry-run
 
     # Process first 100 papers only
-    python src/enrich_with_hf.py --limit 100
+    python src/enrich_with_hf.py --collect-dir output/my_collect --limit 100
 """
 
 import argparse
@@ -235,6 +238,14 @@ def main():
         default=85,
         help="Fuzzy matching threshold (0-100, default: 85)",
     )
+    parser.add_argument(
+        "--collect-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Path to the collect directory containing the aggregated CSV "
+        "(overrides output_dir + collect_name from config)",
+    )
 
     args = parser.parse_args()
 
@@ -273,11 +284,14 @@ def main():
         formatter = TagFormatter()
 
         # Load CSV
-        output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
         aggregate_file = main_config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
-        collect_dir = os.path.join(
-            output_dir, normalize_path_component(main_config["collect_name"])
-        )
+        if args.collect_dir:
+            collect_dir = args.collect_dir
+        else:
+            output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
+            collect_dir = os.path.join(
+                output_dir, normalize_path_component(main_config["collect_name"])
+            )
         csv_path = os.path.join(collect_dir, normalize_path_component(aggregate_file))
 
         logging.info(f"Loading CSV: {csv_path}")

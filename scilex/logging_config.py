@@ -140,6 +140,34 @@ def setup_logging(
     )
 
 
+def add_file_log_handler(log_path: str, level: int = logging.WARNING) -> logging.FileHandler:
+    """
+    Attach a file handler to the root logger (appends; no color).
+
+    Call this after setup_logging() once the target directory is known.
+    Returns the handler so the caller can remove it or write separators.
+
+    Args:
+        log_path: Absolute path for the log file.
+        level: Minimum level written to the file (default: WARNING).
+
+    Returns:
+        The FileHandler that was attached.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
+
+    handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+    handler.setLevel(level)
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    logging.getLogger().addHandler(handler)
+    return handler
+
+
 def get_logger(name: str) -> logging.Logger:
     """
     Get a logger instance for a module.

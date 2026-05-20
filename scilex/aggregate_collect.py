@@ -37,18 +37,24 @@ from scilex.crawlers.aggregate import (
     HALtoZoteroFormat,
     IEEEtoZoteroFormat,
     IstextoZoteroFormat,
+    OpenAIREtoZoteroFormat,
     OpenAlextoZoteroFormat,
+    ORKGtoZoteroFormat,
     PubMedCentraltoZoteroFormat,
     PubMedtoZoteroFormat,
     SemanticScholartoZoteroFormat,
     SpringertoZoteroFormat,
 )
-from scilex.crawlers.utils import load_all_configs
+from scilex.crawlers.utils import load_all_configs, load_yaml_config
 from scilex.duplicate_tracking import (
     analyze_and_report_duplicates,
     generate_itemtype_distribution_report,
 )
-from scilex.keyword_validation import generate_keyword_validation_report
+from scilex.keyword_validation import (
+    check_keyword_in_text as _kv_check_keyword_in_text,
+    check_keyword_in_text_flexible as _kv_check_keyword_flexible,
+    generate_keyword_validation_report,
+)
 from scilex.logging_config import log_section, setup_logging
 from scilex.quality_validation import (
     apply_quality_filters,
@@ -57,13 +63,6 @@ from scilex.quality_validation import (
 
 # Set up logging configuration with environment variable support
 setup_logging()
-
-config_files = {"main_config": "scilex.config.yml", "api_config": "api.config.yml"}
-# Load configurations
-configs = load_all_configs(config_files)
-# Access individual configurations
-main_config = configs["main_config"]
-api_config = configs["api_config"]
 
 # Format converters dispatcher - replaces eval() for security
 FORMAT_CONVERTERS = {
@@ -78,6 +77,8 @@ FORMAT_CONVERTERS = {
     "Arxiv": ArxivtoZoteroFormat,
     "PubMed": PubMedtoZoteroFormat,
     "PubMedCentral": PubMedCentraltoZoteroFormat,
+    "OpenAIRE": OpenAIREtoZoteroFormat,
+    "ORKG": ORKGtoZoteroFormat,
 }
 
 # ============================================================================
@@ -191,39 +192,46 @@ def _keyword_matches_in_abstract(keyword, abstract_text):
     else:
         abstract_content = str(abstract_text).lower()
 
-    return keyword in abstract_content
+    return keyword.lower() in abstract_content
 
 
 def _check_keywords_in_text(keywords_list, text):
-    """Check if any keyword from a list matches the text.
+    """Exact match: check if any keyword from a list appears verbatim in text.
 
-    Args:
-        keywords_list: List of keywords to check
-        text: Text to search in (combined title + abstract)
-
-    Returns:
-        bool: True if at least one keyword matches
+    Used for mandatory query-term filtering (Group 1 / Group 2 keywords).
     """
-    text_lower = text.lower()
+    return any(_kv_check_keyword_in_text(kw, text) for kw in keywords_list)
 
-    # Exact substring matching (case-insensitive)
-    return any(keyword.lower() in text_lower for keyword in keywords_list)
+
+def _check_keywords_flexible(keywords_list, text):
+    """Flexible match: check if any bonus keyword appears in text.
+
+    Uses word-level fallback so 'Cultural Heritage' matches even when
+    'cultural' and 'heritage' appear separately in the abstract.
+    """
+    return any(_kv_check_keyword_flexible(kw, text) for kw in keywords_list)
 
 
 def _record_passes_text_filter(
     record,
     keywords,
     keyword_groups=None,
+    bonus_keywords=None,
 ):
     """Check if record contains required keywords in title or abstract.
 
-    For dual keyword group mode (2 groups): Requires match from BOTH Group1 AND Group2
-    For single keyword group mode (1 group): Requires match from ANY keyword in group
+    Dual-group mode (2 groups):
+      Group1 (exact) AND (Group2 (exact) OR any bonus keyword (flexible))
+      If no bonus_keywords are configured, Group2 exact match is still required.
+
+    Single-group mode: any keyword from the group (exact match).
 
     Args:
         record: Paper record dictionary
         keywords: List of keywords from the query (for backward compatibility)
         keyword_groups: Optional list of keyword groups from config (for dual-group mode)
+        bonus_keywords: Optional list of domain terms used as flexible fallback
+                        for Group 2 when no exact Group 2 match is found.
 
     Returns:
         bool: True if keyword requirements are met
@@ -234,54 +242,39 @@ def _record_passes_text_filter(
     abstract = record.get("abstract", MISSING_VALUE)
     title = record.get("title", "")
 
-    # Combine title and abstract for matching
     combined_text = f"{title} {abstract if is_valid(abstract) else ''}"
 
     # ========================================================================
-    # DUAL KEYWORD GROUP MODE: Require match from BOTH groups
+    # DUAL KEYWORD GROUP MODE
     # ========================================================================
     if keyword_groups and len(keyword_groups) == 2:
         group1, group2 = keyword_groups
 
-        # Must have at least one keyword from each group
         if not group1 or not group2:
-            # Fallback to single-group mode if one group is empty
             all_keywords = [kw for g in keyword_groups for kw in g if g]
             if not all_keywords:
                 return True
             keywords = all_keywords
         else:
-            # Check Group 1
             group1_match = _check_keywords_in_text(group1, combined_text)
+            if not group1_match:
+                return False
 
-            # Check Group 2
+            # Group 2: exact match first, then bonus keyword flexible fallback
             group2_match = _check_keywords_in_text(group2, combined_text)
-
-            # Both groups must match
-            return group1_match and group2_match
+            if group2_match:
+                return True
+            if bonus_keywords:
+                return _check_keywords_flexible(bonus_keywords, combined_text)
+            return False
 
     # ========================================================================
-    # SINGLE KEYWORD GROUP MODE: Require match from ANY keyword
+    # SINGLE KEYWORD GROUP MODE
     # ========================================================================
-    # Flatten keyword groups into single list (or use provided keywords)
     if keyword_groups:
         keywords = [kw for group in keyword_groups for kw in group if group]
 
-    # Exact substring matching (case-insensitive)
-    title_lower = title.lower()
-    for keyword in keywords:
-        keyword_lower = keyword.lower()
-
-        # Check in title
-        if keyword_lower in title_lower:
-            return True
-
-        # Check in abstract (if valid)
-        if is_valid(abstract) and _keyword_matches_in_abstract(keyword, abstract):
-            return True
-
-    # No match found
-    return False
+    return _check_keywords_in_text(keywords, combined_text)
 
 
 # Global lock for thread-safe rate limiting
@@ -675,6 +668,75 @@ def _apply_relevance_ranking(
         )
 
     return df_ranked
+
+
+def _tag_papers_with_bonus_keywords(df, bonus_keywords):
+    """Add a bonus_keyword_tags column listing matched bonus keywords per paper.
+
+    Each matched keyword is prefixed with 'BK:' and tags are pipe-separated,
+    e.g. 'BK:Cultural Heritage|BK:Digital Humanities'.
+    Uses the same word-level fallback as the main text filter so compound
+    keywords like 'Cultural Heritage' are matched even when the words appear
+    separately in the abstract.
+
+    Args:
+        df: DataFrame with 'title' and 'abstract' columns
+        bonus_keywords: List of bonus keyword strings from config
+
+    Returns:
+        pd.DataFrame: DataFrame with new 'bonus_keyword_tags' column
+    """
+    if not bonus_keywords:
+        df = df.copy()
+        df["bonus_keyword_tags"] = ""
+        return df
+
+    def _tags_for_row(row):
+        title = str(row.get("title", "") or "")
+        abstract = str(row.get("abstract", "") or "")
+        combined = title + " " + abstract
+        matched = [
+            f"BK:{kw}"
+            for kw in bonus_keywords
+            if _kv_check_keyword_flexible(kw, combined)
+        ]
+        return "|".join(matched)
+
+    df = df.copy()
+    df["bonus_keyword_tags"] = df.apply(_tags_for_row, axis=1)
+    return df
+
+
+def _generate_bonus_keyword_stats(df, bonus_keywords):
+    """Log a distribution report for bonus keyword tags.
+
+    Args:
+        df: DataFrame with 'bonus_keyword_tags' column
+        bonus_keywords: List of bonus keyword strings from config
+    """
+    if not bonus_keywords or "bonus_keyword_tags" not in df.columns:
+        return
+
+    total = len(df)
+    tagged = (df["bonus_keyword_tags"] != "").sum()
+
+    lines = [
+        "",
+        "=" * 60,
+        "BONUS KEYWORD TAG DISTRIBUTION",
+        "=" * 60,
+        f"  Papers with at least one tag : {tagged:,} / {total:,} ({tagged/total*100:.1f}%)",
+        "",
+    ]
+
+    for kw in bonus_keywords:
+        tag = f"BK:{kw}"
+        count = df["bonus_keyword_tags"].str.contains(tag, regex=False).sum()
+        bar = "#" * min(int(count / max(total, 1) * 40), 40)
+        lines.append(f"  {kw:<35s} {count:5,}  {bar}")
+
+    lines.append("=" * 60)
+    logging.info("\n".join(lines))
 
 
 def _apply_itemtype_bypass(df, bypass_item_types):
@@ -1312,6 +1374,7 @@ def _fetch_citations_parallel(
     checkpoint_path=None,
     resume_from=None,
     use_cache=True,
+    api_config=None,
 ):
     """Fetch citations using phase-based batch processing.
 
@@ -1418,7 +1481,7 @@ def _fetch_citations_parallel(
         "Phase strategy: Cache → SS → OpenAlex → CrossRef (batch) → OpenCitations (threaded)"
     )
 
-    crossref_mailto = api_config.get("CrossRef", {}).get("mailto")
+    crossref_mailto = (api_config or {}).get("CrossRef", {}).get("mailto")
 
     # ========================================================================
     # Prepare paper data: collect citation metadata for each paper
@@ -1816,10 +1879,316 @@ def _fetch_citations_parallel(
     return extras, nb_citeds, nb_citations, stats
 
 
+def _write_aggregation_report(
+    dir_collect,
+    collect_name,
+    run_date,
+    duration_seconds,
+    main_config,
+    parallel_stats,
+    filtering_tracker,
+    citation_stats,
+    url_stats,
+    df_clean,
+):
+    """Write aggregation report (Markdown + CSV) to dir_collect."""
+    flat_stats = {}
+
+    # --- Identity ---
+    flat_stats["collect_name"] = collect_name
+    flat_stats["run_date"] = run_date.strftime("%Y-%m-%d %H:%M:%S")
+    flat_stats["duration_seconds"] = round(duration_seconds, 1)
+    flat_stats["apis"] = ";".join(main_config.get("apis", []))
+    flat_stats["years"] = ";".join(str(y) for y in main_config.get("years", []))
+
+    # --- Loading ---
+    ls = parallel_stats.get("loading", {})
+    flat_stats["files_loaded"] = ls.get("files_loaded", 0)
+    flat_stats["papers_loaded"] = ls.get("total_papers", 0)
+    flat_stats["load_time_seconds"] = round(ls.get("elapsed_seconds", 0), 1)
+
+    # --- Text filter ---
+    ps = parallel_stats.get("processing", {})
+    flat_stats["papers_after_text_filter"] = ps.get("papers_filtered", 0)
+    flat_stats["papers_rejected_text"] = ps.get("papers_rejected", 0)
+
+    # --- Dedup ---
+    ds = parallel_stats.get("deduplication", {})
+    flat_stats["papers_after_dedup"] = ds.get("final_count", 0)
+    flat_stats["doi_duplicates_removed"] = ds.get("doi_removed", 0)
+    flat_stats["title_duplicates_removed"] = ds.get("title_removed", 0)
+
+    # --- Filtering stages ---
+    flat_stats["papers_initial_post_dedup"] = filtering_tracker.initial_count
+    flat_stats["papers_final"] = (
+        filtering_tracker.stages[-1]["papers"] if filtering_tracker.stages else len(df_clean)
+    )
+
+    # --- URL fallback ---
+    flat_stats["urls_filled_from_doi"] = url_stats.get("filled", 0)
+    flat_stats["urls_already_valid"] = url_stats.get("already_valid", 0)
+
+    # --- Citation fetching ---
+    if citation_stats:
+        for key, val in citation_stats.items():
+            flat_stats[f"citation_{key}"] = val
+        total_with_doi = len(df_clean) - citation_stats.get("no_doi", 0)
+        cache_total = citation_stats.get("cache_hit", 0) + citation_stats.get("cache_miss", 0)
+        flat_stats["citation_cache_hit_rate_pct"] = round(
+            citation_stats.get("cache_hit", 0) / cache_total * 100, 1
+        ) if cache_total > 0 else 0.0
+
+    # --- Output quality ---
+    flat_stats["papers_output"] = len(df_clean)
+    if "DOI" in df_clean.columns:
+        flat_stats["papers_with_doi"] = int(df_clean["DOI"].apply(is_valid).sum())
+    if "abstract" in df_clean.columns:
+        flat_stats["papers_with_abstract"] = int(df_clean["abstract"].apply(is_valid).sum())
+    if "relevance_score" in df_clean.columns:
+        flat_stats["relevance_score_mean"] = round(float(df_clean["relevance_score"].mean()), 2)
+        flat_stats["relevance_score_min"] = round(float(df_clean["relevance_score"].min()), 2)
+        flat_stats["relevance_score_max"] = round(float(df_clean["relevance_score"].max()), 2)
+        flat_stats["relevance_score_median"] = round(float(df_clean["relevance_score"].median()), 2)
+    if "nb_citation" in df_clean.columns:
+        nb_cit = pd.to_numeric(df_clean["nb_citation"], errors="coerce").fillna(0)
+        flat_stats["avg_citations"] = round(float(nb_cit.mean()), 1)
+        flat_stats["max_citations"] = int(nb_cit.max())
+
+    # =========================================================================
+    # Write CSV (flat key-value)
+    # =========================================================================
+    csv_path = os.path.join(dir_collect, "aggregation_stats.csv")
+    with open(csv_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(["stat", "value"])
+        for key, val in flat_stats.items():
+            writer.writerow([key, val])
+
+    # =========================================================================
+    # Build Markdown
+    # =========================================================================
+    apis = main_config.get("apis", [])
+    years = main_config.get("years", [])
+    keywords = main_config.get("keywords", [])
+    bonus_keywords = main_config.get("bonus_keywords") or []
+
+    md = []
+    md.append(f"# Aggregation Report — {collect_name}")
+    md.append("")
+    md.append(f"**Date:** {run_date.strftime('%Y-%m-%d %H:%M:%S')}  ")
+    md.append(f"**Duration:** {duration_seconds:.1f} s ({duration_seconds / 60:.1f} min)  ")
+    md.append("")
+
+    # --- Configuration ---
+    md.append("## Configuration")
+    md.append("")
+    md.append(f"| Setting | Value |")
+    md.append(f"|---------|-------|")
+    md.append(f"| APIs | {', '.join(apis)} |")
+    md.append(f"| Years | {', '.join(str(y) for y in years)} |")
+    if isinstance(keywords, list) and keywords:
+        if isinstance(keywords[0], list):
+            for i, group in enumerate(keywords):
+                md.append(f"| Keyword Group {i + 1} | {', '.join(group)} |")
+        else:
+            md.append(f"| Keywords | {', '.join(str(k) for k in keywords)} |")
+    if bonus_keywords:
+        md.append(f"| Bonus Keywords | {', '.join(bonus_keywords)} |")
+    md.append("")
+
+    # --- Collection loading ---
+    md.append("## Collection Loading")
+    md.append("")
+    md.append("| Metric | Value |")
+    md.append("|--------|-------|")
+    md.append(f"| JSON files loaded | {ls.get('files_loaded', 0):,} |")
+    md.append(f"| Papers loaded | {ls.get('total_papers', 0):,} |")
+    md.append(f"| Load time | {ls.get('elapsed_seconds', 0):.1f} s |")
+    md.append(
+        f"| Papers after text filter | {ps.get('papers_filtered', 0):,} "
+        f"({(1 - ps.get('rejection_rate', 0)) * 100:.1f}% pass rate) |"
+    )
+    md.append(f"| DOI duplicates removed | {ds.get('doi_removed', 0):,} |")
+    md.append(f"| Title duplicates removed | {ds.get('title_removed', 0):,} |")
+    md.append(f"| Papers after deduplication | {ds.get('final_count', 0):,} |")
+    md.append("")
+
+    # --- Filtering pipeline ---
+    md.append("## Filtering Pipeline")
+    md.append("")
+    if filtering_tracker.stages:
+        initial = filtering_tracker.initial_count
+        md.append("| Stage | Description | Papers | Removed | Stage Rate | Cumulative Removed |")
+        md.append("|-------|-------------|--------|---------|------------|-------------------|")
+        for info in filtering_tracker.stages:
+            cum_removed = initial - info["papers"]
+            cum_rate = (cum_removed / initial * 100) if initial > 0 else 0.0
+            desc = info["description"][:60] + "…" if len(info["description"]) > 60 else info["description"]
+            md.append(
+                f"| {info['stage']} | {desc} | {info['papers']:,} | "
+                f"{info['removed']:,} | {info['removal_rate']:.1f}% | "
+                f"{cum_removed:,} ({cum_rate:.1f}%) |"
+            )
+    md.append("")
+
+    # --- API coverage ---
+    md.append("## API Coverage (Final Output)")
+    md.append("")
+    if "archive" in df_clean.columns:
+        api_counts: dict[str, int] = {}
+        for archive_str in df_clean["archive"].fillna(""):
+            for api in archive_str.replace("*", "").split(";"):
+                api = api.strip()
+                if api:
+                    api_counts[api] = api_counts.get(api, 0) + 1
+        if api_counts:
+            md.append("| API | Papers in Final Output |")
+            md.append("|-----|----------------------|")
+            for api_name, count in sorted(api_counts.items(), key=lambda x: x[1], reverse=True):
+                md.append(f"| {api_name} | {count:,} |")
+    md.append("")
+
+    # --- Citation fetching ---
+    if citation_stats:
+        cs = citation_stats
+        cache_total = cs.get("cache_hit", 0) + cs.get("cache_miss", 0)
+        hit_rate = (cs.get("cache_hit", 0) / cache_total * 100) if cache_total > 0 else 0.0
+
+        md.append("## Citation Fetching")
+        md.append("")
+        md.append("| Metric | Count |")
+        md.append("|--------|-------|")
+        md.append(f"| Successful | {cs.get('success', 0):,} |")
+        md.append(f"| Errors | {cs.get('error', 0):,} |")
+        md.append(f"| Timeouts | {cs.get('timeout', 0):,} |")
+        md.append(f"| Without DOI (bypassed) | {cs.get('no_doi', 0):,} |")
+        md.append(f"| Cache hits | {cs.get('cache_hit', 0):,} ({hit_rate:.1f}% hit rate) |")
+        md.append(f"| Semantic Scholar (in-memory) | {cs.get('ss_used', 0):,} |")
+        md.append(f"| OpenAlex (in-memory) | {cs.get('oa_used', 0):,} |")
+        md.append(f"| CrossRef batch API | {cs.get('cr_used', 0):,} |")
+        md.append(f"| OpenCitations API | {cs.get('opencitations_used', 0):,} |")
+        md.append("")
+
+    # --- URL fallback ---
+    md.append("## URL Enrichment")
+    md.append("")
+    md.append("| Metric | Count |")
+    md.append("|--------|-------|")
+    md.append(f"| URLs generated from DOI | {url_stats.get('filled', 0):,} |")
+    md.append(f"| URLs already present | {url_stats.get('already_valid', 0):,} |")
+    md.append(f"| No DOI available | {url_stats.get('no_doi', 0):,} |")
+    md.append("")
+
+    # --- Output quality ---
+    md.append("## Output Quality Metrics")
+    md.append("")
+    n = len(df_clean)
+    md.append("| Metric | Value |")
+    md.append("|--------|-------|")
+    md.append(f"| Total papers output | {n:,} |")
+    if "DOI" in df_clean.columns:
+        doi_count = int(df_clean["DOI"].apply(is_valid).sum())
+        md.append(f"| Papers with DOI | {doi_count:,} ({doi_count / n * 100:.1f}%) |")
+    if "abstract" in df_clean.columns:
+        abs_count = int(df_clean["abstract"].apply(is_valid).sum())
+        md.append(f"| Papers with abstract | {abs_count:,} ({abs_count / n * 100:.1f}%) |")
+    if "relevance_score" in df_clean.columns:
+        md.append(f"| Relevance score — mean | {df_clean['relevance_score'].mean():.2f} |")
+        md.append(f"| Relevance score — median | {df_clean['relevance_score'].median():.2f} |")
+        md.append(f"| Relevance score — min | {df_clean['relevance_score'].min():.2f} |")
+        md.append(f"| Relevance score — max | {df_clean['relevance_score'].max():.2f} |")
+    if "nb_citation" in df_clean.columns:
+        nb_cit = pd.to_numeric(df_clean["nb_citation"], errors="coerce").fillna(0)
+        md.append(f"| Avg citations per paper | {nb_cit.mean():.1f} |")
+        md.append(f"| Max citations | {int(nb_cit.max()):,} |")
+    md.append("")
+    md.append(
+        f"*Report generated by SciLEx `aggregate_collect` — {run_date.strftime('%Y-%m-%d %H:%M:%S')}*"
+    )
+
+    md_path = os.path.join(dir_collect, "aggregation_report.md")
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(md))
+
+    logging.info(f"Aggregation report written → {md_path}")
+    logging.info(f"Aggregation stats written  → {csv_path}")
+
+    return md_path, csv_path
+
+
+def _load_aggregate_config(collection_arg, src_dir):
+    """
+    Load main config for aggregation.
+
+    If --collection is given, loads config_used.yml from that collection directory
+    (accepts a collection name relative to output_dir, or a full path).
+    Otherwise falls back to scilex.config.yml.
+
+    Returns (main_config, api_config).
+    """
+    import yaml
+
+    if collection_arg is not None:
+        # Resolve name vs full path
+        if os.path.isabs(collection_arg) or os.sep in collection_arg or "/" in collection_arg:
+            collect_dir = collection_arg
+        else:
+            # Name only — look up output_dir from current scilex.config.yml
+            current_config_path = os.path.join(src_dir, "scilex.config.yml")
+            try:
+                current_cfg = load_yaml_config(current_config_path)
+                output_dir_base = current_cfg.get("output_dir", DEFAULT_OUTPUT_DIR)
+            except FileNotFoundError:
+                output_dir_base = DEFAULT_OUTPUT_DIR
+            collect_dir = os.path.join(output_dir_base, collection_arg)
+
+        config_path = os.path.join(collect_dir, "config_used.yml")
+        if not os.path.isfile(config_path):
+            print(f"Error: Cannot find saved config at {config_path}")
+            print(
+                "Make sure the collection name or path is correct and the collection has been started at least once."
+            )
+            sys.exit(1)
+        main_config = load_yaml_config(config_path)
+        logging.info(f"Aggregating collection '{main_config.get('collect_name')}' from {collect_dir}")
+    else:
+        configs = load_all_configs({"main_config": "scilex.config.yml", "api_config": "api.config.yml"})
+        main_config = configs["main_config"]
+
+    # api_config always comes from the standard location
+    api_config_path = os.path.join(src_dir, "api.config.yml")
+    try:
+        api_config = load_yaml_config(api_config_path)
+    except FileNotFoundError:
+        api_config = {}
+
+    return main_config, api_config
+
+
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description="Aggregate collected papers and fetch citations"
+        description="Aggregate collected papers and fetch citations",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  # Aggregate the collection defined in scilex.config.yml\n"
+            "  python -m scilex aggregate\n\n"
+            "  # Aggregate a specific previous collection by name\n"
+            "  python -m scilex aggregate --collection CulturalHeritageAItools\n\n"
+            "  # Aggregate a specific previous collection by full path\n"
+            "  python -m scilex aggregate --collection C:\\output\\CulturalHeritageAItools\n"
+        ),
+    )
+    parser.add_argument(
+        "--collection",
+        metavar="COLLECT",
+        default=None,
+        help=(
+            "Aggregate a specific collection by name or full path. "
+            "Loads config_used.yml from that directory. "
+            "If omitted, uses collect_name from scilex.config.yml."
+        ),
     )
     parser.add_argument(
         "--resume", action="store_true", help="Resume from checkpoint if available"
@@ -1848,7 +2217,14 @@ def main():
         "--parallel-workers",
         type=int,
         default=None,
-        help="Number of parallel workers (default: auto-detect CPU count - 1)",
+        help="Number of parallel workers for batch processing (default: auto-detect CPU count - 1)",
+    )
+    parser.add_argument(
+        "--load-workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers for JSON file loading (default: 4). "
+        "Increase for fast local filesystems; keep low for WSL2/network paths.",
     )
     parser.add_argument(
         "--batch-size",
@@ -1859,8 +2235,37 @@ def main():
     parser.add_argument(
         "--profile", action="store_true", help="Output detailed performance statistics"
     )
+    parser.add_argument(
+        "--no-abstract-enrichment",
+        action="store_true",
+        help=(
+            "Skip abstract enrichment step entirely. By default, records without abstracts "
+            "(e.g. from Elsevier, ORKG) are enriched via Semantic Scholar / OpenAlex "
+            "before aggregation, and the fetched abstracts are saved back to the "
+            "source JSON files."
+        ),
+    )
+    parser.add_argument(
+        "--cache-only-enrichment",
+        action="store_true",
+        help=(
+            "Apply only already-cached abstracts during enrichment — no network calls. "
+            "Useful for fast re-aggregations when the cache is already warm. "
+            "Ignored if --no-abstract-enrichment is set."
+        ),
+    )
+    parser.add_argument(
+        "--enrich-workers",
+        type=int,
+        default=4,
+        help="Parallel workers for abstract enrichment HTTP requests (default: 4)",
+    )
     args = parser.parse_args()
 
+    src_dir = os.path.dirname(os.path.abspath(__file__))
+    main_config, api_config = _load_aggregate_config(args.collection, src_dir)
+
+    run_start = datetime.now()
     logger = logging.getLogger(__name__)
 
     # Log aggregation start
@@ -1884,6 +2289,11 @@ def main():
     logger.info(
         f"Citation fetching: {'enabled' if get_citation else 'disabled (use --skip-citations to disable)'}"
     )
+
+    # ── Collection completeness report (always printed before aggregation) ──
+    from scilex.collect_status import build_status, print_status
+    _status = build_status(dir_collect, main_config)
+    print_status(_status)
 
     all_data = []
 
@@ -1951,11 +2361,68 @@ def main():
         sys.exit(1)
 
     # =========================================================================
+    # PRE-STEP: ABSTRACT ENRICHMENT
+    # =========================================================================
+
+    if not args.no_abstract_enrichment:
+        from scilex.abstract_enrichment import enrich_collection_abstracts
+
+        ss_key = api_config.get("SemanticScholar", {}).get("api_key") if api_config else None
+        enrich_stats = enrich_collection_abstracts(
+            dir_collect,
+            ss_api_key=ss_key,
+            num_workers=args.enrich_workers,
+            cache_only=args.cache_only_enrichment,
+        )
+        if enrich_stats["dois_found"] > 0:
+            logging.info(
+                f"Abstract enrichment complete: "
+                f"{enrich_stats['enriched']}/{enrich_stats['dois_found']} abstracts available "
+                f"({enrich_stats.get('cache_hits', 0)} from cache, "
+                f"{enrich_stats.get('newly_fetched', 0)} newly fetched), "
+                f"{enrich_stats['patched_records']} records updated in source files"
+            )
+    else:
+        logging.info("Abstract enrichment skipped (--no-abstract-enrichment)")
+
+    # =========================================================================
     # RUN PARALLEL AGGREGATION
     # =========================================================================
 
     logging.info("Using parallel aggregation mode")
     from scilex.crawlers.aggregate_parallel import parallel_aggregate
+
+    # In cache-only mode, load the SQLite abstract cache once here and pass it
+    # to the aggregation pipeline so workers can inject abstracts on the fly —
+    # no source-file scan required.
+    cached_abstracts: dict | None = None
+    if getattr(args, "cache_only_enrichment", False):
+        from scilex.abstract_enrichment import load_all_cached_abstracts
+        logging.info("Loading abstract cache for inline injection during aggregation…")
+        cached_abstracts = load_all_cached_abstracts(dir_collect)
+        logging.info(f"  {len(cached_abstracts):,} cached abstracts loaded")
+
+    # Build early-filter dict: cheap checks pushed into batch workers so papers
+    # that fail year or itemType criteria never reach text-filtering or dedup.
+    pre_filters: dict = {}
+
+    enable_itemtype_filter = quality_filters.get("enable_itemtype_filter", False)
+    allowed_item_types = quality_filters.get("allowed_item_types", [])
+    if enable_itemtype_filter and allowed_item_types:
+        pre_filters["allowed_item_types"] = set(allowed_item_types)
+
+    # Year range: always derive from the main config's "years" list (the same list
+    # used during collection). quality_filters.year_range can override it explicitly.
+    _year_list = quality_filters.get("year_range") or main_config.get("years", [])
+    if _year_list:
+        pre_filters["year_range"] = set(int(y) for y in _year_list)
+
+    if pre_filters:
+        logging.info(
+            f"Pre-filters configured for batch workers: "
+            + (f"itemTypes={sorted(pre_filters.get('allowed_item_types', set()))} " if "allowed_item_types" in pre_filters else "")
+            + (f"years={sorted(pre_filters.get('year_range', set()))}" if "year_range" in pre_filters else "")
+        )
 
     # Run parallel aggregation with config_used
     df, parallel_stats = parallel_aggregate(
@@ -1965,6 +2432,10 @@ def main():
         num_workers=args.parallel_workers,
         batch_size=args.batch_size,
         keyword_groups=keyword_groups,
+        load_workers=args.load_workers,
+        bonus_keywords=bonus_keywords if bonus_keywords else None,
+        cached_abstracts=cached_abstracts,
+        pre_filters=pre_filters if pre_filters else None,
     )
 
     # Output performance statistics if requested
@@ -2123,6 +2594,7 @@ def main():
         keyword_report = generate_keyword_validation_report(
             df_clean,
             keywords,
+            bonus_keywords=bonus_keywords if bonus_keywords else None,
         )
         logging.info(keyword_report)
 
@@ -2152,6 +2624,8 @@ def main():
             f"Abstracts meeting quality threshold (min score: {min_quality_score})",
         )
 
+    citation_stats_report = None
+
     if get_citation and len(df_clean) > 0:
         # Set up checkpoint path
         checkpoint_path = os.path.join(dir_collect, "citation_checkpoint.json")
@@ -2164,7 +2638,10 @@ def main():
             checkpoint_path=checkpoint_path,
             resume_from=args.resume,
             use_cache=not args.no_cache,  # Cache enabled by default
+            api_config=api_config,
         )
+
+        citation_stats_report = stats
 
         # Assign results to DataFrame (efficient bulk assignment)
         df_clean["extra"] = extras
@@ -2237,6 +2714,14 @@ def main():
     filtering_summary = filtering_tracker.generate_report()
     logging.info(filtering_summary)
 
+    # Tag papers with bonus keywords and report distribution
+    if bonus_keywords:
+        logging.info("Tagging papers with bonus keywords...")
+        df_clean = _tag_papers_with_bonus_keywords(df_clean, bonus_keywords)
+        _generate_bonus_keyword_stats(df_clean, bonus_keywords)
+    else:
+        df_clean["bonus_keyword_tags"] = ""
+
     # Save to CSV
     output_path = os.path.join(dir_collect, output_filename)
     logging.info(f"Saving {len(df_clean)} aggregated papers to {output_path}")
@@ -2247,6 +2732,21 @@ def main():
         quoting=csv.QUOTE_NONNUMERIC,
     )
     logging.info(f"Aggregation complete! Results saved to {output_path}")
+
+    # Write aggregation report
+    run_duration = (datetime.now() - run_start).total_seconds()
+    _write_aggregation_report(
+        dir_collect=dir_collect,
+        collect_name=collect_name,
+        run_date=run_start,
+        duration_seconds=run_duration,
+        main_config=main_config,
+        parallel_stats=parallel_stats,
+        filtering_tracker=filtering_tracker,
+        citation_stats=citation_stats_report,
+        url_stats=url_stats,
+        df_clean=df_clean,
+    )
 
 
 if __name__ == "__main__":

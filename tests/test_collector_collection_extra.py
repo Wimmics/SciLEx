@@ -94,11 +94,19 @@ class TestQueryIsCompleteMethod:
         coll = _make_collection()
         assert coll._query_is_complete(str(tmp_path), "HAL", 0) is False
 
-    def test_dir_with_files_returns_true(self, tmp_path):
-        # _query_is_complete uses os.path.join(repo, api, str(query_idx))
+    def test_dir_with_pages_but_no_sentinel_returns_false(self, tmp_path):
+        # Partial collection: page files exist but _complete sentinel is absent
         d = tmp_path / "HAL" / "0"
         d.mkdir(parents=True)
         (d / "page_1.json").write_text("{}")
+        coll = _make_collection()
+        assert coll._query_is_complete(str(tmp_path), "HAL", 0) is False
+
+    def test_dir_with_sentinel_returns_true(self, tmp_path):
+        d = tmp_path / "HAL" / "0"
+        d.mkdir(parents=True)
+        (d / "page_1.json").write_text("{}")
+        (d / "_complete").write_text("1")
         coll = _make_collection()
         assert coll._query_is_complete(str(tmp_path), "HAL", 0) is True
 

@@ -293,6 +293,8 @@ with tab1:
         "DBLP",
         "HAL",
         "Istex",
+        "OpenAIRE",
+        "ORKG",
     ]
     _all_paid = ["IEEE", "Elsevier", "Springer"]
     _prev_free = [a for a in _prev_apis if a in _all_free] or [

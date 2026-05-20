@@ -35,7 +35,7 @@ class Elsevier_collector(API_collector):
             )
 
     def api_call_decorator(
-        self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES
+        self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES, headers=None
     ):
         """
         API call with Elsevier-specific headers and optional institutional token.
@@ -99,7 +99,7 @@ class Elsevier_collector(API_collector):
 
         # Join the current group's keywords with ' OR ' and wrap in TITLE()
 
-        search_query = f"TITLE-ABS({' AND '.join(self.get_keywords())})"
+        search_query = "TITLE-ABS(" + " AND ".join(f'"{kw}"' for kw in self.get_keywords()) + ")"
 
         # Join all formatted keyword groups with ' AND '
         # search_query = ' AND '.join(formatted_keyword_groups)
@@ -118,4 +118,4 @@ class Elsevier_collector(API_collector):
         # Combine the queries
         query = f"{keywords_query}&date={years_query}"
 
-        return f"{self.api_url}?query={query}&apiKey={self.api_key}&count={self.max_by_page}&start={{}}"
+        return f"{self.api_url}?query={query}&apiKey={self.api_key}&count={self.max_by_page}&view=COMPLETE&start={{}}"

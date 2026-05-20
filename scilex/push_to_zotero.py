@@ -27,22 +27,26 @@ logging.basicConfig(
 )
 
 
-def load_aggregated_data(config: dict) -> pd.DataFrame:
+def load_aggregated_data(config: dict, collect_dir: str | None = None) -> pd.DataFrame:
     """
     Load aggregated paper data from CSV file.
 
     Args:
         config: Main configuration dictionary with output_dir, collect_name, aggregate_file
                 (uses defaults from config_defaults.py if not specified)
+        collect_dir: Direct path to collect directory (overrides config derivation)
 
     Returns:
         DataFrame containing aggregated paper data
     """
-    output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
     aggregate_file = config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
-    dir_collect = os.path.join(
-        output_dir, normalize_path_component(config["collect_name"])
-    )
+    if collect_dir:
+        dir_collect = collect_dir
+    else:
+        output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
+        dir_collect = os.path.join(
+            output_dir, normalize_path_component(config["collect_name"])
+        )
     file_path = os.path.join(dir_collect, normalize_path_component(aggregate_file))
 
     logging.info(f"Loading data from: {file_path}")
@@ -128,7 +132,7 @@ def push_new_items_to_zotero(
         Dictionary with counts: {"success": n, "failed": m, "skipped": k, "skipped_for_incompatibility": j}
     """
     output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
-    dir_collect = os.path.join(output_dir, config["collect_name"])
+    dir_collect = config.get("_collect_dir") or os.path.join(output_dir, config.get("collect_name", ""))
     results = {
         "success": 0,
         "failed": 0,
@@ -198,7 +202,15 @@ def main():
         "--collect-name",
         type=str,
         default=None,
-        help="Collection name (overrides scilex.config.yml)",
+        help="Collect name used to derive the directory path (overrides scilex.config.yml)",
+    )
+    parser.add_argument(
+        "--collect-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Direct path to the collect directory containing aggregated_results.csv "
+        "(overrides --output-dir + --collect-name derivation)",
     )
     parser.add_argument(
         "--output-dir",
@@ -206,9 +218,16 @@ def main():
         default=None,
         help="Output directory (overrides scilex.config.yml)",
     )
-    
+    parser.add_argument(
+        "--zotero-collection",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help="Zotero collection name to push into (overrides collect_name from config)",
+    )
+
     args = parser.parse_args()
-    
+
     logging.info(f"Zotero push process started at {datetime.now()}")
     logging.info("=" * 60)
 
@@ -220,12 +239,14 @@ def main():
     configs = load_all_configs(config_files)
     main_config = configs["main_config"]
     api_config = configs["api_config"]
-    
+
     # Override with CLI arguments if provided
     if args.collect_name:
         main_config["collect_name"] = args.collect_name
     if args.output_dir:
         main_config["output_dir"] = args.output_dir
+    if args.collect_dir:
+        main_config["_collect_dir"] = args.collect_dir
 
     # Extract Zotero configuration (handle both lowercase and capitalized keys)
     zotero_config = api_config.get("Zotero") or api_config.get("zotero")
@@ -253,7 +274,7 @@ def main():
         )
         return
 
-    collection_name = main_config.get("collect_name", "new_models")
+    collection_name = args.zotero_collection or main_config.get("collect_name", "new_models")
 
     # Initialize Zotero API client
     logging.info(f"Initializing Zotero API client for {user_role} {user_id}")
@@ -276,7 +297,7 @@ def main():
     logging.info(f"Found {len(existing_urls)} existing items")
 
     # Load aggregated data
-    data = load_aggregated_data(main_config)
+    data = load_aggregated_data(main_config, collect_dir=args.collect_dir)
 
     # Pre-fetch all item type templates
     templates_cache = prefetch_templates(data)

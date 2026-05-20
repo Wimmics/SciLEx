@@ -18,7 +18,9 @@ from .collectors import (
     HAL_collector,
     IEEE_collector,
     Istex_collector,
+    OpenAIRE_collector,
     OpenAlex_collector,
+    ORKG_collector,
     PubMed_collector,
     PubMedCentral_collector,
     SemanticScholar_collector,
@@ -37,6 +39,8 @@ api_collectors = {
     "Istex": Istex_collector,
     "PubMed": PubMed_collector,
     "PubMedCentral": PubMedCentral_collector,
+    "OpenAIRE": OpenAIRE_collector,
+    "ORKG": ORKG_collector,
 }
 
 
@@ -78,6 +82,8 @@ def _run_job_collects_worker(
         collect_name: Collection name
         progress_queue: Queue for sending progress updates to main thread
     """
+    from scilex.crawlers.circuit_breaker import CircuitBreakerRegistry
+
     # Use absolute path
     repo = os.path.abspath(os.path.join(output_dir, collect_name))
 
@@ -88,6 +94,25 @@ def _run_job_collects_worker(
         collector_class = api_collectors[api_name]
         api_key = None
         inst_token = None
+
+        # If the circuit breaker is open, stop processing remaining queries.
+        # They will be retried on the next --resume run once the API recovers.
+        breaker = CircuitBreakerRegistry().get_breaker(api_name)
+        if not breaker.is_available():
+            logging.warning(
+                f"{api_name}: Circuit breaker OPEN — stopping remaining queries for this API. "
+                f"Retry with --resume once the API recovers."
+            )
+            progress_queue.put(
+                {
+                    "api": api_name,
+                    "query_id": query_id,
+                    "articles_collected": 0,
+                    "success": False,
+                    "error": f"{api_name} circuit breaker open",
+                }
+            )
+            break
 
         if api_name in api_config:
             api_key = api_config[api_name].get("api_key")
@@ -101,6 +126,9 @@ def _run_job_collects_worker(
                     inst_token = token_value
                     logging.debug("Using institutional token for Elsevier API")
 
+        kw_str = " + ".join(f'"{k}"' for k in data_query.get("keyword", [])) or "?"
+        year = data_query.get("year", "?")
+
         try:
             # Initialize collector
             if api_name == "Elsevier" and inst_token:
@@ -108,13 +136,20 @@ def _run_job_collects_worker(
             else:
                 current_coll = collector_class(data_query, repo, api_key)
 
+            logging.info(f"[{api_name}] Q{query_id}: {kw_str} ({year})")
+
             # Run collection
             res = current_coll.runCollect()
             articles_collected = res.get("coll_art", 0)
 
-            logging.debug(
-                f"Completed collection for {api_name} query {query_id}: {articles_collected} articles"
-            )
+            if articles_collected > 0:
+                logging.info(
+                    f"[{api_name}] Q{query_id} done: {articles_collected} papers — {kw_str} ({year})"
+                )
+            else:
+                logging.debug(
+                    f"[{api_name}] Q{query_id} done: 0 papers — {kw_str} ({year})"
+                )
 
             # Send progress update to main thread via queue
             progress_queue.put(
@@ -122,6 +157,8 @@ def _run_job_collects_worker(
                     "api": api_name,
                     "query_id": query_id,
                     "articles_collected": articles_collected,
+                    "keywords": kw_str,
+                    "year": year,
                     "success": True,
                 }
             )
@@ -130,7 +167,7 @@ def _run_job_collects_worker(
             # Sanitize error message to remove API keys
             sanitized_error = _sanitize_error_message(str(e))
             logging.error(
-                f"Error during collection for {api_name} query {query_id}: {sanitized_error}"
+                f"[{api_name}] Q{query_id} error ({kw_str}, {year}): {sanitized_error}"
             )
             # Send error progress update
             progress_queue.put(
@@ -138,6 +175,8 @@ def _run_job_collects_worker(
                     "api": api_name,
                     "query_id": query_id,
                     "articles_collected": 0,
+                    "keywords": kw_str,
+                    "year": year,
                     "success": False,
                     "error": sanitized_error,
                 }
@@ -337,7 +376,11 @@ class CollectCollection:
 
     def _query_is_complete(self, repo, api, query_idx):
         """
-        Check if a query is complete by checking for result files.
+        Check if a query is fully complete by looking for the _complete sentinel file.
+
+        A sentinel is written by runCollect only when all pages were fetched
+        successfully. Directories with page files but no sentinel are partially
+        collected and will be resumed rather than skipped.
 
         Args:
             repo: Collection directory path
@@ -345,23 +388,37 @@ class CollectCollection:
             query_idx: Query index (e.g., 0, 1, 2)
 
         Returns:
-            bool: True if query has result files, False otherwise
+            bool: True only if the _complete sentinel file is present
         """
         query_dir = os.path.join(repo, api, str(query_idx))
+        return os.path.isfile(os.path.join(query_dir, "_complete"))
 
-        # Query is complete if directory exists and has page files
+    def _get_last_collected_page(self, repo, api, query_idx):
+        """
+        Infer the last successfully saved page from the page files on disk.
+
+        Args:
+            repo: Collection directory path
+            api: API name
+            query_idx: Query index
+
+        Returns:
+            int: Highest page number found (0 if none)
+        """
+        query_dir = os.path.join(repo, api, str(query_idx))
         if not os.path.isdir(query_dir):
-            return False
-
-        # Check for page files (e.g., page_1, page_2, etc.)
+            return 0
         try:
-            files = os.listdir(query_dir)
-            # Consider complete if it has any files (page_* or other result files)
-            has_results = len(files) > 0
-            return has_results
+            page_numbers = []
+            for fname in os.listdir(query_dir):
+                if fname.startswith("page_"):
+                    try:
+                        page_numbers.append(int(fname[5:]))
+                    except ValueError:
+                        continue
+            return max(page_numbers) if page_numbers else 0
         except (PermissionError, OSError):
-            # If we can't read the directory, assume it's not complete
-            return False
+            return 0
 
     def create_collects_jobs(self):
         """
@@ -385,24 +442,34 @@ class CollectCollection:
         jobs_by_api = {}  # Grouped: {"API_name": [query1, query2, ...]}
         n_coll = 0
         n_skipped = 0
+        n_resumed = 0
 
         for api in queries_by_api:
             queries = queries_by_api[api]
             api_jobs = []
 
             for idx, query in enumerate(queries):
-                # Check if this query is already complete (has result files)
+                # Skip queries that were fully completed (sentinel file present)
                 if self._query_is_complete(repo, api, idx):
                     n_skipped += 1
-                    logger.debug(f"Skipping {api} query {idx} (already has results)")
+                    logger.debug(f"Skipping {api} query {idx} (fully complete)")
                     continue
 
-                # Add query to API's job list
+                # Resume partial collection from last saved page (0 = start fresh)
+                last_page = self._get_last_collected_page(repo, api, idx)
+                if last_page > 0:
+                    n_resumed += 1
+                    kw_str = " + ".join(f'"{k}"' for k in query.get("keyword", [])) or "?"
+                    logger.info(
+                        f"Resuming {api} query {idx} from page {last_page + 1} "
+                        f"({last_page} pages already collected) — {kw_str} ({query.get('year', '?')})"
+                    )
+
                 query["id_collect"] = idx
                 query["total_art"] = 0  # Unknown until first API response
-                query["last_page"] = 0  # Start from page 0
-                query["coll_art"] = 0  # No articles collected yet
-                query["state"] = 0  # Incomplete (0=incomplete, 1=complete, -1=error)
+                query["last_page"] = last_page  # Resume point (0 = fresh start)
+                query["coll_art"] = 0
+                query["state"] = 0
                 api_jobs.append({"query": query, "api": api})
                 n_coll += 1
 
@@ -414,6 +481,10 @@ class CollectCollection:
         if n_skipped > 0:
             logger.info(
                 f"Skipped {n_skipped} already-completed queries (idempotent re-run)"
+            )
+        if n_resumed > 0:
+            logger.info(
+                f"Resuming {n_resumed} partially-collected queries from their last page"
             )
 
         # Check if there are any jobs to process
@@ -429,25 +500,15 @@ class CollectCollection:
         # One thread per API
         num_threads = len(jobs_by_api)
         num_apis = len(jobs_by_api)
-        print(
-            f"Starting collection: {n_coll} queries across {num_apis} API(s) using {num_threads} threads (1 per API)\n"
+        total_queries = sum(len(api_jobs) for api_jobs in jobs_by_api.values())
+        tqdm.write(
+            f"Starting collection: {n_coll} queries across {num_apis} API(s) using {num_threads} threads (1 per API)"
         )
 
-        # Create per-API progress tracking
-        api_progress_bars = {}
+        # Per-API stats (no per-API bars — avoids multi-bar cursor-movement artifacts in WSL)
         api_stats = defaultdict(lambda: {"completed": 0, "total": 0, "articles": 0})
-
-        # Initialize progress bars for each API
-        for api_name, api_jobs in sorted(jobs_by_api.items()):
-            query_count = len(api_jobs)
-            api_stats[api_name]["total"] = query_count
-            api_progress_bars[api_name] = tqdm(
-                total=query_count,
-                desc=f"{api_name:20s}",
-                unit="query",
-                position=len(api_progress_bars),
-                leave=True,
-            )
+        for api_name, api_jobs in jobs_by_api.items():
+            api_stats[api_name]["total"] = len(api_jobs)
 
         # Create shared progress queue
         progress_queue = Queue()
@@ -473,59 +534,60 @@ class CollectCollection:
             thread.start()
             threads.append(thread)
 
+        # Single overall progress bar — eliminates multi-bar cursor gymnastics
+        overall_bar = tqdm(
+            total=total_queries,
+            desc="Collecting",
+            unit="query",
+            dynamic_ncols=True,
+            position=0,
+            leave=True,
+        )
+
         # Monitor progress queue in main thread
         completed_count = 0
-        total_queries = sum(len(api_jobs) for api_jobs in jobs_by_api.values())
 
         try:
-            # Redirect logging output to work with tqdm progress bars
             with logging_redirect_tqdm(loggers=[logging.root]):
                 while completed_count < total_queries:
                     try:
-                        # Get result from queue with timeout
                         result = progress_queue.get(timeout=0.1)
 
-                        # Update stats
                         api_name = result["api"]
                         articles = result["articles_collected"]
                         api_stats[api_name]["completed"] += 1
                         api_stats[api_name]["articles"] += articles
-
-                        # Update progress bar
-                        if api_name in api_progress_bars:
-                            pbar = api_progress_bars[api_name]
-                            pbar.update(1)
-                            pbar.set_postfix({"papers": api_stats[api_name]["articles"]})
-
-                            # Log milestone when query completes
-                            completed = api_stats[api_name]["completed"]
-                            total = api_stats[api_name]["total"]
-                            total_articles = api_stats[api_name]["articles"]
-
-                            # Log at 25%, 50%, 75%, and 100% completion
-                            if completed % max(1, total // 4) == 0 or completed == total:
-                                logging.debug(
-                                    f"[{api_name}] Progress: {completed}/{total} queries | {total_articles} papers collected"
-                                )
-
                         completed_count += 1
 
+                        overall_bar.update(1)
+                        # Postfix: total papers so far + per-API paper count
+                        total_papers = sum(s["articles"] for s in api_stats.values())
+                        api_summary = " | ".join(
+                            f"{a}:{s['articles']}"
+                            for a, s in sorted(api_stats.items())
+                            if s["completed"] > 0
+                        )
+                        overall_bar.set_postfix_str(f"{total_papers} papers [{api_summary}]")
+
+                        # Announce when an API finishes all its queries
+                        done = api_stats[api_name]["completed"]
+                        total_for_api = api_stats[api_name]["total"]
+                        if done == total_for_api:
+                            tqdm.write(
+                                f"  [{api_name}] finished {done} queries → {api_stats[api_name]['articles']:,} papers"
+                            )
+
                     except Exception:
-                        # Check if all threads are done
                         if not any(t.is_alive() for t in threads):
                             break
                         continue
 
         finally:
-            # Wait for all threads to complete
             for thread in threads:
                 thread.join()
 
-            # Close all progress bars
-            for pbar in api_progress_bars.values():
-                pbar.close()
+            overall_bar.close()
 
-            # Print final summary
             print("\n" + "=" * 60)
             print("Collection Complete - Summary:")
             print("=" * 60)
