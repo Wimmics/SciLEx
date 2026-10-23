@@ -28,6 +28,109 @@ from scilex.settings.schema import (
 logger = logging.getLogger(__name__)
 _DEFAULT_NAME = "my_review"
 
+# Legacy keys the migration translates (anything else is reported and dropped).
+_HANDLED_TOP_LEVEL = frozenset(
+    {
+        "collect_name",
+        "output_dir",
+        "keywords",
+        "years",
+        "apis",
+        "bonus_keywords",
+        "max_articles_per_query",
+        "semantic_scholar_mode",
+        "quality_filters",
+        "aggregate_get_citations",
+        "hf_enrichment",
+        "since",
+        "llm_screening",
+        "collect",
+        "vpn",
+        "generate_prisma_report",
+    }
+)
+_HANDLED_QUALITY_FILTERS = frozenset(get_default_quality_filters()) | {
+    "use_venue_ranking",
+    "recover_missing_dois",
+    "doi_recovery_min_similarity",
+    "enrich_unpaywall",
+    "enrich_author_hindex",
+    "canonical_citation_discrepancy_threshold",
+    "unpaywall_email",  # reported separately: it belongs in keys.yml
+}
+
+
+def _warn_ignored_keys(merged: dict) -> None:
+    """Log one warning per legacy key that has no equivalent in ``scilex.yml``."""
+    for key in merged:
+        if key not in _HANDLED_TOP_LEVEL:
+            logger.warning(
+                "Legacy key %r has no equivalent in scilex.yml and was ignored.", key
+            )
+    for key in merged.get("quality_filters") or {}:
+        if key not in _HANDLED_QUALITY_FILTERS:
+            logger.warning(
+                "Legacy key 'quality_filters.%s' has no equivalent in scilex.yml "
+                "and was ignored.",
+                key,
+            )
+    hf_defaults = default_settings_dict()["enrichment"]["huggingface"]
+    for key in merged.get("hf_enrichment") or {}:
+        if key != "enabled" and key not in hf_defaults:
+            logger.warning(
+                "Legacy key 'hf_enrichment.%s' has no equivalent in scilex.yml "
+                "and was ignored.",
+                key,
+            )
+
+
+def _clean_keyword_groups(keywords):
+    """Drop empty groups at the end (``[[a], []]`` becomes ``[[a]]``)."""
+    if not isinstance(keywords, list):
+        return keywords
+    groups = list(keywords)
+    while groups and isinstance(groups[-1], list) and not groups[-1]:
+        groups.pop()
+    return groups
+
+
+def _allowed_item_types(qf: dict):
+    """Item types to keep, or None for "all" (filter disabled or empty list)."""
+    if not qf["enable_itemtype_filter"]:
+        return None
+    allowed = list(qf["allowed_item_types"] or [])
+    if not allowed:
+        logger.warning(
+            "quality_filters.allowed_item_types is empty: migrated as filters."
+            "item_types: null (all types accepted)."
+        )
+        return None
+    return allowed
+
+
+def _llm_screening_block(llm_block: dict, defaults: dict) -> dict:
+    """Translate ``llm_screening``; unknown keys are reported and dropped."""
+    llm_defaults = defaults["llm_screening"]
+    changed = {}
+    for key, value in llm_block.items():
+        if key not in llm_defaults:
+            logger.warning(
+                "llm_screening.%s is not a known option (expected one of %s) "
+                "and was ignored.",
+                key,
+                ", ".join(sorted(llm_defaults)),
+            )
+        elif llm_defaults[key] != value:
+            changed[key] = value
+    topic = str(changed.get("topic") or "").strip()
+    if changed.get("enabled") and not topic:
+        logger.warning(
+            "llm_screening is enabled without a topic (it could not run): "
+            "migrated as disabled. Set llm_screening.topic to enable it."
+        )
+        changed["enabled"] = False
+    return changed
+
 
 def _set_if_different(
     target: dict, section: str, key: str, value, defaults: dict
@@ -67,6 +170,7 @@ def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -
     """
     merged = copy.deepcopy(main_config)
     merge_advanced_config(merged, advanced_config)
+    _warn_ignored_keys(merged)
     defaults = default_settings_dict()
     qf = {**get_default_quality_filters(), **(merged.get("quality_filters") or {})}
 
@@ -75,7 +179,7 @@ def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -
         result["output_dir"] = merged["output_dir"]
 
     search: dict = {
-        "keywords": merged.get("keywords", []),
+        "keywords": _clean_keyword_groups(merged.get("keywords", [])),
         "years": merged.get("years", []),
         "apis": merged.get("apis", []),
     }
@@ -91,9 +195,7 @@ def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -
 
     filters: dict = {}
     wanted = {
-        "item_types": (
-            list(qf["allowed_item_types"]) if qf["enable_itemtype_filter"] else None
-        ),
+        "item_types": _allowed_item_types(qf),
         "always_keep": (
             list(qf["bypass_item_types"]) if qf["enable_itemtype_bypass"] else []
         ),
@@ -133,12 +235,21 @@ def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -
     _set_if_different(
         ranking, "ranking", "enabled", qf["apply_relevance_ranking"], defaults
     )
-    _set_if_different(ranking, "ranking", "max_papers", qf["max_papers"], defaults)
-    weights = {
-        key: value
-        for key, value in qf["relevance_weights"].items()
-        if DEFAULT_RELEVANCE_WEIGHTS.get(key) != value
-    }
+    max_papers = qf["max_papers"]
+    if isinstance(max_papers, int) and max_papers <= 0:
+        max_papers = None  # 0 or negative meant "unlimited" in the legacy format
+    _set_if_different(ranking, "ranking", "max_papers", max_papers, defaults)
+    weights = {}
+    for key, value in qf["relevance_weights"].items():
+        if key not in DEFAULT_RELEVANCE_WEIGHTS:
+            logger.warning(
+                "Legacy weight 'relevance_weights.%s' is unknown (expected %s) "
+                "and was ignored.",
+                key,
+                ", ".join(sorted(DEFAULT_RELEVANCE_WEIGHTS)),
+            )
+        elif DEFAULT_RELEVANCE_WEIGHTS[key] != value:
+            weights[key] = value
     if weights:
         ranking.setdefault("ranking", {})["weights"] = weights
     legacy_types = qf["itemtype_relevance_weights"]
@@ -212,12 +323,7 @@ def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -
         result["search"]["since"] = str(merged["since"])
     llm_block = merged.get("llm_screening")
     if isinstance(llm_block, dict):
-        llm_defaults = defaults["llm_screening"]
-        changed = {
-            key: value
-            for key, value in llm_block.items()
-            if llm_defaults.get(key, object()) != value
-        }
+        changed = _llm_screening_block(llm_block, defaults)
         if changed:
             result["llm_screening"] = changed
 
