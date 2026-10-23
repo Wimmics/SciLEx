@@ -87,3 +87,18 @@ async def test_unknown_review(ctx):
     async with user_simulation(build_root(ctx)) as user:
         await user.open("/review/doesnotexist")
         await user.should_see("This review is no longer available.")
+
+
+async def test_run_button_tooltips_do_not_pile_up(ctx, tmp_path):
+    from nicegui import ui
+
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/collect")
+        await asyncio.sleep(1.2)  # a couple of refresh ticks
+        run_button = user.find(marker="run").elements.pop()
+        tooltips = [
+            c for c in run_button.default_slot.children if isinstance(c, ui.tooltip)
+        ]
+        assert len(tooltips) == 1
+        assert not tooltips[0].visible

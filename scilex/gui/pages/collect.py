@@ -33,6 +33,8 @@ def render(ctx: AppContext, review: Review) -> None:
             "skip-citations"
         )
         run_button = ui.button("Run", icon="play_arrow").mark("run")
+        with run_button:
+            busy_tooltip = ui.tooltip("Another review is running")
         cancel_button = (
             ui.button("Cancel", icon="stop")
             .props("outline color=negative")
@@ -51,7 +53,8 @@ def render(ctx: AppContext, review: Review) -> None:
         busy_elsewhere = other is not None and other.review_id != review.id
         running = job is not None and job.is_active
         run_button.set_enabled(not running and not busy_elsewhere)
-        run_button.tooltip("Another review is running" if busy_elsewhere else "")
+        # One tooltip, shown or hidden: calling .tooltip() here would add a new one every tick.
+        busy_tooltip.set_visibility(busy_elsewhere)
         cancel_button.set_visibility(running)
         if job is None:
             status.text = "Not run in this session."
