@@ -120,3 +120,163 @@ def included_results(
     results = load_results(review) if results is None else results
     included = {k for k, d in load_decisions(review).items() if d.decision == INCLUDE}
     return results[results["paper_key"].isin(included)]
+
+
+# --- In-memory session used by the Screen page -------------------------------
+
+FILTER_ALL, FILTER_UNDECIDED = "all", "undecided"
+DECISION_LABELS = {INCLUDE: "Include", EXCLUDE: "Exclude", MAYBE: "Maybe"}
+
+
+def _text(value) -> str:
+    return str(value) if is_valid(value) else ""
+
+
+def _number(value) -> float | None:
+    number = pd.to_numeric(value, errors="coerce")
+    return None if pd.isna(number) else float(number)
+
+
+class ScreeningSession:
+    """Results and decisions of a review, kept in memory while screening.
+
+    The results are loaded once; each decision updates the in-memory state and
+    rewrites ``screening.csv`` (atomic), without re-reading any file.
+    """
+
+    def __init__(self, review: Review, results: pd.DataFrame | None = None):
+        """Load the results (unless given) and the existing decisions."""
+        self.review = review
+        results = load_results(review) if results is None else results
+        results = results.drop_duplicates("paper_key")
+        self.decisions = load_decisions(review)
+        present = set(results["paper_key"])
+        self.orphans = [k for k in self.decisions if k not in present]
+        self._details: dict[str, dict] = {}
+        self._search: dict[str, str] = {}
+        self.rows: list[dict] = []
+        for record in results.to_dict("records"):
+            key = record["paper_key"]
+            venue = _text(record.get("journalAbbreviation")) or _text(
+                record.get("publisher")
+            )
+            citations = _number(record.get("nb_citation"))
+            if citations is None:
+                citations = _number(record.get("canonical_citation_count"))
+            year = (
+                extract_year(record["date"]) if is_valid(record.get("date")) else None
+            )
+            score = _number(record.get("relevance_score"))
+            self.rows.append(
+                {
+                    "paper_key": key,
+                    "title": _text(record.get("title")),
+                    "year": year,
+                    "venue": venue,
+                    "score": None if score is None else round(score, 2),
+                    "citations": None if citations is None else int(citations),
+                    "decision": self._label(key),
+                }
+            )
+            self._details[key] = {
+                "title": _text(record.get("title")),
+                "authors": _text(record.get("authors")).replace(";", ", "),
+                "year": year,
+                "venue": venue,
+                "abstract": _text(record.get("abstract")),
+                "doi": _text(record.get("DOI")),
+                "item_type": _text(record.get("itemType")),
+                "tags": _text(record.get("tags")),
+            }
+            self._search[key] = (
+                f"{_text(record.get('title'))} {_text(record.get('abstract'))}".lower()
+            )
+        self.rows.sort(key=lambda r: -(r["score"] if r["score"] is not None else -1))
+        self._row_by_key = {r["paper_key"]: r for r in self.rows}
+
+    def _label(self, key: str) -> str:
+        decision = self.decisions.get(key)
+        return DECISION_LABELS[decision.decision] if decision else ""
+
+    def detail(self, key: str) -> dict:
+        """Display fields of one paper."""
+        return self._details[key]
+
+    def row(self, key: str) -> dict:
+        """Grid row of one paper (shared with the grid data)."""
+        return self._row_by_key[key]
+
+    def decision_of(self, key: str) -> Decision | None:
+        """Current decision on ``key``, if any."""
+        return self.decisions.get(key)
+
+    def decide(self, key: str, decision: str | None, note: str = "") -> dict:
+        """Record or clear (``None``) a decision, save it, return the updated row."""
+        if decision is None:
+            self.decisions.pop(key, None)
+        elif decision not in DECISIONS:
+            raise ValueError(f"Unknown decision {decision!r}")
+        else:
+            self.decisions[key] = Decision(
+                key, decision, note, datetime.now().isoformat(timespec="seconds")
+            )
+        save_decisions(self.review, self.decisions)
+        row = self._row_by_key[key]
+        row["decision"] = self._label(key)
+        return row
+
+    def update_note(self, key: str, note: str) -> bool:
+        """Change the note of an already decided paper; False if undecided/unchanged."""
+        current = self.decisions.get(key)
+        if current is None or current.note == note:
+            return False
+        self.decide(key, current.decision, note)
+        return True
+
+    def counts(self) -> dict[str, int]:
+        """Number of papers per decision, undecided and total."""
+        counts = dict.fromkeys(DECISIONS, 0)
+        for key in self._row_by_key:
+            decision = self.decisions.get(key)
+            if decision:
+                counts[decision.decision] += 1
+        total = len(self.rows)
+        counts["undecided"] = total - sum(counts[d] for d in DECISIONS)
+        counts["total"] = total
+        return counts
+
+    def visible_rows(
+        self, decision_filter: str = FILTER_ALL, query: str = ""
+    ) -> list[dict]:
+        """Rows matching a decision filter and a title/abstract search."""
+        needle = query.strip().lower()
+        selected = []
+        for row in self.rows:
+            key = row["paper_key"]
+            decision = self.decisions.get(key)
+            if decision_filter == FILTER_UNDECIDED:
+                if decision:
+                    continue
+            elif decision_filter in DECISIONS and (
+                decision is None or decision.decision != decision_filter
+            ):
+                continue
+            if needle and needle not in self._search[key]:
+                continue
+            selected.append(row)
+        return selected
+
+    def next_undecided(self, order: list[str], current: str | None) -> str | None:
+        """First undecided key after ``current`` in ``order`` (wrapping around)."""
+        start = order.index(current) + 1 if current in order else 0
+        for key in order[start:] + order[:start]:
+            if key != current and key not in self.decisions:
+                return key
+        return None
+
+    def forget(self, key: str) -> None:
+        """Drop the decision of an orphan paper."""
+        self.decisions.pop(key, None)
+        if key in self.orphans:
+            self.orphans.remove(key)
+        save_decisions(self.review, self.decisions)

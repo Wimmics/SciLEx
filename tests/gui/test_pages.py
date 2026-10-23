@@ -56,7 +56,8 @@ async def test_run_pipeline_enables_screening(ctx, tmp_path):
         assert screen_button.enabled
 
         user.find(marker="step-screen").click()
-        await user.should_see("Not available yet.")
+        # The fake pipeline writes an invalid results file: the Screen page reports it.
+        await user.should_see("Cannot load the results")
 
 
 async def test_unknown_review(ctx):
