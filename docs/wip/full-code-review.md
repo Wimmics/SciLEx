@@ -3,8 +3,11 @@
 Démarré : 2026-10-23. Branche : `dev`. Base : 972 tests verts, 1 skip. Politique : ADR 0001.
 
 ## Prochaine étape
-Vague 2 en cours (6 agents en worktree). Ensuite : découpage de `run_aggregation`,
-API `run_enrichment` en cœur (lèvera la limite « un job web à la fois »), mise à jour de CLAUDE.md.
+Vague 2 : reste le lot collecteurs (base.py, collector_collection.py).
+Puis : go à la session `scilex-d8` (lots A-D, ADR 0002) ; refonte config (ADR 0003) :
+C1 `scilex/settings/` en cours, C2 (câblage CLI/config.py/exemples/doc) après les lots de scilex-d8.
+Ensuite : découpage de `run_aggregation`, `run_enrichment` en cœur, CLAUDE.md, review finale.
+Agents : Sonnet désormais (demande utilisateur).
 
 ## Piège
 Les worktrees d'agents (`isolation: worktree`) partent d'`origin/main`, pas de `dev` :
@@ -35,4 +38,4 @@ chaque brief commence par `git reset --hard dev`.
 - [x] Review (6 zones)
 - [x] Fusion origin/main (b363563b) — fonctionnalités portées dans `scilex/pipeline/`
 - [x] Vague 1 : BibTeX, citations (cache/tools), HuggingFace, API web — 1151 tests
-- [ ] Vague 2
+- [ ] Vague 2 : convertisseurs, dédup, citations/fetcher, pipeline/config, Zotero/io intégrés (1277 tests) ; collecteurs en cours
