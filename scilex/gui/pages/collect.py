@@ -91,6 +91,10 @@ def render(ctx: AppContext, review: Review) -> None:
         )
     resume_hint = ui.label().classes("text-sm text-gray-500")
 
+    # The resume state needs a disk scan: compute it at render and when a job
+    # finishes, never on the 0.5 s tick of the job panel.
+    resume_cache = {"info": detect_resume(review.collection_dir)}
+
     def update_buttons(job: Job | None) -> None:
         running = job is not None and job.is_active
         busy_elsewhere = not running and ctx.runner.active_job() is not None
@@ -98,7 +102,7 @@ def render(ctx: AppContext, review: Review) -> None:
         # One tooltip, shown or hidden: calling .tooltip() here would add a new one every tick.
         busy_tooltip.set_visibility(busy_elsewhere)
         cancel_button.set_visibility(running)
-        resume_info = None if running else detect_resume(review.collection_dir)
+        resume_info = None if running else resume_cache["info"]
         resume_button.set_visibility(resume_info is not None)
         resume_button.set_enabled(not busy_elsewhere)
         resume_hint.set_visibility(resume_info is not None)
@@ -108,11 +112,16 @@ def render(ctx: AppContext, review: Review) -> None:
                 f"{resume_info.total} queries; resuming skips the finished ones."
             )
 
+    def on_job_finished(job: Job) -> None:
+        resume_cache["info"] = detect_resume(review.collection_dir)
+        update_buttons(job)
+
     panel = JobPanel(
         ctx,
         review,
         PIPELINE,
         on_change=update_buttons,
+        on_finished=on_job_finished,
     )
     refresh = panel.refresh
 
