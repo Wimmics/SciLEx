@@ -1,0 +1,368 @@
+"""Pydantic models describing the ``scilex.yml`` and ``keys.yml`` formats.
+
+The models mirror ADR 0003 section 2. Every model forbids unknown keys so a
+typo is reported instead of being silently ignored.
+"""
+
+import copy
+import difflib
+import re
+from typing import Any, Literal
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+
+from scilex.config_defaults import (
+    DEFAULT_APPLY_CITATION_FILTER,
+    DEFAULT_APPLY_RELEVANCE_RANKING,
+    DEFAULT_BYPASS_ITEM_TYPES,
+    DEFAULT_COLLECT_ENABLED,
+    DEFAULT_GENERATE_QUALITY_REPORT,
+    DEFAULT_MAX_PAPERS,
+    DEFAULT_RELEVANCE_WEIGHTS,
+    DEFAULT_TRACK_DUPLICATE_SOURCES,
+    DEFAULT_VALIDATE_YEAR_RANGE,
+    MAX_ABSTRACT_WORDS,
+    MIN_ABSTRACT_WORDS,
+    MIN_AUTHOR_COUNT,
+)
+
+REQUIRE_CHOICES = ("abstract", "doi", "year", "open_access")
+_YEAR_RANGE = re.compile(r"^\s*(\d{4})\s*-\s*(\d{4})\s*$")
+_STRICT = ConfigDict(extra="forbid")
+
+
+class SettingsError(ValueError):
+    """Raised when a configuration file is invalid; the message is user-ready."""
+
+
+class SearchSettings(BaseModel):
+    """What to search for and where."""
+
+    model_config = _STRICT
+
+    keywords: list[list[str]]
+    bonus_keywords: list[str] = Field(default_factory=list)
+    years: list[int]
+    apis: list[str]
+    max_articles_per_query: int | None = None
+    semantic_scholar_mode: Literal["regular", "bulk"] = "regular"
+
+    @field_validator("keywords", mode="before")
+    @classmethod
+    def _normalize_keywords(cls, value: Any) -> Any:
+        """Accept a flat list of strings as a single keyword group."""
+        if isinstance(value, list) and value and all(isinstance(v, str) for v in value):
+            return [value]
+        return value
+
+    @field_validator("keywords")
+    @classmethod
+    def _check_groups(cls, value: list[list[str]]) -> list[list[str]]:
+        """Require 1 or 2 non-empty groups."""
+        if not 1 <= len(value) <= 2:
+            raise ValueError("expected 1 or 2 keyword groups")
+        if any(not group for group in value):
+            raise ValueError("a keyword group must not be empty")
+        return value
+
+    @field_validator("years", mode="before")
+    @classmethod
+    def _normalize_years(cls, value: Any) -> Any:
+        """Accept ``"YYYY-YYYY"`` or a single int and expand to a list."""
+        if isinstance(value, str):
+            match = _YEAR_RANGE.match(value)
+            if not match:
+                raise ValueError('expected a list of years or a "YYYY-YYYY" range')
+            start, end = int(match.group(1)), int(match.group(2))
+            if start > end:
+                raise ValueError("year range start is after its end")
+            return list(range(start, end + 1))
+        if isinstance(value, int) and not isinstance(value, bool):
+            return [value]
+        return value
+
+    @field_validator("years")
+    @classmethod
+    def _check_years(cls, value: list[int]) -> list[int]:
+        """Require at least one year."""
+        if not value:
+            raise ValueError("at least one year is required")
+        return value
+
+    @field_validator("apis")
+    @classmethod
+    def _check_apis(cls, value: list[str]) -> list[str]:
+        """Require at least one API."""
+        if not value:
+            raise ValueError("at least one API is required")
+        return value
+
+
+class FiltersSettings(BaseModel):
+    """Quality filters applied during aggregation."""
+
+    model_config = _STRICT
+
+    item_types: list[str] | None = None
+    always_keep: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_BYPASS_ITEM_TYPES)
+    )
+    require: list[Literal["abstract", "doi", "year", "open_access"]] = Field(
+        default_factory=lambda: ["abstract", "year"]
+    )
+    min_authors: int = Field(default=MIN_AUTHOR_COUNT, ge=0)
+    abstract_words: list[int] = Field(
+        default_factory=lambda: [MIN_ABSTRACT_WORDS, MAX_ABSTRACT_WORDS]
+    )
+    abstract_quality: int | None = Field(default=None, ge=0, le=100)
+    check_year_range: bool = DEFAULT_VALIDATE_YEAR_RANGE
+    citations: bool = DEFAULT_APPLY_CITATION_FILTER
+
+    @field_validator("abstract_words")
+    @classmethod
+    def _check_words(cls, value: list[int]) -> list[int]:
+        """Require ``[min, max]`` with ``0 <= min <= max``."""
+        if len(value) != 2:
+            raise ValueError("expected [min, max]")
+        if value[0] < 0 or value[0] > value[1]:
+            raise ValueError("expected [min, max] with 0 <= min <= max")
+        return value
+
+
+class CitationsSettings(BaseModel):
+    """Citation fetching."""
+
+    model_config = _STRICT
+
+    fetch: bool = True
+    fallbacks: list[Literal["semantic_scholar", "openalex"]] = Field(
+        default_factory=lambda: ["semantic_scholar", "openalex"]
+    )
+
+
+class RankingSettings(BaseModel):
+    """Relevance ranking and size cap."""
+
+    model_config = _STRICT
+
+    enabled: bool = DEFAULT_APPLY_RELEVANCE_RANKING
+    max_papers: int | None = Field(default=DEFAULT_MAX_PAPERS, ge=1)
+    weights: dict[str, float] = Field(
+        default_factory=lambda: dict(DEFAULT_RELEVANCE_WEIGHTS)
+    )
+    itemtype_weights: dict[str, bool] = Field(default_factory=dict)
+
+    @field_validator("weights")
+    @classmethod
+    def _check_weights(cls, value: dict[str, float]) -> dict[str, float]:
+        """Restrict weight names and forbid negative values."""
+        unknown = sorted(set(value) - set(DEFAULT_RELEVANCE_WEIGHTS))
+        if unknown:
+            raise ValueError(
+                f"unknown weight(s) {unknown}; expected {sorted(DEFAULT_RELEVANCE_WEIGHTS)}"
+            )
+        if any(weight < 0 for weight in value.values()):
+            raise ValueError("weights must be >= 0")
+        return value
+
+
+class HuggingFaceSettings(BaseModel):
+    """HuggingFace enrichment; ``huggingface: true`` is shorthand for a block."""
+
+    model_config = _STRICT
+
+    enabled: bool = False
+    use_papers_api: bool = True
+    fuzzy_match_threshold: int = Field(default=85, ge=0, le=100)
+    cache_path: str = "output/hf_cache.db"
+    cache_ttl_days: int = Field(default=30, ge=0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_bool(cls, value: Any) -> Any:
+        """Expand the boolean shorthand."""
+        if isinstance(value, bool):
+            return {"enabled": value}
+        return value
+
+
+class EnrichmentSettings(BaseModel):
+    """Optional enrichment steps."""
+
+    model_config = _STRICT
+
+    huggingface: HuggingFaceSettings = Field(default_factory=HuggingFaceSettings)
+
+
+class ReportSettings(BaseModel):
+    """Aggregation reports."""
+
+    model_config = _STRICT
+
+    quality_report: bool = DEFAULT_GENERATE_QUALITY_REPORT
+    track_duplicates: bool = DEFAULT_TRACK_DUPLICATE_SOURCES
+
+
+class CollectSettings(BaseModel):
+    """Rarely used collection options."""
+
+    model_config = _STRICT
+
+    enabled: bool = DEFAULT_COLLECT_ENABLED
+    vpn: dict[str, Any] | None = None
+
+
+class ScilexSettings(BaseModel):
+    """Top-level model of ``scilex.yml``."""
+
+    model_config = _STRICT
+
+    name: str = Field(min_length=1)
+    output_dir: str = "output"
+    preset: Literal["literature_review", "bibliometrics"] | None = None
+    search: SearchSettings
+    filters: FiltersSettings = Field(default_factory=FiltersSettings)
+    citations: CitationsSettings = Field(default_factory=CitationsSettings)
+    ranking: RankingSettings = Field(default_factory=RankingSettings)
+    enrichment: EnrichmentSettings = Field(default_factory=EnrichmentSettings)
+    report: ReportSettings = Field(default_factory=ReportSettings)
+    collect: CollectSettings = Field(default_factory=CollectSettings)
+
+
+class KeysSettings(BaseModel):
+    """Content of ``keys.yml``: one free-form mapping per API plus rate limits."""
+
+    model_config = ConfigDict(extra="allow")
+
+    rate_limits: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _check_api_blocks(self) -> "KeysSettings":
+        """Require each API entry to be a mapping (``None`` becomes empty)."""
+        for api_name, block in (self.model_extra or {}).items():
+            if block is None:
+                self.model_extra[api_name] = {}
+            elif not isinstance(block, dict):
+                raise ValueError(
+                    f"{api_name}: expected a mapping of fields (got {block!r})"
+                )
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Defaults and error formatting
+# ---------------------------------------------------------------------------
+
+_REQUIRED_SEARCH_KEYS = ("keywords", "years", "apis")
+
+
+def default_settings_dict() -> dict:
+    """Return the raw defaults (every field except the required ones)."""
+    probe = ScilexSettings.model_validate(
+        {
+            "name": "_",
+            "search": {"keywords": [["_"]], "years": [2000], "apis": ["_"]},
+        }
+    ).model_dump(mode="python")
+    probe.pop("name")
+    for key in _REQUIRED_SEARCH_KEYS:
+        probe["search"].pop(key)
+    return copy.deepcopy(probe)
+
+
+def known_paths(model: type[BaseModel] = ScilexSettings, prefix: str = "") -> list[str]:
+    """List every dotted configuration path accepted by ``model``."""
+    paths: list[str] = []
+    for field_name, field in model.model_fields.items():
+        dotted = f"{prefix}{field_name}"
+        annotation = field.annotation
+        paths.append(dotted)
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            paths.extend(known_paths(annotation, f"{dotted}."))
+    return paths
+
+
+def _suggest(unknown_path: str, candidates: list[str]) -> str | None:
+    """Return the known path whose last segment best matches the unknown key."""
+    parent, _, last = unknown_path.rpartition(".")
+    best_score, best_path = 0.0, None
+    for path in candidates:
+        candidate_parent, _, candidate_last = path.rpartition(".")
+        score = difflib.SequenceMatcher(None, last, candidate_last).ratio()
+        if candidate_parent == parent:
+            score += 0.01  # prefer the same section on near ties
+        if score > best_score:
+            best_score, best_path = score, path
+    return best_path if best_score >= 0.7 else None
+
+
+def _lookup(raw: Any, loc: tuple) -> tuple[bool, Any]:
+    """Fetch ``raw[loc...]``; return ``(found, value)``."""
+    current = raw
+    for part in loc:
+        if (
+            isinstance(current, dict)
+            and part in current
+            or (
+                isinstance(current, list)
+                and isinstance(part, int)
+                and part < len(current)
+            )
+        ):
+            current = current[part]
+        else:
+            return False, None
+    return True, current
+
+
+def _short(value: Any, limit: int = 60) -> str:
+    """Return a truncated ``repr`` of ``value``."""
+    text = repr(value)
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def format_validation_error(
+    exc: ValidationError,
+    raw_dict: dict,
+    *,
+    model: type[BaseModel] = ScilexSettings,
+    prefix: str = "",
+) -> str:
+    """Render a pydantic error as readable ``path: message (got: value)`` lines.
+
+    Args:
+        exc: The validation error raised by pydantic.
+        raw_dict: The raw mapping that was validated (used to show offending values).
+        model: Model whose field paths feed the "did you mean" suggestions.
+        prefix: Prepended to every path (for example ``"keys."``).
+
+    Returns:
+        A multi-line message, one line per problem.
+    """
+    candidates = known_paths(model)
+    lines = []
+    for error in exc.errors():
+        loc = tuple(error["loc"])
+        dotted = ".".join(str(part) for part in loc)
+        path = prefix + dotted
+        kind = error["type"]
+        found, value = _lookup(raw_dict, loc)
+        if not found:
+            value = error.get("input")
+        if kind == "missing":
+            lines.append(f"{path}: required key is missing")
+        elif kind == "extra_forbidden":
+            suggestion = _suggest(dotted, candidates)
+            hint = f" Did you mean {prefix}{suggestion}?" if suggestion else ""
+            lines.append(f"{path}: unknown key.{hint}")
+        else:
+            message = error["msg"].removeprefix("Value error, ")
+            lines.append(f"{path}: {message} (got: {_short(value)})")
+    return "\n".join(lines)
