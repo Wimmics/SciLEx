@@ -254,8 +254,7 @@ def SemanticScholartoZoteroFormat(row):
         url=get_valid(row, "url"),
         authors=join_authors(author_names),
     )
-    if get_valid(row, "DOI") is not None:
-        record["DOI"] = clean_doi(row["DOI"])
+    record["DOI"] = clean_doi(get_valid(row, "DOI"))
 
     open_access_pdf = get_valid(row, "open_access_pdf")
     if open_access_pdf is not None:
@@ -310,7 +309,7 @@ def IstextoZoteroFormat(row):
             else None
         ),
     )
-    if get_valid(row, "doi") is not None:
+    if dois[0] is not None:
         record["DOI"] = ";".join(clean_doi(doi) for doi in dois)
     if isinstance(pages, dict):
         record["pages"] = page_range(pages.get("first"), pages.get("last"))
@@ -340,8 +339,7 @@ def ArxivtoZoteroFormat(row):
         date=get_valid(row, "published"),
         authors=join_authors(get_valid(row, "authors")),
     )
-    if get_valid(row, "doi") is not None:
-        record["DOI"] = clean_doi(row["doi"])
+    record["DOI"] = clean_doi(get_valid(row, "doi"))
 
     arxiv_id = get_valid(row, "id")
     if arxiv_id is not None:
@@ -406,8 +404,7 @@ def DBLPtoZoteroFormat(row):
         rights=get_valid(info, "access"),
         url=get_valid(info, "url"),
     )
-    if get_valid(info, "doi") is not None:
-        record["DOI"] = clean_doi(info["doi"])
+    record["DOI"] = clean_doi(get_valid(info, "doi"))
     if item_type == "journalArticle":
         fill_record(record, journalAbbreviation=venue)
     elif item_type == "conferencePaper":
@@ -458,8 +455,7 @@ def HALtoZoteroFormat(row):
         language=first_of(get_valid(row, "language_s")),
         authors=join_authors(author_names),
     )
-    if get_valid(row, "doiId_id") is not None:
-        record["DOI"] = clean_doi(row["doiId_id"])
+    record["DOI"] = clean_doi(get_valid(row, "doiId_id"))
     if doc_type == "ART":
         fill_record(record, journalAbbreviation=get_valid(row, "venue"))
     return record
