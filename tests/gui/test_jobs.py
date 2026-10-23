@@ -124,3 +124,45 @@ def test_transitions_never_leave_terminal_states(terminal):
 def test_cancelling_never_returns_to_running():
     assert not job_states.transition_allowed(job_states.CANCELLING, job_states.RUNNING)
     assert job_states.transition_allowed(job_states.CANCELLING, job_states.CANCELLED)
+
+
+def test_generic_task_reports_result_and_logs():
+    def body(job):
+        logging.getLogger("scilex.test").warning("exporting")
+        job.progress = 50
+        job.result = "/tmp/out.bib"
+        return "Exported 3 papers."
+
+    runner = JobRunner(fake_collection, fake_aggregation)
+    job = runner.start_task(REVIEW, "export", body)
+    wait_until_done(job)
+
+    assert job.status == job_states.COMPLETED
+    assert job.kind == "export"
+    assert job.result == "/tmp/out.bib"
+    assert job.message == "Exported 3 papers."
+    assert any("exporting" in line for line in job.logs)
+    assert runner.latest_for(REVIEW.id, "export") is job
+    assert runner.latest_for(REVIEW.id, "pipeline") is None
+
+
+def test_generic_task_failure_and_conflict():
+    release = threading.Event()
+
+    def slow(job):
+        release.wait(2)
+
+    runner = JobRunner(fake_collection, fake_aggregation)
+    first = runner.start_task(REVIEW, "snowball", slow)
+    with pytest.raises(JobConflictError):
+        runner.start_task(REVIEW, "export", lambda job: None)
+    release.set()
+    wait_until_done(first)
+
+    def broken(job):
+        raise RuntimeError("Zotero refused the key")
+
+    job = runner.start_task(REVIEW, "zotero", broken)
+    wait_until_done(job)
+    assert job.status == job_states.FAILED
+    assert "Zotero refused the key" in job.error

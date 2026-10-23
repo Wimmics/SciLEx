@@ -3,21 +3,11 @@
 from nicegui import ui
 
 from scilex.gui.components.errors import show_error
-from scilex.gui.services.jobs import Job, JobConflictError
+from scilex.gui.components.job_panel import JobPanel
+from scilex.gui.services.jobs import PIPELINE, Job, JobConflictError
 from scilex.gui.services.workspace import Review, Workspace
 from scilex.gui.state import AppContext
-from scilex.pipeline import jobs as job_states
 from scilex.settings.schema import SettingsError
-
-LOG_LINES_SHOWN = 50
-STATUS_LABELS = {
-    job_states.PENDING: "Starting…",
-    job_states.RUNNING: "Running",
-    job_states.CANCELLING: "Cancelling…",
-    job_states.COMPLETED: "Completed",
-    job_states.FAILED: "Failed",
-    job_states.CANCELLED: "Cancelled",
-}
 
 
 def render(ctx: AppContext, review: Review) -> None:
@@ -34,47 +24,23 @@ def render(ctx: AppContext, review: Review) -> None:
         )
         run_button = ui.button("Run", icon="play_arrow").mark("run")
         with run_button:
-            busy_tooltip = ui.tooltip("Another review is running")
+            busy_tooltip = ui.tooltip("Another job is running")
         cancel_button = (
             ui.button("Cancel", icon="stop")
             .props("outline color=negative")
             .mark("cancel")
         )
 
-    status = ui.label().classes("font-bold").mark("job-status")
-    progress = ui.linear_progress(value=0, show_value=False).classes("w-full")
-    message = ui.label().classes("text-sm")
-    log_view = ui.log(max_lines=LOG_LINES_SHOWN).classes("w-full h-64 text-xs")
-    shown: dict[str, list[str]] = {"tail": []}
-
-    def refresh() -> None:
-        job = ctx.runner.latest_for(review.id)
-        other = ctx.runner.active_job()
-        busy_elsewhere = other is not None and other.review_id != review.id
+    def update_buttons(job: Job | None) -> None:
         running = job is not None and job.is_active
+        busy_elsewhere = not running and ctx.runner.active_job() is not None
         run_button.set_enabled(not running and not busy_elsewhere)
         # One tooltip, shown or hidden: calling .tooltip() here would add a new one every tick.
         busy_tooltip.set_visibility(busy_elsewhere)
         cancel_button.set_visibility(running)
-        if job is None:
-            status.text = "Not run in this session."
-            progress.set_visibility(False)
-            return
-        progress.set_visibility(True)
-        status.text = STATUS_LABELS.get(job.status, job.status)
-        progress.value = job.progress / 100
-        message.text = job.message
-        _append_new_logs(job)
 
-    def _append_new_logs(job: Job) -> None:
-        # The job trims its log list in place, so compare the tail, not the length.
-        tail = job.logs[-LOG_LINES_SHOWN:]
-        if tail == shown["tail"]:
-            return
-        log_view.clear()
-        for line in tail:
-            log_view.push(line)
-        shown["tail"] = tail
+    panel = JobPanel(ctx, review, PIPELINE, on_change=update_buttons)
+    refresh = panel.refresh
 
     def run() -> None:
         try:
@@ -89,12 +55,10 @@ def render(ctx: AppContext, review: Review) -> None:
         refresh()
 
     def cancel() -> None:
-        job = ctx.runner.latest_for(review.id)
+        job = panel.job
         if job is not None:
             ctx.runner.cancel(job.id)
         refresh()
 
     run_button.on_click(run)
     cancel_button.on_click(cancel)
-    refresh()
-    ui.timer(0.5, refresh)

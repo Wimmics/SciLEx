@@ -1,5 +1,8 @@
 """Review screen: step sidebar plus the content of the active step."""
 
+import importlib
+import importlib.util
+
 from nicegui import ui
 
 from scilex.gui.components.stepper import (
@@ -9,17 +12,18 @@ from scilex.gui.components.stepper import (
     is_enabled,
     render_sidebar,
 )
-from scilex.gui.pages import collect
 from scilex.gui.state import AppContext
 
-# Steps not built yet, with the lot that delivers them.
-COMING_SOON = {
-    "configure": "lot 1 (for now, edit scilex.yml in the review folder)",
-    "keys": "lot 1 (for now, edit ~/.config/scilex/keys.yml)",
-    "screen": "lot 3",
-    "export": "lot 4",
-    "analyses": "lot 5",
-}
+# Each step is drawn by ``scilex.gui.pages.<step>.render(ctx, review)``;
+# a step without its module yet shows a placeholder.
+
+
+def step_module(step: str):
+    """Return the page module drawing ``step``, or None if it is not built yet."""
+    name = f"scilex.gui.pages.{step}"
+    if importlib.util.find_spec(name) is None:
+        return None
+    return importlib.import_module(name)
 
 
 def render(ctx: AppContext, review_id: str, step: str = DEFAULT_STEP) -> None:
@@ -40,10 +44,11 @@ def render(ctx: AppContext, review_id: str, step: str = DEFAULT_STEP) -> None:
             )
             render_sidebar(review, step)
         with ui.column().classes("grow gap-3"):
+            module = step_module(step)
             if not is_enabled(STEPS[step], review):
                 ui.label(NEEDS_RESULTS_HINT)
-            elif step == "collect":
-                collect.render(ctx, review)
+            elif module is not None:
+                module.render(ctx, review)
             else:
                 ui.label(STEPS[step].label).classes("text-2xl font-bold")
-                ui.label(f"Coming in {COMING_SOON[step]}.").classes("text-gray-500")
+                ui.label("Not available yet.").classes("text-gray-500")

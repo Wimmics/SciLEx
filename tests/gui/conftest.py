@@ -1,5 +1,7 @@
 """Shared fixtures for the desktop GUI tests."""
 
+from pathlib import Path
+
 import pytest
 
 pytest.importorskip("nicegui", reason="GUI extra not installed (uv sync --extra gui)")
@@ -19,3 +21,27 @@ def isolated_scilex_env(tmp_path, monkeypatch):
 def anyio_backend():
     """Run async GUI tests on asyncio only."""
     return "asyncio"
+
+
+@pytest.fixture
+def ctx(tmp_path):
+    """App context on a temporary registry, with a fake pipeline writing a results file."""
+
+    def fake_collection(config, progress_callback, cancel_event):
+        progress_callback({"OpenAlex": {"papers": 2}}, 1, 1)
+
+    def fake_aggregation(config, options, progress_callback):
+        collection_dir = Path(config.main["output_dir"]) / config.main["collect_name"]
+        collection_dir.mkdir(parents=True, exist_ok=True)
+        (collection_dir / "aggregated_results.csv").write_text("title\n")
+        progress_callback("done", 100, "Done")
+
+    from scilex.gui.services.jobs import JobRunner
+    from scilex.gui.services.workspace import Workspace
+    from scilex.gui.state import AppContext
+
+    return AppContext(
+        workspace=Workspace(registry_path=tmp_path / "gui_reviews.yml"),
+        runner=JobRunner(fake_collection, fake_aggregation),
+        native=False,
+    )

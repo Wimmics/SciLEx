@@ -1,37 +1,13 @@
 """Simulated UI tests of the desktop GUI (no browser, no window)."""
 
 import asyncio
-from pathlib import Path
 
 import pytest
 from nicegui.testing import user_simulation
 
 from scilex.gui.app import build_root
-from scilex.gui.services.jobs import JobRunner
-from scilex.gui.services.workspace import Workspace
-from scilex.gui.state import AppContext
 
 pytestmark = pytest.mark.anyio
-
-
-@pytest.fixture
-def ctx(tmp_path):
-    """App context on a temporary registry, with a pipeline that does nothing."""
-
-    def fake_collection(config, progress_callback, cancel_event):
-        progress_callback({"OpenAlex": {"papers": 2}}, 1, 1)
-
-    def fake_aggregation(config, options, progress_callback):
-        collection_dir = Path(config.main["output_dir"]) / config.main["collect_name"]
-        collection_dir.mkdir(parents=True, exist_ok=True)
-        (collection_dir / "aggregated_results.csv").write_text("title\n")
-        progress_callback("done", 100, "Done")
-
-    return AppContext(
-        workspace=Workspace(registry_path=tmp_path / "gui_reviews.yml"),
-        runner=JobRunner(fake_collection, fake_aggregation),
-        native=False,
-    )
 
 
 async def test_empty_home(ctx):
@@ -80,7 +56,7 @@ async def test_run_pipeline_enables_screening(ctx, tmp_path):
         assert screen_button.enabled
 
         user.find(marker="step-screen").click()
-        await user.should_see("Coming in lot 3")
+        await user.should_see("Not available yet.")
 
 
 async def test_unknown_review(ctx):

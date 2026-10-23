@@ -1,4 +1,8 @@
-"""Background pipeline jobs for the desktop GUI (collection then aggregation).
+"""Background jobs for the desktop GUI.
+
+Two kinds of jobs: the pipeline (collection then aggregation, see
+:meth:`JobRunner.start_pipeline`) and generic tasks such as an export or an
+analysis (:meth:`JobRunner.start_task`).
 
 A job runs in its own thread; the UI polls :class:`Job` fields with a timer.
 Only one job may be active in the whole app: log capture accepts the
@@ -13,6 +17,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from scilex.config import SciLExConfig
 from scilex.gui.services.workspace import Review
@@ -22,6 +27,8 @@ from scilex.pipeline.jobs import LogLinesHandler, WorkerThreadFilter
 logger = logging.getLogger(__name__)
 
 # Share of the progress bar given to each pipeline stage.
+PIPELINE = "pipeline"
+
 COLLECT_RANGE = (0, 70)
 AGGREGATE_RANGE = (70, 100)
 
@@ -36,6 +43,7 @@ class Job:
 
     id: str
     review_id: str
+    kind: str = PIPELINE
     status: str = job_states.PENDING
     phase: str = "pending"
     progress: int = 0
@@ -43,6 +51,7 @@ class Job:
     logs: list[str] = field(default_factory=list)
     api_stats: dict = field(default_factory=dict)
     error: str | None = None
+    result: Any = None  # value returned by a task body, for the page to display
     started_at: datetime = field(default_factory=datetime.now)
     finished_at: datetime | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
@@ -93,10 +102,46 @@ class JobRunner:
         """Return the job currently active in the app, if any."""
         return next((job for job in self._jobs.values() if job.is_active), None)
 
-    def latest_for(self, review_id: str) -> Job | None:
-        """Return the most recent job of a review, if any."""
-        jobs = [job for job in self._jobs.values() if job.review_id == review_id]
+    def latest_for(self, review_id: str, kind: str | None = None) -> Job | None:
+        """Return the most recent job of a review (of ``kind`` if given), if any."""
+        jobs = [
+            job
+            for job in self._jobs.values()
+            if job.review_id == review_id and (kind is None or job.kind == kind)
+        ]
         return max(jobs, key=lambda job: job.started_at, default=None)
+
+    def _new_job(self, review: Review, kind: str) -> Job:
+        with self._lock:
+            if self.active_job() is not None:
+                raise JobConflictError("Another job is already running")
+            job = Job(id=uuid.uuid4().hex[:12], review_id=review.id, kind=kind)
+            self._jobs[job.id] = job
+        return job
+
+    def _start_thread(self, job: Job, body: Callable[[], str]) -> None:
+        threading.Thread(
+            target=self._execute,
+            args=(job, body),
+            name=f"scilex-job-{job.id}",
+            daemon=True,
+        ).start()
+
+    def start_task(
+        self, review: Review, kind: str, body: Callable[[Job], str | None]
+    ) -> Job:
+        """Run ``body(job)`` in a background thread, with log capture.
+
+        ``body`` may update ``job.progress`` (0-100), ``job.message`` and
+        ``job.result``, should check ``job.cancel_event`` if it can stop
+        early, and returns the completion message (or None).
+
+        Raises:
+            JobConflictError: If another job is still active.
+        """
+        job = self._new_job(review, kind)
+        self._start_thread(job, lambda: body(job) or "Done.")
+        return job
 
     def start_pipeline(
         self, review: Review, config: SciLExConfig, *, skip_citations: bool = False
@@ -106,18 +151,16 @@ class JobRunner:
         Raises:
             JobConflictError: If another job is still active.
         """
-        with self._lock:
-            if self.active_job() is not None:
-                raise JobConflictError("A pipeline is already running")
-            job = Job(id=uuid.uuid4().hex[:12], review_id=review.id)
-            self._jobs[job.id] = job
-        thread = threading.Thread(
-            target=self._run,
-            args=(job, config, skip_citations),
-            name=f"scilex-job-{job.id}",
-            daemon=True,
-        )
-        thread.start()
+        job = self._new_job(review, PIPELINE)
+
+        def body() -> str:
+            self._collect(job, config)
+            if job.cancel_event.is_set():
+                return ""
+            self._aggregate(job, config, skip_citations)
+            return "Pipeline completed."
+
+        self._start_thread(job, body)
         return job
 
     def cancel(self, job_id: str) -> bool:
@@ -154,7 +197,7 @@ class JobRunner:
         self._finish(job, job_states.CANCELLED, "Cancelled.")
         return True
 
-    def _run(self, job: Job, config: SciLExConfig, skip_citations: bool) -> None:
+    def _execute(self, job: Job, body: Callable[[], str]) -> None:
         job.thread_ids.add(threading.get_ident())
         handler = LogLinesHandler(job.logs)
         handler.setFormatter(
@@ -167,15 +210,12 @@ class JobRunner:
             self._set_status(job, job_states.RUNNING)
             if self._cancelled(job):
                 return
-            self._collect(job, config)
+            message = body()
             if self._cancelled(job):
                 return
-            self._aggregate(job, config, skip_citations)
-            if self._cancelled(job):
-                return
-            self._finish(job, job_states.COMPLETED, "Pipeline completed.")
+            self._finish(job, job_states.COMPLETED, message)
         except Exception as exc:
-            logger.exception("Pipeline job %s failed", job.id)
+            logger.exception("Job %s (%s) failed", job.id, job.kind)
             job.error = str(exc)
             self._finish(job, job_states.FAILED, f"Error: {exc}")
         finally:
