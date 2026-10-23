@@ -16,7 +16,13 @@ from typing import Any
 import pandas as pd
 import requests
 
-from scilex.constants import MISSING_VALUE, ZoteroConstants, is_valid
+from scilex.constants import (
+    MISSING_VALUE,
+    ZoteroConstants,
+    doi_to_url,
+    is_valid,
+    split_semicolon_field,
+)
 
 ZOTERO_TEMPLATE_URL = "https://api.zotero.org/items/new"
 MAX_RATE_LIMIT_WAIT_SECONDS = 60
@@ -497,14 +503,6 @@ def _log10_bucket(value) -> int | None:
         return None
 
 
-def _doi_to_url(doi) -> str:
-    """Turn a bare DOI into a resolvable https://doi.org/ URL."""
-    doi_text = str(doi).strip()
-    if doi_text.lower().startswith(("http://", "https://")):
-        return doi_text
-    return f"https://doi.org/{doi_text}"
-
-
 def prepare_zotero_item(
     row: pd.Series,
     collection_key: str,
@@ -588,7 +586,7 @@ def prepare_zotero_item(
     # --- URL fallback to DOI ---
     if not is_valid(item.get("url")):
         doi = item.get("DOI")
-        item["url"] = _doi_to_url(doi) if is_valid(doi) else None
+        item["url"] = doi_to_url(doi)
 
     # --- Resolve github_repo / archiveID for archiveLocation + extra ---
     github_repo = get_value(row, "github_repo", MISSING_VALUE)
@@ -628,15 +626,14 @@ def prepare_zotero_item(
     # --- Tags ---
     all_tags = []
 
-    def _split_tags(raw):
-        if is_valid(raw) and raw != MISSING_VALUE:
-            return [t.strip() for t in str(raw).split(";") if t.strip()]
-        return []
-
     # HF enrichment tags + bonus keyword tags + collect keywords
-    all_tags.extend(_split_tags(get_value(row, "tags", MISSING_VALUE)))
-    all_tags.extend(_split_tags(get_value(row, "bonus_keyword_tags", MISSING_VALUE)))
-    all_tags.extend(_split_tags(get_value(row, "collect_keywords", MISSING_VALUE)))
+    all_tags.extend(split_semicolon_field(get_value(row, "tags", MISSING_VALUE)))
+    all_tags.extend(
+        split_semicolon_field(get_value(row, "bonus_keyword_tags", MISSING_VALUE))
+    )
+    all_tags.extend(
+        split_semicolon_field(get_value(row, "collect_keywords", MISSING_VALUE))
+    )
 
     # Presence tags
     if pdf_valid:

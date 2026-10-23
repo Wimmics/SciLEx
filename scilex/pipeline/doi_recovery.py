@@ -17,7 +17,7 @@ from difflib import SequenceMatcher
 import requests
 
 from scilex.config_defaults import DEFAULT_DOI_RECOVERY_MIN_SIMILARITY
-from scilex.constants import is_missing, is_valid, normalize_doi
+from scilex.constants import extract_year, is_missing, is_valid, normalize_doi
 
 CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 REQUEST_TIMEOUT_SECONDS = 20
@@ -49,11 +49,6 @@ def first_author_family_name(authors):
     if "," in first:
         return first.split(",")[0].strip()
     return first.split()[-1]
-
-
-def _extract_year(date_value):
-    match = re.search(r"(1[89]\d{2}|20\d{2})", str(date_value))
-    return int(match.group(1)) if match else None
 
 
 def _crossref_item_year(item):
@@ -193,7 +188,7 @@ def recover_missing_dois(
         doi = lookup(
             title,
             first_author_family_name(row.get("authors")),
-            _extract_year(row.get("date")),
+            extract_year(row.get("date")),
             min_similarity,
             mailto,
         )

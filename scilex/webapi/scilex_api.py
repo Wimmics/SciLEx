@@ -35,6 +35,12 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 logger = logging.getLogger(__name__)
 
 
+def _add_year_column(df: pd.DataFrame) -> None:
+    """Derive a ``year`` column from ``date`` when it is missing (in place)."""
+    if "year" not in df.columns and "date" in df.columns:
+        df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
+
+
 class JobLogHandler(logging.Handler):
     """Captures log lines into a pipeline job's log list."""
 
@@ -492,9 +498,7 @@ async def run_collection_task(
             job["output_path"] = str(csv_path)
             df = pd.read_csv(csv_path, delimiter=";")
 
-            # Derive year from date if year column is missing
-            if "year" not in df.columns and "date" in df.columns:
-                df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
+            _add_year_column(df)
 
             job["stats"] = {
                 "total_papers": len(df),
@@ -912,9 +916,7 @@ async def get_results_stats(collect_name: str):
 
         df = pd.read_csv(csv_path, delimiter=";")
 
-        # Derive year from date if year column is missing
-        if "year" not in df.columns and "date" in df.columns:
-            df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
+        _add_year_column(df)
 
         stats = {
             "total_papers": len(df),

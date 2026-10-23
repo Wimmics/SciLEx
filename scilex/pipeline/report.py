@@ -6,7 +6,7 @@ import os
 
 import pandas as pd
 
-from scilex.constants import is_valid
+from scilex.constants import is_valid, parse_archive_apis
 
 
 def write_aggregation_report(
@@ -191,11 +191,9 @@ def write_aggregation_report(
     md.append("")
     if "archive" in df_clean.columns:
         api_counts: dict[str, int] = {}
-        for archive_str in df_clean["archive"].fillna(""):
-            for api in archive_str.replace("*", "").split(";"):
-                api = api.strip()
-                if api:
-                    api_counts[api] = api_counts.get(api, 0) + 1
+        for archive_value in df_clean["archive"]:
+            for api in parse_archive_apis(archive_value):
+                api_counts[api] = api_counts.get(api, 0) + 1
         if api_counts:
             md.append("| API | Papers in Final Output |")
             md.append("|-----|----------------------|")

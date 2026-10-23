@@ -4,6 +4,8 @@ import logging
 
 import pandas as pd
 
+from scilex.constants import is_missing
+
 
 def apply_itemtype_bypass(df, bypass_item_types):
     """Separate papers into bypass and non-bypass groups based on itemType.
@@ -81,9 +83,7 @@ def apply_itemtype_filter(df, allowed_types, enabled):
     )
     logging.info(f"ItemType filtering: Allowed types: {', '.join(allowed_types)}")
 
-    missing_mask = (
-        df["itemType"].isna() | (df["itemType"] == "") | (df["itemType"] == "NA")
-    )
+    missing_mask = df["itemType"].map(is_missing)
     missing_count = missing_mask.sum()
 
     filtered_df = df[df["itemType"].isin(allowed_types) & ~missing_mask].copy()
