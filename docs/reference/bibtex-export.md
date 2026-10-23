@@ -137,5 +137,5 @@ if 'url' in entry:
 ## See Also
 
 - [Basic Workflow](../user-guides/basic-workflow.md) — Pipeline overview including export step
-- [HuggingFace Enrichment](../user-guides/basic-workflow.md#step-3-enrichment-optional) — Adding ML metadata before export
+- [HuggingFace Enrichment](configuration.md) — `enrichment.huggingface` in `scilex.yml`, then `scilex-enrich` before export
 - [Python Scripting](../user-guides/python-scripting.md) — Programmatic BibTeX parsing

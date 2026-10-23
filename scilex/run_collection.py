@@ -30,12 +30,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  # Start a new collection using scilex.config.yml\n"
+            "  # Start a new collection using ./scilex.yml (or --config PATH)\n"
             "  python -m scilex collect\n\n"
             "  # Resume a previous collection by name\n"
             "  python -m scilex collect --resume CulturalHeritageAItools\n\n"
             "  # Resume a previous collection by full path\n"
-            "  python -m scilex collect --resume C:\\output\\CulturalHeritageAItools\n"
+            "  python -m scilex collect --resume output/CulturalHeritageAItools\n"
         ),
     )
     parser.add_argument(
