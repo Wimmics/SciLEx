@@ -9,6 +9,7 @@ All outputs go to the review's collection directory.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import os
 import threading
@@ -55,6 +56,16 @@ class AnalysisResult:
 
     message: str
     files: list[Path] = field(default_factory=list)
+
+
+NO_EDGES_WARNING = (
+    "Warning: no links found in the {graphs} graph: fetch citations for more "
+    "papers in the Citations tab, then run the graph again."
+)
+NO_SCIPY_WARNING = (
+    "Warning: scipy is not installed, so papers are ranked by degree centrality "
+    "instead of PageRank (communities are unaffected)."
+)
 
 
 @dataclass(frozen=True)
@@ -200,8 +211,35 @@ def run_report(
     return AnalysisResult(f"{len(files)} charts for {len(df)} papers.", files)
 
 
+def read_result_csv(path: str | Path, nrows: int | None = None) -> pd.DataFrame:
+    """Read a result CSV whatever its delimiter, skipping malformed lines.
+
+    The delimiter (``;``, ``,`` or tab) is guessed from the header line, and
+    lines with a wrong number of fields are skipped with a warning instead of
+    failing the whole file.
+
+    Raises:
+        ValueError: If the file cannot be parsed at all.
+    """
+    path = Path(path)
+    with path.open(encoding="utf-8", errors="replace") as handle:
+        header = handle.readline()
+    separator = max((";", ",", "\t"), key=header.count)
+    try:
+        return pd.read_csv(
+            path,
+            sep=separator,
+            dtype=str,
+            nrows=nrows,
+            engine="python",
+            on_bad_lines="warn",
+        )
+    except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeError) as exc:
+        raise ValueError(str(exc)) from exc
+
+
 def _read_clusters(csv_path: str) -> pd.DataFrame:
-    df = pd.read_csv(csv_path, dtype=str)
+    df = read_result_csv(csv_path)
     if "cluster_id" in df.columns:
         df["cluster_id"] = (
             pd.to_numeric(df["cluster_id"], errors="coerce").fillna(-1).astype(int)
@@ -521,11 +559,14 @@ def run_graph(
         ),
     }
     names = list(builders) if graph_type == "both" else [graph_type]
+    empty_graphs: list[str] = []
     for index, name in enumerate(names):
         if _cancelled(cancel_event):
             return AnalysisResult("Cancelled.")
         progress(int(100 * index / len(names)), f"Analysing {name} graph…")
         graph = builders[name]()
+        if graph.number_of_edges() == 0:
+            empty_graphs.append(name)
         partition = detect_communities(graph, resolution=resolution)
         pagerank = compute_centrality(graph)
         export_clusters_csv(
@@ -538,10 +579,12 @@ def run_graph(
             os.path.join(analysis_dir, f"{name}_graph.{fmt}"),
             fmt=fmt,
         )
-    return AnalysisResult(
-        f"Graph analysis done ({', '.join(names)}).",
-        existing_outputs(collect_dir, "graph"),
-    )
+    message = f"Graph analysis done ({', '.join(names)})."
+    if empty_graphs:
+        message += " " + NO_EDGES_WARNING.format(graphs=", ".join(empty_graphs))
+    if importlib.util.find_spec("scipy") is None:
+        message += " " + NO_SCIPY_WARNING
+    return AnalysisResult(message, existing_outputs(collect_dir, "graph"))
 
 
 def run_summaries(
@@ -563,6 +606,12 @@ def run_summaries(
     stats = compute_cluster_stats(_read_clusters(csv_path))
     if not stats:
         return AnalysisResult("No clusters found in the data.")
+    if all(cluster.size <= 1 for cluster in stats):
+        # A graph without edges leaves every paper alone in its own community.
+        return AnalysisResult(
+            "No co-citation links found: fetch citations for more papers in the "
+            "Citations tab. A summary of one-paper communities would be meaningless."
+        )
     report_path = analysis_dir / "summary_report.md"
     generate_report(stats, str(report_path), collect_name=config.main["collect_name"])
     return AnalysisResult(f"Summary of {len(stats)} clusters.", [report_path])

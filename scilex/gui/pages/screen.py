@@ -33,37 +33,37 @@ COLUMN_DEFS = [
         "field": "title",
         "headerName": "Title",
         "flex": 4,
-        "minWidth": 220,
+        "minWidth": 160,
         "tooltipField": "title",
     },
     {
         "field": "year",
         "headerName": "Year",
-        "width": 100,
-        "minWidth": 100,
+        "width": 80,
+        "minWidth": 80,
         "filter": "agNumberColumnFilter",
     },
     {"field": "venue", "headerName": "Venue", "flex": 1, "minWidth": 100},
     {
         "field": "score",
         "headerName": "Score",
-        "width": 120,
-        "minWidth": 120,
+        "width": 90,
+        "minWidth": 90,
         "filter": "agNumberColumnFilter",
         "sort": "desc",
     },
     {
         "field": "citations",
         "headerName": "Cited",
-        "width": 110,
-        "minWidth": 110,
+        "width": 90,
+        "minWidth": 90,
         "filter": "agNumberColumnFilter",
     },
     {
         "field": "decision",
         "headerName": "Decision",
-        "width": 140,
-        "minWidth": 140,
+        "width": 120,
+        "minWidth": 110,
         ":cellClassRules": json.dumps(
             {
                 "decision-include": "x === 'Include'",
@@ -156,10 +156,11 @@ class ScreenPage:
                         "filter": True,
                         "resizable": True,
                     },
+                    "autoSizeStrategy": {"type": "fitGridWidth"},
                     "tooltipShowDelay": 500,
                 }
             )
-            .classes("w-full")
+            .classes("w-full max-w-full")
             .style("height: 380px")
             .mark("screen-grid")
         )

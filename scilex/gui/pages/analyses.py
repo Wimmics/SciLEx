@@ -6,7 +6,6 @@ import base64
 from collections.abc import Callable
 from pathlib import Path
 
-import pandas as pd
 from nicegui import ui
 
 from scilex.gui.components.errors import show_error
@@ -44,12 +43,12 @@ def _job_label(job: Job) -> str:
 def render(ctx: AppContext, review: Review) -> None:
     """Draw the Analyses screen of ``review``."""
     ui.label("Analyses").classes("text-2xl font-bold")
-    with ui.tabs().classes("w-full") as tabs:
+    with ui.tabs().classes("w-full").props("mobile-arrows outside-arrows") as tabs:
         for info in service.ANALYSES:
             ui.tab(info.name, label=info.title).mark(f"analysis-tab-{info.name}")
     # Finishing one analysis (e.g. Citations) can lift another tab's warning.
     problem_refreshers: list[Callable[[], None]] = []
-    with ui.tab_panels(tabs, value=service.ANALYSES[0].name).classes("w-full"):
+    with ui.tab_panels(tabs, value=service.ANALYSES[0].name).classes("w-full min-w-0"):
         for info in service.ANALYSES:
             with ui.tab_panel(info.name):
                 _render_analysis(ctx, review, info, problem_refreshers)
@@ -260,13 +259,15 @@ def _render_file(path: Path) -> None:
 
 
 def _render_csv(path: Path) -> None:
-    frame = None
-    for separator in (";", ","):
-        frame = pd.read_csv(
-            path, sep=separator, dtype=str, nrows=TABLE_ROWS_SHOWN
-        ).fillna("")
-        if len(frame.columns) > 1:
-            break
+    try:
+        frame = service.read_result_csv(path, nrows=TABLE_ROWS_SHOWN).fillna("")
+    except ValueError:
+        ui.label("This table cannot be displayed (unreadable CSV).").classes(
+            "text-sm text-orange-700"
+        )
+        return
     columns = [{"name": c, "label": c, "field": c} for c in frame.columns[:12]]
     rows = frame[[c["name"] for c in columns]].to_dict("records")
-    ui.table(columns=columns, rows=rows).classes("w-full").props("dense")
+    ui.table(columns=columns, rows=rows).classes("w-full overflow-x-auto").props(
+        "dense"
+    )

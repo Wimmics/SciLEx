@@ -20,7 +20,7 @@ def _prepare_outputs(collect_dir: Path) -> None:
     graph_dir.mkdir(parents=True, exist_ok=True)
     (collect_dir / "aggregated_results.csv").write_text("title\nA\n")
     (collect_dir / "citations_cache.json").write_text("{}")
-    (graph_dir / "clusters_cocitation.csv").write_text("cluster_id,title\n0,A\n")
+    (graph_dir / "clusters_cocitation.csv").write_text("cluster_id,title\n0,A\n0,B\n")
 
 
 # --- service ------------------------------------------------------------------

@@ -86,9 +86,7 @@ def _review_card(
             ui.label("Not collected yet").classes("text-sm text-gray-500")
 
 
-def _card_menu(
-    ctx: AppContext, review: Review, on_forget: Callable[[], None]
-) -> None:
+def _card_menu(ctx: AppContext, review: Review, on_forget: Callable[[], None]) -> None:
     """Small menu (⋮) of a card: forget the review or copy its folder path."""
 
     def forget() -> None:

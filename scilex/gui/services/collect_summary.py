@@ -103,9 +103,11 @@ def _years_text(years: list[int], config_path: Path | None) -> str:
     """Years as written in scilex.yml: a ``"YYYY-YYYY"`` range or the explicit list."""
     if config_path is not None:
         try:
-            raw = (yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}).get(
-                "search", {}
-            ).get("years")
+            raw = (
+                (yaml.safe_load(config_path.read_text(encoding="utf-8")) or {})
+                .get("search", {})
+                .get("years")
+            )
         except (OSError, yaml.YAMLError, AttributeError):
             raw = None
         if isinstance(raw, str) and raw.strip():
