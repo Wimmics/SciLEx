@@ -146,3 +146,33 @@ def test_registry_write_is_atomic(workspace, tmp_path, monkeypatch):
         workspace._save_folders([])
     assert workspace.registry_path.read_text() == before
     assert not list(workspace.registry_path.parent.glob("*.tmp"))
+
+
+def test_open_review_without_keys_file(workspace, tmp_path, monkeypatch):
+    monkeypatch.setenv("SCILEX_KEYS", str(tmp_path / "missing-keys.yml"))
+    review = workspace.create_review(tmp_path / "nokeys", name="nokeys")
+    assert review.name == "nokeys"
+    assert workspace.get(review.id) is not None
+
+
+def test_failed_registration_rolls_back_new_config(workspace, tmp_path, monkeypatch):
+    def boom(_folders):
+        raise OSError("registry not writable")
+
+    monkeypatch.setattr(workspace, "_save_folders", boom)
+    folder = tmp_path / "rollback"
+    with pytest.raises(OSError):
+        workspace.create_review(folder, name="rollback")
+    assert not (folder / "scilex.yml").exists()
+    monkeypatch.undo()
+    assert workspace.create_review(folder, name="rollback").name == "rollback"
+
+
+def test_invalid_review_shows_name_from_raw_yaml(workspace, tmp_path):
+    folder = tmp_path / "folder_name"
+    folder.mkdir()
+    (folder / "scilex.yml").write_text("name: pretty name\nbogus: 1\n")
+    workspace._save_folders([folder])
+    (review,) = workspace.list_reviews()
+    assert review.error
+    assert review.name == "pretty name"

@@ -430,7 +430,12 @@ def render(ctx: AppContext, review: Review) -> None:
         ui.label("Years").classes("font-bold mt-2")
         years = get(("search", "years"))
         as_range = editor.years_as_range(years)
-        year_state = {"mode": "range" if as_range or not years else "list"}
+        # Follow the shape written in the file (list vs "YYYY-YYYY"), so a raw
+        # edit does not flip the toggle.
+        shape = editor.years_shape(review)
+        if shape is None:
+            shape = "range" if as_range or not years else "list"
+        year_state = {"mode": shape}
         today_year = date.today().year
         start_end = list(as_range or (today_year - 2, today_year))
 

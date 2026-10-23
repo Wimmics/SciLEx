@@ -371,8 +371,57 @@ def write_text(review: Review, text: str) -> Path:
     return target
 
 
+def _delete_key_lines(text: str, dotted: str) -> str | None:
+    """Delete the line of key ``dotted`` and its indented children; None if not found."""
+    lines = text.splitlines(keepends=True)
+    keys = dotted.split(".")
+    depth = 0
+    parent_indent = -1
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if not stripped.strip() or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(stripped)
+        if depth > 0 and indent <= parent_indent:
+            return None  # left the parent block without finding the key
+        match = re.match(r"""["']?([^"':\s]+)["']?\s*:""", stripped)
+        if not match or match.group(1) != keys[depth]:
+            continue
+        if depth < len(keys) - 1:
+            depth += 1
+            parent_indent = indent
+            continue
+        end = index + 1
+        while end < len(lines):
+            following = lines[end].lstrip()
+            if (
+                following.strip()
+                and not following.startswith("#")
+                and len(lines[end]) - len(following) <= indent
+            ):
+                break
+            end += 1
+        # Comments and blank lines just before the next key belong to it.
+        while end > index + 1 and (
+            not lines[end - 1].strip() or lines[end - 1].lstrip().startswith("#")
+        ):
+            end -= 1
+        return "".join(lines[:index] + lines[end:])
+    return None
+
+
+def _parses_to_mapping(text: str) -> bool:
+    try:
+        return isinstance(yaml.safe_load(text), dict)
+    except yaml.YAMLError:
+        return False
+
+
 def remove_unknown_keys(review: Review) -> list[str]:
     """Rewrite the file without its unknown keys; return the removed paths.
+
+    The keys are deleted line by line so the comments elsewhere survive; the
+    file is dumped from the parsed data only if that edit does not validate.
 
     Raises:
         SettingsError: If the file is not valid YAML or other problems remain.
@@ -382,19 +431,24 @@ def remove_unknown_keys(review: Review) -> list[str]:
     raw = yaml.safe_load(text) if text.strip() else {}
     if not isinstance(raw, dict) or check.problems and not check.unknown_keys:
         raise SettingsError("\n".join(check.problems))
-    removed = []
-    for dotted, _ in check.unknown_keys:
-        *parents, last = dotted.split(".")
-        node: Any = raw
-        for key in parents:
-            node = node.get(key) if isinstance(node, dict) else None
-        if isinstance(node, dict) and last in node:
-            del node[last]
-            removed.append(dotted)
-    _atomic_write(
-        review.config_path,
-        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True),
-    )
+    removed = [dotted for dotted, _ in check.unknown_keys]
+    edited: str | None = text
+    for dotted in removed:
+        edited = _delete_key_lines(edited, dotted) if edited is not None else None
+    if edited is not None and (
+        check_text(edited).unknown_keys or not _parses_to_mapping(edited)
+    ):
+        edited = None
+    if edited is None:
+        for dotted in removed:
+            *parents, last = dotted.split(".")
+            node: Any = raw
+            for key in parents:
+                node = node.get(key) if isinstance(node, dict) else None
+            if isinstance(node, dict):
+                node.pop(last, None)
+        edited = yaml.safe_dump(raw, sort_keys=False, allow_unicode=True)
+    _atomic_write(review.config_path, edited)
     return removed
 
 
@@ -464,6 +518,25 @@ def sections() -> list[tuple[str, type[BaseModel]]]:
         if name != "search" and isinstance(core, type) and issubclass(core, BaseModel):
             result.append((name, core))
     return result
+
+
+def years_shape(review: Review) -> str | None:
+    """Return how ``search.years`` is written in the file: ``"range"``, ``"list"`` or None.
+
+    A ``"YYYY-YYYY"`` string is a range; an explicit YAML list is a list of
+    specific years. None when the file has no usable ``years``.
+    """
+    try:
+        raw = _read_file_layer(review.config_path)
+    except (SettingsError, OSError):
+        return None
+    search = raw.get("search")
+    years = search.get("years") if isinstance(search, dict) else None
+    if isinstance(years, str):
+        return "range"
+    if isinstance(years, list) and years:
+        return "list"
+    return None
 
 
 def years_as_range(years: Any) -> tuple[int, int] | None:
