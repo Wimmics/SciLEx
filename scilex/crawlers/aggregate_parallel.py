@@ -11,20 +11,25 @@ import itertools
 import json
 import logging
 import os
-import re
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 from multiprocessing import cpu_count
 
 import pandas as pd
 from tqdm import tqdm
 
-from scilex.constants import MISSING_VALUE, is_valid
+from scilex.constants import (
+    MISSING_VALUE,
+    extract_year,
+    is_valid,
+    normalize_doi,
+    parse_archive_apis,
+    split_semicolon_field,
+)
 from scilex.crawlers.aggregate import FORMAT_CONVERTERS
 from scilex.pipeline.text_filter import record_passes_text_filter
-
-_YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
 # Raw (pre-conversion) year fields tried in order, covering all supported APIs:
 #   SemanticScholar/DBLP → "year"
@@ -55,23 +60,10 @@ def _extract_raw_year(paper: dict) -> int | None:
     'keep the paper' so we never drop papers with missing dates.
     """
     for field in _RAW_YEAR_FIELDS:
-        val = paper.get(field)
-        if val is None:
-            continue
-        if isinstance(val, int) and 1000 <= val <= 9999:
-            return val
-        m = _YEAR_RE.search(str(val))
-        if m:
-            return int(m.group())
+        year = extract_year(paper.get(field))
+        if year is not None:
+            return year
     return None
-
-
-def _year_from_date(date_str: str) -> int | None:
-    """Extract a 4-digit year from a date string, or return None."""
-    if not date_str or date_str.strip() in ("", "NA", "MISSING"):
-        return None
-    m = _YEAR_RE.search(str(date_str))
-    return int(m.group()) if m else None
 
 
 # ============================================================================
@@ -400,14 +392,19 @@ def parallel_load_all_files(
 
 
 def _process_batch(
-    args: tuple,
+    batch: list[tuple[dict, str, list[str]]],
+    keyword_groups: list[list[str]] | None = None,
+    bonus_keywords: list[str] | None = None,
+    cached_abstracts: dict[str, str] | None = None,
+    pre_filters: dict | None = None,
+    apply_text_filter: bool = True,
 ) -> tuple[list[dict], Counter]:
     """Convert and filter one batch, counting converter failures per API.
 
     Args:
-        args: Tuple of (batch, keyword_groups, bonus_keywords,
-              cached_abstracts, pre_filters[, apply_text_filter]).
-
+        batch: (raw paper dict, API name, keywords used) triples.
+        keyword_groups: keyword groups for the text filter.
+        bonus_keywords: optional bonus keywords for the text filter.
         cached_abstracts: optional DOI → abstract dict (cache-only mode).
         pre_filters: optional dict with early rejection criteria applied right
                      after format conversion, before the more expensive text
@@ -423,9 +420,6 @@ def _process_batch(
     Returns:
         Tuple of (processed paper dicts, per-API converter error counts)
     """
-    batch, keyword_groups, bonus_keywords, cached_abstracts, pre_filters, *rest = args
-    apply_text_filter = rest[0] if rest else True
-
     year_range: set[int] = (pre_filters or {}).get("year_range", set())
     allowed_item_types: set[str] = (pre_filters or {}).get("allowed_item_types", set())
 
@@ -447,13 +441,7 @@ def _process_batch(
             if cached_abstracts and not is_valid(converted.get("abstract")):
                 doi = converted.get("DOI")
                 if is_valid(doi):
-                    doi_key = (
-                        str(doi)
-                        .replace("https://doi.org/", "")
-                        .replace("http://doi.org/", "")
-                        .strip()
-                        .lower()
-                    )
+                    doi_key = normalize_doi(doi)
                     cached = cached_abstracts.get(doi_key)
                     if cached:
                         converted["abstract"] = cached
@@ -463,7 +451,7 @@ def _process_batch(
             # Year range: skip papers outside allowed years.
             # Papers with unknown/missing dates are kept (conservative).
             if year_range:
-                year = _year_from_date(converted.get("date", ""))
+                year = extract_year(converted.get("date"))
                 if year is not None and year not in year_range:
                     continue
 
@@ -495,15 +483,6 @@ def _process_batch(
             logging.debug(f"Error converting paper from {api_name}: {e}")
 
     return results, converter_errors
-
-
-def _process_batch_worker(args: tuple) -> list[dict]:
-    """Process a batch of papers and return the kept paper dicts.
-
-    Thin wrapper around `_process_batch` that drops the error counters; see
-    that function for the layout of `args`.
-    """
-    return _process_batch(args)[0]
 
 
 def parallel_process_papers(
@@ -552,18 +531,18 @@ def parallel_process_papers(
     batches = []
     for i in range(0, len(papers_by_api), batch_size):
         batch = papers_by_api[i : i + batch_size]
-        batches.append(
-            (
-                batch,
-                keyword_groups,
-                bonus_keywords,
-                cached_abstracts,
-                pre_filters,
-                apply_text_filter,
-            )
-        )
+        batches.append(batch)
 
     logging.info(f"Processing {len(papers_by_api):,} papers in {len(batches)} batches")
+
+    process_one_batch = partial(
+        _process_batch,
+        keyword_groups=keyword_groups,
+        bonus_keywords=bonus_keywords,
+        cached_abstracts=cached_abstracts,
+        pre_filters=pre_filters,
+        apply_text_filter=apply_text_filter,
+    )
 
     # Process batches in parallel
     start_time = time.time()
@@ -572,7 +551,7 @@ def parallel_process_papers(
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         results = list(
             tqdm(
-                executor.map(_process_batch, batches),
+                executor.map(process_one_batch, batches),
                 total=len(batches),
                 desc="Processing papers",
                 unit="batch",
@@ -636,10 +615,8 @@ def _merge_collect_keywords(kw_strings: list[str]) -> str:
     seen: dict[str, None] = {}
     for kw_str in kw_strings:
         if kw_str:
-            for tag in kw_str.split(";"):
-                tag = tag.strip()
-                if tag:
-                    seen[tag] = None
+            for tag in split_semicolon_field(kw_str):
+                seen[tag] = None
     return ";".join(seen.keys())
 
 
@@ -683,17 +660,6 @@ def _merge_archives_for_duplicates(archives: list[str], winner_archive: str) -> 
     """
     unique_archives = list(dict.fromkeys(archives))  # Preserve order, remove dupes
     return ";".join([a + "*" if a == winner_archive else a for a in unique_archives])
-
-
-def _split_archive_names(archive_value) -> list[str]:
-    """Split an archive cell ("A*;B" or "A") into bare API names.
-
-    Missing values (NaN, "NA", "") yield an empty list instead of raising.
-    """
-    if not is_valid(archive_value):
-        return []
-    names = (part.replace("*", "").strip() for part in str(archive_value).split(";"))
-    return [name for name in names if name]
 
 
 _WINNER_COLUMN = "_winner_archive"
@@ -749,7 +715,7 @@ def _dedup_by_key(
     for key, own_archive, winner in zip(
         kept[key_col], kept["archive"], kept[_WINNER_COLUMN], strict=True
     ):
-        names = [n for cell in key_to_archives[key] for n in _split_archive_names(cell)]
+        names = [n for cell in key_to_archives[key] for n in parse_archive_apis(cell)]
         names = list(dict.fromkeys(names))
         if group_sizes[key] > 1 or len(names) > 1:
             merged_archives.append(
@@ -808,7 +774,7 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     if added_archive_column:
         df_output["archive"] = MISSING_VALUE
     df_output[_WINNER_COLUMN] = df_output["archive"].apply(
-        lambda cell: (_split_archive_names(cell) or [None])[0]
+        lambda cell: (parse_archive_apis(cell) or [None])[0]
     )
 
     # STEP 1: DOI-based deduplication

@@ -3,7 +3,7 @@
 import pandas as pd
 
 from scilex.crawlers.aggregate_parallel import (
-    _process_batch_worker,
+    _process_batch,
     parallel_process_papers,
 )
 
@@ -36,43 +36,43 @@ def _make_openalex_paper():
     }
 
 
-class TestProcessBatchWorker:
+class TestProcessBatch:
     def test_known_api_returns_results(self):
         paper = _make_hal_paper()
         keywords = ["deep learning"]
         batch = [(paper, "HAL", keywords)]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         assert isinstance(results, list)
         assert len(results) >= 0  # May or may not pass text filter
 
     def test_unknown_api_returns_empty(self):
         batch = [({"title": "test"}, "UnknownAPI", ["test"])]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         assert results == []
 
     def test_keyword_match_passes_filter(self):
         paper = _make_hal_paper()  # title contains "deep learning"
         keywords = ["deep learning"]
         batch = [(paper, "HAL", keywords)]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         # HAL paper with "deep learning" in title should pass
         assert isinstance(results, list)
 
     def test_no_keywords_all_pass(self):
         paper = _make_hal_paper()
         batch = [(paper, "HAL", [])]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         assert isinstance(results, list)
         assert len(results) == 1
 
     def test_malformed_paper_skipped_no_crash(self):
         batch = [({"bad_key": "value"}, "HAL", ["deep learning"])]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         # Should not raise; may return empty or converted result
         assert isinstance(results, list)
 
     def test_empty_batch_returns_empty(self):
-        results = _process_batch_worker(([], None, None, None, None))
+        results = _process_batch([])[0]
         assert results == []
 
     def test_multiple_papers_processed(self):
@@ -80,13 +80,13 @@ class TestProcessBatchWorker:
             (_make_hal_paper(), "HAL", []),
             (_make_hal_paper(), "HAL", []),
         ]
-        results = _process_batch_worker((papers, None, None, None, None))
+        results = _process_batch(papers)[0]
         assert len(results) == 2
 
     def test_openalex_paper_processed(self):
         paper = _make_openalex_paper()
         batch = [(paper, "OpenAlex", [])]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         # OpenAlex conversion may filter or fail silently — just verify no crash
         assert isinstance(results, list)
 
