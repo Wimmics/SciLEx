@@ -19,5 +19,11 @@ Mandat utilisateur (2026-10-23) : enchaîner les lots 1 à 5 sans redemander ; a
 | E | 4 Export | pages/export.py, services/exports.py |
 | F | 5 Analyses | pages/analyses.py, services/analyses.py |
 
+## État (2026-10-23)
+- Vague 1 fusionnée dans `gui-integration` puis `dev` (976297c4) : 1942 tests OK.
+- Corrections d'intégration : clé Springer meta/openaccess conservée ; revue au scilex.yml invalide gardée avec bandeau ; faux pipeline de test écrit un CSV valide.
+- Guide utilisateur à jour (122fbd53).
+- Vague 2 en cours : Configure éditeur brut (YAML cassé, clés inconnues) ; Analyses onglet Citations + annulation ; relecture de code en lecture seule.
+
 ## Ensuite
-Intégration (merge ff dans dev), guide utilisateur, rebuild app, agent testeur headless.
+Fusion vague 2, corrections de la relecture, rebuild de l'app, agent testeur headless, ff de dev.
