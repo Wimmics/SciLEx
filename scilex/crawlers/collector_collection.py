@@ -26,6 +26,7 @@ from .collectors import (
     SemanticScholar_collector,
     Springer_collector,
 )
+from .utils import sanitize_secrets
 
 api_collectors = {
     "DBLP": DBLP_collector,
@@ -48,23 +49,8 @@ api_collectors = {
 
 
 def _sanitize_error_message(error_msg):
-    """
-    Remove sensitive information (API keys, tokens) from error messages.
-
-    Args:
-        error_msg: Error message string that may contain sensitive parameters
-
-    Returns:
-        str: Sanitized error message with sensitive parameters masked
-    """
-    import re
-
-    # Replace API keys in URLs within error messages
-    error_msg = re.sub(r"([?&]api[Kk]ey=)[^&\s]+", r"\1***REDACTED***", error_msg)
-    error_msg = re.sub(r"([?&]apikey=)[^&\s]+", r"\1***REDACTED***", error_msg)
-    error_msg = re.sub(r"([?&]key=)[^&\s]+", r"\1***REDACTED***", error_msg)
-    error_msg = re.sub(r"([?&]token=)[^&\s]+", r"\1***REDACTED***", error_msg)
-    return error_msg
+    """Remove sensitive information (API keys, tokens) from error messages."""
+    return sanitize_secrets(error_msg)
 
 
 def _run_job_collects_worker(

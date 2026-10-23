@@ -14,6 +14,7 @@ from scilex.crawlers.circuit_breaker import (
     CircuitBreakerOpenError,
     CircuitBreakerRegistry,
 )
+from scilex.crawlers.utils import sanitize_secrets
 
 
 class Filter_param:
@@ -177,7 +178,10 @@ class API_collector:
 
         # Warn if approaching rate limits
         if "rate_limit_remaining" in log_data:
-            remaining = int(log_data["rate_limit_remaining"])
+            try:
+                remaining = int(log_data["rate_limit_remaining"])
+            except (TypeError, ValueError):
+                return  # Non-numeric header (some APIs send "n/a" or dates)
             if remaining < 10:
                 logging.warning(
                     f"{self.api_name} API: Only {remaining} requests remaining in current period!"
@@ -324,25 +328,41 @@ class API_collector:
 
     @staticmethod
     def _sanitize_url(url):
+        """Mask API keys and tokens in a URL before logging it."""
+        return sanitize_secrets(url)
+
+    # HTTP statuses that are retried (409 is treated as a throttle: OpenAIRE
+    # answers 409 for parallel scroll contexts).
+    THROTTLE_STATUS = frozenset({409, 429})
+    RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+    MAX_RETRY_AFTER_SECONDS = 120
+
+    def _retry_wait(self, attempt, response=None):
+        """Seconds to wait before retry number ``attempt + 1``.
+
+        Throttle responses honour a numeric ``Retry-After`` header (capped at
+        ``MAX_RETRY_AFTER_SECONDS``) and otherwise use the API-specific backoff
+        from ``RateLimitBackoffConfig``. Every other error uses ``2**attempt``.
         """
-        Remove sensitive information (API keys, tokens) from URLs for logging.
+        status_code = getattr(response, "status_code", None)
+        if status_code not in self.THROTTLE_STATUS:
+            return 2**attempt
 
-        Args:
-            url: URL string that may contain sensitive parameters
+        retry_after = response.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(max(float(retry_after), 0.0), self.MAX_RETRY_AFTER_SECONDS)
+            except ValueError:
+                pass  # HTTP-date or garbage: use the configured backoff
 
-        Returns:
-            str: Sanitized URL with sensitive parameters masked
-        """
-        import re
-
-        # Replace API keys in query parameters
-        url = re.sub(r"([?&]api[Kk]ey=)[^&]+", r"\1***REDACTED***", url)
-        url = re.sub(r"([?&]apikey=)[^&]+", r"\1***REDACTED***", url)
-        url = re.sub(r"([?&]api_key=)[^&]+", r"\1***REDACTED***", url)
-        url = re.sub(r"([?&]key=)[^&]+", r"\1***REDACTED***", url)
-        url = re.sub(r"([?&]token=)[^&]+", r"\1***REDACTED***", url)
-        url = re.sub(r"([?&]access_token=)[^&]+", r"\1***REDACTED***", url)
-        return url
+        base_wait, use_exponential = RateLimitBackoffConfig.API_SPECIFIC.get(
+            self.api_name,
+            (
+                RateLimitBackoffConfig.DEFAULT_BASE_WAIT,
+                RateLimitBackoffConfig.DEFAULT_USE_EXPONENTIAL,
+            ),
+        )
+        return base_wait * (2**attempt) if use_exponential else base_wait
 
     def api_call_decorator(
         self,
@@ -351,11 +371,15 @@ class API_collector:
         headers=None,
     ):
         """
-        API call decorator with circuit breaker, retry logic, and error handling.
+        API call with circuit breaker, retry logic, and error handling.
+
+        Exactly one circuit-breaker failure is recorded per call that ends in
+        an error (after retries are exhausted, or immediately for non-retryable
+        errors). Authentication errors (401/403) never trip the breaker.
 
         Args:
             configurated_url: The URL to call
-            max_retries: Maximum number of retry attempts (default: 3)
+            max_retries: Maximum number of attempts (default: 3)
             headers: Optional dict of HTTP headers to include in the request
 
         Returns:
@@ -363,230 +387,94 @@ class API_collector:
 
         Raises:
             CircuitBreakerOpenError: If circuit breaker is open (API endpoint failing repeatedly)
+            requests.exceptions.RequestException: When the call ultimately fails
         """
         logging.debug(f"API Request to: {self._sanitize_url(configurated_url)}")
 
-        # Get circuit breaker for this API
-        registry = CircuitBreakerRegistry()
-        breaker = registry.get_breaker(
+        breaker = CircuitBreakerRegistry().get_breaker(
             api_name=self.api_name,
             failure_threshold=CircuitBreakerConfig.FAILURE_THRESHOLD,
             timeout_seconds=CircuitBreakerConfig.TIMEOUT_SECONDS,
         )
-
-        # Check circuit breaker state
         if not breaker.is_available():
-            # Circuit is OPEN, fail fast without trying
             logging.error(
                 f"{self.api_name} API: Circuit breaker OPEN - skipping request to save time"
             )
             raise CircuitBreakerOpenError(self.api_name, breaker.timeout_seconds)
 
-        def access_rate_limited(configurated_url):
-            last_exception = None
-
-            for attempt in range(max_retries):
-                try:
-                    # Enforce rate limit before each request
-                    self._rate_limit_wait()
-
-                    resp = self.session.get(
-                        configurated_url, headers=headers, timeout=30
-                    )
-                    resp.raise_for_status()
-
-                    # Log successful request with rate limit info
-                    logging.debug(
-                        f"{self.api_name} API: Request successful (attempt {attempt + 1}/{max_retries})"
-                    )
-
-                    # Record success in circuit breaker and adaptive limiter
-                    breaker.record_success()
-                    AdaptiveRateLimiterRegistry().get(self.api_name).on_success()
-
-                    return resp
-
-                except requests.exceptions.HTTPError as e:
-                    status_code = e.response.status_code
-                    last_exception = e
-
-                    if status_code in [
-                        409,
-                        429,
-                    ]:  # Throttle / conflict (treat both as rate-limit)
-                        # Respect Retry-After header if provided by server
-                        retry_after = e.response.headers.get("Retry-After")
-                        if retry_after:
-                            try:
-                                wait_time = int(retry_after)
-                            except ValueError:
-                                wait_time = RateLimitBackoffConfig.DEFAULT_BASE_WAIT * (
-                                    2**attempt
-                                )
-                            logging.warning(
-                                f"{self.api_name} API throttled ({status_code}). "
-                                f"Server Retry-After: {wait_time}s (attempt {attempt + 1}/{max_retries})"
-                            )
-                        else:
-                            # Fall back to API-specific backoff configuration
-                            base_wait, use_exponential = (
-                                RateLimitBackoffConfig.API_SPECIFIC.get(
-                                    self.api_name,
-                                    (
-                                        RateLimitBackoffConfig.DEFAULT_BASE_WAIT,
-                                        RateLimitBackoffConfig.DEFAULT_USE_EXPONENTIAL,
-                                    ),
-                                )
-                            )
-                            if use_exponential:
-                                wait_time = base_wait * (2**attempt)
-                            else:
-                                wait_time = base_wait
-                            logging.warning(
-                                f"{self.api_name} API throttled ({status_code}). "
-                                f"Waiting {wait_time}s before retry (attempt {attempt + 1}/{max_retries}). "
-                                f"Strategy: {'exponential' if use_exponential else 'fixed'} backoff"
-                            )
-                        if attempt < max_retries - 1:
-                            time.sleep(wait_time)
-                            continue
-                        else:
-                            # Final retry failed — increase adaptive inter-request delay
-                            new_delay = (
-                                AdaptiveRateLimiterRegistry()
-                                .get(self.api_name)
-                                .on_throttle()
-                            )
-                            logging.warning(
-                                f"{self.api_name} API: Throttle ({status_code}) persists after {max_retries} retries. "
-                                f"Inter-request delay increased to +{new_delay:.0f}s."
-                            )
-                            raise  # Re-raise to let caller handle
-                    elif status_code in [401, 403]:  # Authentication errors
-                        # Build specific recovery guidance based on API
-                        recovery_actions = self._get_auth_recovery_actions(status_code)
-
-                        logging.error(
-                            f"{self.api_name} API authentication failed: {status_code}. "
-                            f"Recovery actions:\n{recovery_actions}"
-                        )
-                        # Do NOT trip the circuit breaker for auth errors.
-                        # 401/403 are permanent configuration failures (bad/expired key),
-                        # not transient endpoint failures. Tripping the circuit breaker
-                        # here causes cascading noise for every remaining query.
-                        raise  # Don't retry auth errors
-                    elif status_code == 500:  # Internal server error
-                        wait_time = 2**attempt
-                        logging.warning(
-                            f"{self.api_name} API internal server error (500). "
-                            f"This may indicate API overload or rate limiting. "
-                            f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
-                        )
-                        if attempt < max_retries - 1:
-                            time.sleep(wait_time)
-                            breaker.record_failure()  # Track failure for circuit breaker
-                            continue
-                        else:
-                            logging.error(
-                                f"{self.api_name} API: 500 errors persisting after {max_retries} retries. "
-                                f"Consider checking API status or reducing concurrency."
-                            )
-                            breaker.record_failure()
-                            raise
-                    elif status_code in [502, 503, 504]:  # Gateway/service errors
-                        wait_time = 2**attempt
-                        logging.warning(
-                            f"{self.api_name} API gateway/service error ({status_code}). "
-                            f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
-                        )
-                        if attempt < max_retries - 1:
-                            time.sleep(wait_time)
-                            breaker.record_failure()  # Track failure for circuit breaker
-                            continue
-                        else:
-                            breaker.record_failure()
-                            raise
-                    elif status_code >= 500:  # Other 5xx errors
-                        wait_time = 2**attempt
-                        logging.warning(
-                            f"{self.api_name} API server error: {status_code}. "
-                            f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
-                        )
-                        if attempt < max_retries - 1:
-                            time.sleep(wait_time)
-                            breaker.record_failure()  # Track failure for circuit breaker
-                            continue
-                        else:
-                            breaker.record_failure()
-                            raise
-                    else:
-                        logging.error(
-                            f"{self.api_name} API HTTP error {status_code}: {str(e)}"
-                        )
-                        # Record failure for circuit breaker
-                        breaker.record_failure()
-                        raise
-
-                except requests.exceptions.Timeout as e:
-                    last_exception = e
-                    wait_time = 2**attempt
-                    logging.warning(
-                        f"{self.api_name} API request timeout. "
-                        f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
-                    )
-                    if attempt < max_retries - 1:
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        logging.error(
-                            f"{self.api_name} API: All retry attempts failed due to timeout"
-                        )
-                        # Record failure for circuit breaker
-                        breaker.record_failure()
-                        raise
-
-                except requests.exceptions.ConnectionError as e:
-                    last_exception = e
-                    wait_time = 2**attempt
-                    logging.warning(
-                        f"{self.api_name} API connection error. "
-                        f"Retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})"
-                    )
-                    if attempt < max_retries - 1:
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        logging.error(
-                            f"{self.api_name} API: All retry attempts failed due to connection error"
-                        )
-                        # Record failure for circuit breaker
-                        breaker.record_failure()
-                        raise
-
-                except requests.exceptions.RequestException as e:
-                    last_exception = e
-                    logging.error(
-                        f"{self.api_name} API request failed: {str(e)}. "
-                        f"Attempt {attempt + 1}/{max_retries}"
-                    )
-                    if attempt < max_retries - 1:
-                        time.sleep(2**attempt)
-                        continue
-                    else:
-                        # Record failure for circuit breaker
-                        breaker.record_failure()
-                        raise
-
-            # If we exhausted all retries, raise the last exception
-            if last_exception:
-                logging.error(
-                    f"{self.api_name} API: All {max_retries} retry attempts exhausted"
+        max_retries = max(1, max_retries)
+        for attempt in range(max_retries):
+            is_last_attempt = attempt == max_retries - 1
+            response = None
+            last_error = None
+            try:
+                self._rate_limit_wait()
+                resp = self.session.get(configurated_url, headers=headers, timeout=30)
+                resp.raise_for_status()
+                logging.debug(
+                    f"{self.api_name} API: Request successful (attempt {attempt + 1}/{max_retries})"
                 )
-                # Record failure for circuit breaker
-                breaker.record_failure()
-                raise last_exception
+                breaker.record_success()
+                AdaptiveRateLimiterRegistry().get(self.api_name).on_success()
+                return resp
 
-        return access_rate_limited(configurated_url)
+            except requests.exceptions.HTTPError as e:
+                last_error = e
+                response = e.response
+                status_code = getattr(response, "status_code", None)
+
+                if status_code in (401, 403):
+                    # Permanent configuration failure (bad/expired key): do NOT
+                    # trip the breaker, it would cascade to every remaining query.
+                    logging.error(
+                        f"{self.api_name} API authentication failed: {status_code}. "
+                        f"Recovery actions:\n{self._get_auth_recovery_actions(status_code)}"
+                    )
+                    raise
+
+                if status_code not in self.RETRYABLE_STATUS and (
+                    status_code not in self.THROTTLE_STATUS
+                ):
+                    logging.error(
+                        f"{self.api_name} API HTTP error {status_code}: {sanitize_secrets(str(e))}"
+                    )
+                    breaker.record_failure()
+                    raise
+
+                error_label = f"HTTP {status_code}"
+
+            except requests.exceptions.RequestException as e:
+                # Timeouts, connection errors and other transport failures
+                last_error = e
+                error_label = type(e).__name__
+                logging.debug(
+                    f"{self.api_name} API request failed: {sanitize_secrets(str(e))}"
+                )
+
+            if is_last_attempt:
+                if (
+                    response is not None
+                    and response.status_code in self.THROTTLE_STATUS
+                ):
+                    new_delay = (
+                        AdaptiveRateLimiterRegistry().get(self.api_name).on_throttle()
+                    )
+                    logging.warning(
+                        f"{self.api_name} API: Throttle ({response.status_code}) persists after "
+                        f"{max_retries} attempts. Inter-request delay increased to +{new_delay:.0f}s."
+                    )
+                logging.error(
+                    f"{self.api_name} API: all {max_retries} attempts failed ({error_label})"
+                )
+                breaker.record_failure()
+                raise last_error
+
+            wait_time = self._retry_wait(attempt, response)
+            logging.warning(
+                f"{self.api_name} API {error_label}. "
+                f"Retrying in {wait_time:.0f}s (attempt {attempt + 1}/{max_retries})"
+            )
+            time.sleep(wait_time)
 
     def toZotero():
         pass

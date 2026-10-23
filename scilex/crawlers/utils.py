@@ -1,7 +1,30 @@
 import logging
 import os
+import re
 
 import yaml
+
+# Query/form parameters whose value must never reach a log line.
+_SECRET_PARAM_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"((?:api[_-]?key|access[_-]?token|inst[_-]?token|token|key)=)"
+    r"[^&\s\"'<>]+",
+    re.IGNORECASE,
+)
+
+
+def sanitize_secrets(text):
+    """Mask API keys and tokens (``apikey=``, ``api_key=``, ``token=``...) in text.
+
+    Works on URLs as well as on free-form error messages that embed a URL.
+
+    Args:
+        text: String that may contain credentials (non-strings are stringified).
+
+    Returns:
+        str: The text with credential values replaced by ``***REDACTED***``.
+    """
+    return _SECRET_PARAM_PATTERN.sub(r"\1***REDACTED***", str(text))
 
 
 def load_yaml_config(file_path):
