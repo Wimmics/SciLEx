@@ -10,6 +10,7 @@ from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
+from scilex.constants import MISSING_VALUE
 
 from .collectors import (
     Arxiv_collector,
@@ -48,12 +49,11 @@ api_collectors = {
 }
 
 
+# Placeholder values that mean "no institutional token configured"
+# (any "YOUR_..." placeholder is rejected separately).
+_INVALID_INST_TOKENS = {MISSING_VALUE, "TODO", "", None}
+
 # Thread worker function (processes all queries for one API)
-
-
-def _sanitize_error_message(error_msg):
-    """Remove sensitive information (API keys, tokens) from error messages."""
-    return sanitize_secrets(error_msg)
 
 
 def _run_job_collects_worker(
@@ -119,8 +119,7 @@ def _run_job_collects_worker(
             if api_name == "Elsevier" and "inst_token" in api_config[api_name]:
                 token_value = api_config[api_name]["inst_token"]
                 # Reject placeholder/invalid tokens
-                INVALID_TOKENS = {"YOUR_INSTITUTIONAL_TOKEN", "NA", "TODO", "", None}
-                if token_value not in INVALID_TOKENS and not (
+                if token_value not in _INVALID_INST_TOKENS and not (
                     isinstance(token_value, str) and token_value.startswith("YOUR_")
                 ):
                     inst_token = token_value
@@ -169,7 +168,7 @@ def _run_job_collects_worker(
 
         except Exception as e:
             # Sanitize error message to remove API keys
-            sanitized_error = _sanitize_error_message(str(e))
+            sanitized_error = sanitize_secrets(str(e))
             logging.error(
                 f"[{api_name}] Q{query_id} error ({kw_str}, {year}): {sanitized_error}"
             )
@@ -193,7 +192,7 @@ def _run_job_collects_worker(
                 except Exception as close_exc:
                     logging.warning(
                         f"[{api_name}] Q{query_id}: close_session failed: "
-                        f"{_sanitize_error_message(str(close_exc))}"
+                        f"{sanitize_secrets(str(close_exc))}"
                     )
 
     # Note: Rate limiting is handled per-API by individual collectors
@@ -296,43 +295,26 @@ class CollectCollection:
         # Get max_articles_per_query from config (default to -1 = unlimited)
         max_articles_per_query = self.main_config.get("max_articles_per_query", -1)
 
-        queries = []
+        queries_by_api = defaultdict(list)
         since = self.main_config.get("since")
         for keyword_group, year, api in combinations:
             query = {
                 # Two keyword lists give [kw_a, kw_b] pairs; a single list gives [kw]
                 "keyword": keyword_group if two_list_k else [keyword_group],
                 "year": year,
-                "api": api,
                 "max_articles_per_query": max_articles_per_query,
             }
-            # Add semantic_scholar_mode for SemanticScholar API
             if api == "SemanticScholar":
                 query["semantic_scholar_mode"] = semantic_scholar_mode
             if since:
                 query["since"] = str(since)
-            queries.append(query)
+            queries_by_api[api].append(query)
         logger.debug(
-            f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs"
+            f"Generated {sum(map(len, queries_by_api.values()))} total queries "
+            f"across {len(self.main_config['apis'])} APIs"
         )
-        queries_by_api = {}
-        for query in queries:
-            if query["api"] not in queries_by_api:
-                queries_by_api[query["api"]] = []
-            # Preserve all query fields (max_articles_per_query, semantic_scholar_mode, etc.)
-            query_dict = {
-                "keyword": query["keyword"],
-                "year": query["year"],
-                "max_articles_per_query": query["max_articles_per_query"],
-            }
-            # Add optional semantic_scholar_mode if present
-            if "semantic_scholar_mode" in query:
-                query_dict["semantic_scholar_mode"] = query["semantic_scholar_mode"]
-            if "since" in query:
-                query_dict["since"] = query["since"]
-            queries_by_api[query["api"]].append(query_dict)
 
-        return queries_by_api
+        return dict(queries_by_api)
 
     def init_collection_collect(self):
         """

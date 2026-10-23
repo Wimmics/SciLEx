@@ -3,10 +3,8 @@
 Uses __new__ to bypass __init__ (which creates directories and writes YAML).
 """
 
-from scilex.crawlers.collector_collection import (
-    CollectCollection,
-    _sanitize_error_message,
-)
+from scilex.crawlers.collector_collection import CollectCollection
+from scilex.crawlers.utils import sanitize_secrets
 
 
 # -------------------------------------------------------------------------
@@ -33,28 +31,28 @@ def _make_collection(main_config=None, api_config=None):
 class TestSanitizeErrorMessage:
     def test_api_key_redacted(self):
         msg = "Error: GET https://api.example.com?apiKey=SECRET123 failed"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert "SECRET123" not in result
         assert "***REDACTED***" in result
 
     def test_mixed_case_api_key_redacted(self):
         msg = "GET https://api.example.com?apikey=mysecret failed"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert "mysecret" not in result
 
     def test_key_param_redacted(self):
         msg = "Error at https://api.example.com?key=topsecret"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert "topsecret" not in result
 
     def test_token_param_redacted(self):
         msg = "Error at https://api.example.com?token=mytoken"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert "mytoken" not in result
 
     def test_clean_message_unchanged(self):
         msg = "Error: Connection timed out after 30 seconds"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert result == msg
 
 

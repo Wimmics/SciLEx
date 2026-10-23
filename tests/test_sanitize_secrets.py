@@ -2,7 +2,6 @@
 
 import pytest
 
-from scilex.crawlers.collector_collection import _sanitize_error_message
 from scilex.crawlers.collectors import IEEE_collector, Springer_collector
 from scilex.crawlers.collectors.base import API_collector
 from scilex.crawlers.utils import sanitize_secrets
@@ -36,10 +35,9 @@ def test_non_secret_params_survive():
     assert "p=100" in cleaned
 
 
-def test_wrappers_share_the_implementation():
+def test_url_wrapper_shares_the_implementation():
     text = "https://x.org/s?api-key=SECRET&q=1"
     assert API_collector._sanitize_url(text) == sanitize_secrets(text)
-    assert _sanitize_error_message(text) == sanitize_secrets(text)
 
 
 def _query():
