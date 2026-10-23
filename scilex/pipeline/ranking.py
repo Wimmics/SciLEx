@@ -99,7 +99,11 @@ def calculate_relevance_score(
     # 4. Citation impact (minimal weight to avoid recency bias)
     citation_score = 0
     if has_citations:
-        citation_count = pd.to_numeric(row.get("nb_citation", 0), errors="coerce")
+        citation_count = pd.to_numeric(
+            row.get("canonical_citation_count"), errors="coerce"
+        )
+        if pd.isna(citation_count):
+            citation_count = pd.to_numeric(row.get("nb_citation", 0), errors="coerce")
         if pd.notna(citation_count) and citation_count > 0:
             citation_score = min(math.log(1 + float(citation_count)) * 2.17, 10)
 

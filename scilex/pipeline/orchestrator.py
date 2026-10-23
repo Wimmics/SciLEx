@@ -23,6 +23,7 @@ from scilex.abstract_validation import (
 from scilex.config import SciLExConfig
 from scilex.config_defaults import (
     DEFAULT_AGGREGATED_FILENAME,
+    DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
     DEFAULT_OUTPUT_DIR,
     MAX_ABSTRACT_WORDS,
     MIN_ABSTRACT_QUALITY_SCORE,
@@ -40,6 +41,7 @@ from scilex.pipeline.bonus_keywords import (
     generate_bonus_keyword_stats,
     tag_papers_with_bonus_keywords,
 )
+from scilex.pipeline.canonical_citations import apply_canonical_citations
 from scilex.pipeline.citation_filter import apply_time_aware_citation_filter
 from scilex.pipeline.enrichment import (
     fill_missing_urls_from_doi,
@@ -520,6 +522,14 @@ def run_aggregation(
 
         if quality_filters.get("use_openalex_citations", True):
             df_clean = use_openalex_citations_fallback(df_clean)
+
+        df_clean = apply_canonical_citations(
+            df_clean,
+            quality_filters.get(
+                "canonical_citation_discrepancy_threshold",
+                DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
+            ),
+        )
 
         if quality_filters.get("apply_citation_filter", True):
             df_clean = apply_time_aware_citation_filter(df_clean)
