@@ -100,6 +100,9 @@ def is_valid(value) -> bool:
         >>> is_valid(pd.NA)
         False
     """
+    if isinstance(value, (list, tuple, set, frozenset, dict)):
+        return len(value) > 0
+
     if pd.isna(value):
         return False
 
@@ -136,6 +139,28 @@ def safe_str(value, default: str = MISSING_VALUE) -> str:
     """
     if is_missing(value):
         return default
+    return str(value)
+
+
+def normalize_text_field(value) -> str:
+    """Normalize a text field (abstract, title...) to a plain string.
+
+    Handles the ``{"p": [...]}`` paragraph format returned by some APIs, plain
+    lists/tuples (joined with spaces), NaN/None/``"NA"`` (returned as ``""``).
+    Case and whitespace are left untouched.
+
+    Args:
+        value: Raw field value.
+
+    Returns:
+        The text, or ``""`` if missing.
+    """
+    if is_missing(value):
+        return ""
+    if isinstance(value, dict):
+        value = value.get("p", value)
+    if isinstance(value, (list, tuple)):
+        return " ".join(str(part) for part in value)
     return str(value)
 
 

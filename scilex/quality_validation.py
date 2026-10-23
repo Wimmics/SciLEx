@@ -10,7 +10,7 @@ import logging
 
 import pandas as pd
 
-from scilex.constants import is_missing, is_valid
+from scilex.constants import is_missing, is_valid, normalize_text_field
 
 
 class QualityReport:
@@ -73,14 +73,7 @@ class QualityReport:
 
 def count_words(text: str) -> int:
     """Count words in text (handles various formats)."""
-    if is_missing(text):
-        return 0
-
-    # Handle dict format (some APIs return {"p": ["paragraph1", "paragraph2"]})
-    if isinstance(text, dict) and "p" in text:
-        text = " ".join(text["p"])
-
-    return len(str(text).split())
+    return len(normalize_text_field(text).split())
 
 
 def count_authors(authors_value) -> int:

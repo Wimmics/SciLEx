@@ -9,21 +9,14 @@ import logging
 
 import pandas as pd
 
-from scilex.constants import is_missing
+from scilex.constants import is_missing, normalize_text_field
 
 _STOP_WORDS = {"of", "the", "a", "an", "and", "or", "in", "on", "at", "to", "for"}
 
 
-def normalize_text(text: str) -> str:
+def normalize_text(text) -> str:
     """Normalize text for keyword matching (lowercase, handle dict format)."""
-    if is_missing(text):
-        return ""
-
-    # Handle dict format (some APIs return {"p": ["paragraph1", "paragraph2"]})
-    if isinstance(text, dict) and "p" in text:
-        text = " ".join(text["p"])
-
-    return str(text).lower()
+    return normalize_text_field(text).lower()
 
 
 def check_keyword_in_text(keyword: str, text: str) -> bool:

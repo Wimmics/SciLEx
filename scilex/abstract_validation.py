@@ -14,7 +14,7 @@ import re
 
 import pandas as pd
 
-from scilex.constants import is_missing
+from scilex.constants import normalize_text_field
 
 # Common truncation indicators
 TRUNCATION_PATTERNS = [
@@ -108,14 +108,7 @@ class AbstractQualityScore:
 
 def normalize_abstract(abstract) -> str:
     """Normalize abstract text for analysis."""
-    if is_missing(abstract):
-        return ""
-
-    # Handle dict format
-    if isinstance(abstract, dict) and "p" in abstract:
-        text = " ".join(abstract["p"])
-    else:
-        text = str(abstract)
+    text = normalize_text_field(abstract)
 
     # Clean up whitespace
     text = re.sub(r"\s+", " ", text).strip()

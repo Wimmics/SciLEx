@@ -1,6 +1,6 @@
 """Text-based keyword filtering for the aggregation pipeline."""
 
-from scilex.constants import MISSING_VALUE, is_valid
+from scilex.constants import MISSING_VALUE, is_valid, normalize_text_field
 from scilex.keyword_validation import (
     check_keyword_in_text,
     check_keyword_in_text_flexible,
@@ -9,12 +9,7 @@ from scilex.keyword_validation import (
 
 def keyword_matches_in_abstract(keyword, abstract_text):
     """Check if keyword appears in abstract text (handles both dict and string formats)."""
-    if isinstance(abstract_text, dict) and "p" in abstract_text:
-        abstract_content = " ".join(abstract_text["p"]).lower()
-    else:
-        abstract_content = str(abstract_text).lower()
-
-    return keyword.lower() in abstract_content
+    return keyword.lower() in normalize_text_field(abstract_text).lower()
 
 
 def check_keywords_in_text(keywords_list, text):
