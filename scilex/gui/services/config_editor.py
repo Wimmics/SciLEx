@@ -28,7 +28,10 @@ from scilex.settings.presets import PRESETS, get_preset
 from scilex.settings.schema import (
     ScilexSettings,
     SettingsError,
+    _suggest,
     default_settings_dict,
+    format_validation_error,
+    known_paths,
 )
 
 API_NAMES: tuple[str, ...] = COLLECTOR_API_NAMES
@@ -281,6 +284,112 @@ def save(review: Review, data: dict) -> Path:
     temporary.write_text(text, encoding="utf-8")
     os.replace(temporary, target)
     return target
+
+
+# ---------------------------------------------------------------------------
+# Raw text editing (repair of a file the form cannot handle)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TextCheck:
+    """Result of checking the raw text of a ``scilex.yml``."""
+
+    problems: list[str]  # readable messages; empty when the text is valid
+    unknown_keys: list[tuple[str, str | None]]  # (dotted path, suggestion)
+
+    @property
+    def valid(self) -> bool:
+        """Whether the text can be saved as is."""
+        return not self.problems
+
+
+def read_text(review: Review) -> str:
+    """Return the raw text of the review's ``scilex.yml`` (``""`` if absent)."""
+    try:
+        return review.config_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
+
+
+def check_text(text: str) -> TextCheck:
+    """Check ``text`` as a ``scilex.yml``: YAML syntax, then the schema.
+
+    Unknown keys are listed in ``unknown_keys`` with a "did you mean" hint.
+    """
+    try:
+        raw = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None)
+        where = f"line {mark.line + 1}, column {mark.column + 1}: " if mark else ""
+        reason = getattr(exc, "problem", None) or str(exc)
+        return TextCheck([f"Invalid YAML, {where}{reason}"], [])
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        return TextCheck(["The top level of scilex.yml must be a mapping."], [])
+    layer = _normalize_file_layer(copy.deepcopy(raw))
+    preset = layer.get("preset")
+    merged = base_dict(preset if isinstance(preset, str) else None)
+    _deep_merge(merged, layer)
+    try:
+        ScilexSettings.model_validate(merged)
+    except ValidationError as exc:
+        candidates = known_paths()
+        unknown = [
+            (dotted, _suggest(dotted, candidates))
+            for dotted in (
+                ".".join(str(part) for part in error["loc"])
+                for error in exc.errors()
+                if error["type"] == "extra_forbidden"
+            )
+        ]
+        return TextCheck(format_validation_error(exc, merged).splitlines(), unknown)
+    return TextCheck([], [])
+
+
+def write_text(review: Review, text: str) -> Path:
+    """Write ``text`` verbatim and atomically (comments are kept).
+
+    Raises:
+        SettingsError: If ``text`` does not pass :func:`check_text`.
+    """
+    check = check_text(text)
+    if not check.valid:
+        raise SettingsError("\n".join(check.problems))
+    target = review.config_path
+    temporary = target.with_name(target.name + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    os.replace(temporary, target)
+    return target
+
+
+def remove_unknown_keys(review: Review) -> list[str]:
+    """Rewrite the file without its unknown keys; return the removed paths.
+
+    Raises:
+        SettingsError: If the file is not valid YAML or other problems remain.
+    """
+    text = read_text(review)
+    check = check_text(text)
+    raw = yaml.safe_load(text) if text.strip() else {}
+    if not isinstance(raw, dict) or check.problems and not check.unknown_keys:
+        raise SettingsError("\n".join(check.problems))
+    removed = []
+    for dotted, _ in check.unknown_keys:
+        *parents, last = dotted.split(".")
+        node: Any = raw
+        for key in parents:
+            node = node.get(key) if isinstance(node, dict) else None
+        if isinstance(node, dict) and last in node:
+            del node[last]
+            removed.append(dotted)
+    temporary = review.config_path.with_name(review.config_path.name + ".tmp")
+    temporary.write_text(
+        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+    os.replace(temporary, review.config_path)
+    return removed
 
 
 # ---------------------------------------------------------------------------

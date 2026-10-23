@@ -147,3 +147,12 @@ def test_origins(review):
     assert config_editor.origin_of("filters.require", known) == "preset"
     assert config_editor.origin_of("report.prisma", known) == "default"
     assert config_editor.origin_of("citations", known) == "file"
+
+
+def test_check_text_reports_yaml_line_and_unknown_keys():
+    bad = config_editor.check_text("name: x\nsearch:\n  keywords: [[a]\n")
+    assert not bad.valid and "line" in bad.problems[0]
+    unknown = config_editor.check_text(
+        "name: x\nsearch:\n  keywords: [[a]]\n  yearz: [2024]\n  apis: [Arxiv]\n"
+    )
+    assert ("search.yearz", "search.years") in unknown.unknown_keys
