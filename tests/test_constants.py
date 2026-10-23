@@ -6,10 +6,16 @@ import pytest
 
 from scilex.constants import (
     MISSING_VALUE,
+    doi_to_url,
+    extract_year,
     is_missing,
     is_valid,
+    normalize_doi,
     normalize_path_component,
+    parse_archive_apis,
     safe_str,
+    split_semicolon_field,
+    strip_doi_prefix,
 )
 
 
@@ -132,3 +138,43 @@ class TestNormalizePathComponent:
 
     def test_empty_string(self):
         assert normalize_path_component("") == ""
+
+
+class TestSharedFieldHelpers:
+    """Tests for the DOI, year and ;-field helpers shared across modules."""
+
+    def test_strip_doi_prefix_keeps_case(self):
+
+        assert strip_doi_prefix("https://dx.doi.org/10.1/ABC") == "10.1/ABC"
+        assert strip_doi_prefix("doi:10.1/X") == "10.1/X"
+        assert strip_doi_prefix("NA") is None
+
+    def test_normalize_doi_lowercases(self):
+
+        assert normalize_doi("http://doi.org/10.1/ABC") == "10.1/abc"
+
+    def test_doi_to_url(self):
+
+        assert doi_to_url("10.1/X") == "https://doi.org/10.1/X"
+        assert doi_to_url("https://dx.doi.org/10.1/X") == "https://doi.org/10.1/X"
+        assert doi_to_url("https://example.org/paper") == "https://example.org/paper"
+        assert doi_to_url(None) is None
+
+    def test_extract_year(self):
+
+        assert extract_year("2023-05-01") == 2023
+        assert extract_year("{'Year': '1999'}") == 1999
+        assert extract_year(1895) == 1895
+        assert extract_year(123) is None
+        assert extract_year("no year") is None
+        assert extract_year(float("nan")) is None
+
+    def test_split_semicolon_field(self):
+
+        assert split_semicolon_field(" A ; ;B ") == ["A", "B"]
+        assert split_semicolon_field("NA") == []
+
+    def test_parse_archive_apis(self):
+
+        assert parse_archive_apis("OpenAlex*;HAL; ") == ["OpenAlex", "HAL"]
+        assert parse_archive_apis(None) == []

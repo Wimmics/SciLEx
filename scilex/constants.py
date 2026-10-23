@@ -212,7 +212,102 @@ def normalize_doi(doi) -> str | None:
         >>> normalize_doi("NA") is None
         True
     """
+    stripped = strip_doi_prefix(doi)
+    return stripped.lower() if stripped else None
+
+
+def strip_doi_prefix(doi) -> str | None:
+    """Remove the doi.org / ``doi:`` prefix from a DOI, keeping its case.
+
+    Use this where the stored value must stay as the API returned it;
+    use ``normalize_doi`` for comparisons and cache keys.
+
+    Args:
+        doi: DOI string in any common form (may be None, NaN or MISSING_VALUE)
+
+    Returns:
+        The bare DOI, or None if the value is missing/empty.
+    """
     if is_missing(doi):
         return None
-    cleaned = _DOI_PREFIX_PATTERN.sub("", str(doi).strip()).strip().lower()
-    return cleaned or None
+    stripped = _DOI_PREFIX_PATTERN.sub("", str(doi).strip()).strip()
+    return stripped or None
+
+
+def doi_to_url(doi) -> str | None:
+    """Build a resolvable ``https://doi.org/`` URL from a DOI.
+
+    A value that is already a non-doi.org URL is returned unchanged.
+
+    Args:
+        doi: DOI string in any common form
+
+    Returns:
+        The URL, or None if the DOI is missing.
+    """
+    stripped = strip_doi_prefix(doi)
+    if stripped is None:
+        return None
+    if stripped.lower().startswith(("http://", "https://")):
+        return stripped
+    return f"https://doi.org/{stripped}"
+
+
+_YEAR_PATTERN = re.compile(r"\b(1[89]\d{2}|20\d{2})\b")
+
+
+def extract_year(value) -> int | None:
+    """Extract a publication year (1800-2099) from a date-like value.
+
+    Args:
+        value: int year, ISO date, free-text date, or missing value
+
+    Returns:
+        The year as int, or None when no plausible year is found.
+
+    Examples:
+        >>> extract_year("2023-05-01")
+        2023
+        >>> extract_year("NA") is None
+        True
+    """
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value if 1800 <= value <= 2099 else None
+    if is_missing(value):
+        return None
+    match = _YEAR_PATTERN.search(str(value))
+    return int(match.group(1)) if match else None
+
+
+def split_semicolon_field(value) -> list[str]:
+    """Split a ``;``-joined field (authors, tags, keywords) into clean parts.
+
+    Args:
+        value: the joined string, or a missing value
+
+    Returns:
+        Stripped, non-empty parts in their original order.
+    """
+    if is_missing(value):
+        return []
+    return [part.strip() for part in str(value).split(";") if part.strip()]
+
+
+def parse_archive_apis(value) -> list[str]:
+    """Return the API names from an ``archive`` value like ``"OpenAlex*;HAL"``.
+
+    The ``*`` marking the winning source during deduplication is removed.
+
+    Args:
+        value: the archive column value, or a missing value
+
+    Returns:
+        API names in their original order.
+    """
+    return [
+        name
+        for name in (
+            part.replace("*", "").strip() for part in split_semicolon_field(value)
+        )
+        if name
+    ]
