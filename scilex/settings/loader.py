@@ -289,6 +289,69 @@ def load_settings(
 # ---------------------------------------------------------------------------
 
 
+def _add_non_default_keys(
+    main_config: dict, quality_filters: dict, settings: ScilexSettings
+) -> None:
+    """Emit the keys that legacy code reads with ``.get(key, DEFAULT)``.
+
+    They are added only when they differ from their default, so a config without
+    them yields exactly the historical legacy dictionary.
+    """
+    defaults = ScilexSettings.model_validate(
+        {"name": "_", "search": {"keywords": [["_"]], "years": [2000], "apis": ["_"]}}
+    )
+    enrichment, default_enrichment = settings.enrichment, defaults.enrichment
+    quality_pairs = (
+        (
+            "canonical_citation_discrepancy_threshold",
+            settings.citations.discrepancy_threshold,
+            defaults.citations.discrepancy_threshold,
+        ),
+        (
+            "recover_missing_dois",
+            enrichment.recover_dois,
+            default_enrichment.recover_dois,
+        ),
+        (
+            "doi_recovery_min_similarity",
+            enrichment.doi_recovery_min_similarity,
+            default_enrichment.doi_recovery_min_similarity,
+        ),
+        ("enrich_unpaywall", enrichment.unpaywall, default_enrichment.unpaywall),
+        (
+            "enrich_author_hindex",
+            enrichment.author_hindex,
+            default_enrichment.author_hindex,
+        ),
+        (
+            "use_venue_ranking",
+            settings.ranking.venue_ranking,
+            defaults.ranking.venue_ranking,
+        ),
+    )
+    for legacy_key, value, default in quality_pairs:
+        if value != default:
+            quality_filters[legacy_key] = value
+    if settings.report.prisma != defaults.report.prisma:
+        main_config["generate_prisma_report"] = settings.report.prisma
+    if settings.search.since is not None:
+        main_config["since"] = settings.search.since
+    if settings.llm_screening != defaults.llm_screening:
+        main_config["llm_screening"] = settings.llm_screening.model_dump()
+
+
+def keys_to_legacy(keys: KeysSettings | None) -> dict:
+    """Convert validated keys to the legacy ``api_config`` dictionary."""
+    if keys is None:
+        return {}
+    api_config: dict[str, Any] = {
+        name: copy.deepcopy(block) for name, block in (keys.model_extra or {}).items()
+    }
+    if keys.rate_limits is not None:
+        api_config["rate_limits"] = copy.deepcopy(keys.rate_limits)
+    return api_config
+
+
 def to_legacy(
     settings: ScilexSettings, keys: KeysSettings | None = None
 ) -> tuple[dict, dict]:
@@ -360,13 +423,6 @@ def to_legacy(
         main_config["collect"] = False
     if settings.collect.vpn is not None:
         main_config["vpn"] = copy.deepcopy(settings.collect.vpn)
+    _add_non_default_keys(main_config, quality_filters, settings)
 
-    api_config: dict[str, Any] = {}
-    if keys is not None:
-        api_config = {
-            name: copy.deepcopy(block)
-            for name, block in {**(keys.model_extra or {})}.items()
-        }
-        if keys.rate_limits is not None:
-            api_config["rate_limits"] = copy.deepcopy(keys.rate_limits)
-    return main_config, api_config
+    return main_config, keys_to_legacy(keys)

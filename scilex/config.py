@@ -26,6 +26,8 @@ from pathlib import Path
 import yaml
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR, get_default_quality_filters
+from scilex.settings.advanced import merge_advanced_config
+from scilex.settings.resolve import resolve_legacy_configs
 
 logger = logging.getLogger(__name__)
 
@@ -52,39 +54,38 @@ class SciLExConfig:
         return merged
 
     @classmethod
-    def from_files(cls, config_dir: Path | None = None) -> "SciLExConfig":
-        """Load configuration from YAML files on disk.
+    def from_files(
+        cls,
+        config_dir: Path | None = None,
+        config_path: str | Path | None = None,
+        keys_path: str | Path | None = None,
+    ) -> "SciLExConfig":
+        """Load configuration from files on disk.
 
-        Reads scilex.config.yml, api.config.yml, and optionally
-        scilex.advanced.yml for advanced overrides.
+        Without arguments the files are discovered by
+        :func:`scilex.settings.resolve.resolve_legacy_configs` (``scilex.yml``
+        first, legacy files as a fallback).
 
         Args:
-            config_dir: Directory containing config files.
-                        Defaults to the scilex/ package directory.
+            config_dir: Force the legacy format: read ``scilex.config.yml``,
+                ``api.config.yml`` and the optional ``scilex.advanced.yml``
+                from this directory.
+            config_path: Explicit ``scilex.yml`` (``--config``).
+            keys_path: Explicit ``keys.yml`` (``--keys``).
 
         Returns:
             SciLExConfig with all configs loaded and merged.
         """
         if config_dir is None:
-            config_dir = _PACKAGE_DIR
+            return cls(*resolve_legacy_configs(config_path, keys_path))
 
         config_dir = Path(config_dir)
-
-        # Load main config
-        main_path = config_dir / "scilex.config.yml"
-        main_config = _load_yaml(main_path)
-
-        # Load API config
-        api_path = config_dir / "api.config.yml"
-        api_config = _load_yaml(api_path)
-
-        # Merge optional advanced config
+        main_config = _load_yaml(config_dir / "scilex.config.yml")
+        api_config = _load_yaml(config_dir / "api.config.yml")
         advanced_path = config_dir / "scilex.advanced.yml"
         if advanced_path.is_file():
-            advanced_config = _load_yaml(advanced_path) or {}
-            _merge_advanced_config(main_config, advanced_config)
+            merge_advanced_config(main_config, _load_yaml(advanced_path) or {})
             logger.info("Loaded advanced config from %s", advanced_path)
-
         return cls(main_config, api_config)
 
     @classmethod
@@ -113,13 +114,23 @@ class SciLExConfig:
         if collection is None:
             return cls.from_files(config_dir)
 
+        discovered = None
+        if config_dir is None:
+            try:
+                discovered = resolve_legacy_configs()
+            except FileNotFoundError:
+                discovered = None
         config_dir = Path(config_dir) if config_dir else _PACKAGE_DIR
 
         if os.path.isabs(collection) or os.sep in collection or "/" in collection:
             collect_dir = collection
         else:
             try:
-                current_main = _load_yaml(config_dir / "scilex.config.yml")
+                current_main = (
+                    discovered[0]
+                    if discovered
+                    else _load_yaml(config_dir / "scilex.config.yml")
+                )
                 output_dir = current_main.get("output_dir", DEFAULT_OUTPUT_DIR)
             except FileNotFoundError:
                 output_dir = DEFAULT_OUTPUT_DIR
@@ -136,10 +147,14 @@ class SciLExConfig:
 
         advanced_path = config_dir / "scilex.advanced.yml"
         if advanced_path.is_file():
-            _merge_advanced_config(main_config, _load_yaml(advanced_path))
+            merge_advanced_config(main_config, _load_yaml(advanced_path))
 
         try:
-            api_config = _load_yaml(config_dir / "api.config.yml")
+            api_config = (
+                discovered[1]
+                if discovered
+                else _load_yaml(config_dir / "api.config.yml")
+            )
         except FileNotFoundError:
             api_config = {}
 
@@ -209,40 +224,5 @@ def _load_yaml(file_path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
-    """Recursively merge ``override`` into ``base`` (mutates and returns base).
-
-    Nested dicts are merged key by key; any other value in ``override``
-    replaces the one in ``base``. Values copied from ``override`` are
-    deep-copied so the result never aliases the override.
-    """
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict):
-            _deep_merge(base[key], value)
-        else:
-            base[key] = copy.deepcopy(value)
-    return base
-
-
-def _merge_advanced_config(main_config: dict, advanced_config: dict | None) -> None:
-    """Merge advanced config into main config (mutates main_config).
-
-    Precedence:
-      * ``quality_filters``: deep-merged, advanced values override the main
-        config's, recursively (a partial ``relevance_weights`` override keeps
-        the other weights). A null ``quality_filters`` on either side is
-        treated as empty.
-      * Every other key: taken from the advanced config only if absent from
-        the main config (main always wins).
-
-    Args:
-        main_config: Main configuration to merge into.
-        advanced_config: Advanced overrides to apply (None is a no-op).
-    """
-    for key, value in (advanced_config or {}).items():
-        if key == "quality_filters":
-            main_config["quality_filters"] = _deep_merge(
-                main_config.get("quality_filters") or {}, value or {}
-            )
-        elif key not in main_config:
-            main_config[key] = value
+# Backward-compatible alias (tests and external code import the old name).
+_merge_advanced_config = merge_advanced_config

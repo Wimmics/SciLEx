@@ -45,21 +45,34 @@ def load_yaml_config(file_path):
 
 def load_all_configs(config_files):
     """
-    Load multiple YAML configurations based on a dictionary of file paths.
+    Load configurations by name.
 
-    Config files are resolved relative to the scilex package directory
-    (where scilex.config.yml and api.config.yml live).
+    ``main_config`` and ``api_config`` are resolved through
+    :func:`scilex.settings.resolve.resolve_legacy_configs` (``scilex.yml`` /
+    ``keys.yml`` first, legacy files as a fallback); the ``config_files`` paths
+    given for those two names are ignored. Any other name is read as a YAML file
+    relative to the scilex package directory.
 
     Args:
-        config_files (dict): A dictionary where keys are config names and values are relative file paths.
+        config_files (dict): Config names mapped to relative file paths.
 
     Returns:
         dict: A dictionary containing loaded configurations keyed by their names.
     """
-    # Resolve relative to the scilex/ package directory (parent of crawlers/)
-    package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    from scilex.settings.resolve import resolve_legacy_configs, resolve_main_config
 
+    package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    resolved = {}
+    if "api_config" in config_files:
+        main_config, api_config = resolve_legacy_configs()
+        resolved = {"main_config": main_config, "api_config": api_config}
+    elif "main_config" in config_files:
+        resolved = {"main_config": resolve_main_config()}
     return {
-        key: load_yaml_config(os.path.join(package_dir, path))
+        key: (
+            resolved[key]
+            if key in resolved
+            else load_yaml_config(os.path.join(package_dir, path))
+        )
         for key, path in config_files.items()
     }

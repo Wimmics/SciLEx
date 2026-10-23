@@ -7,6 +7,7 @@ typo is reported instead of being silently ignored.
 import copy
 import difflib
 import re
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import (
@@ -22,11 +23,18 @@ from scilex.config_defaults import (
     DEFAULT_APPLY_CITATION_FILTER,
     DEFAULT_APPLY_RELEVANCE_RANKING,
     DEFAULT_BYPASS_ITEM_TYPES,
+    DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
     DEFAULT_COLLECT_ENABLED,
+    DEFAULT_DOI_RECOVERY_MIN_SIMILARITY,
+    DEFAULT_ENRICH_AUTHOR_HINDEX,
+    DEFAULT_ENRICH_UNPAYWALL,
+    DEFAULT_GENERATE_PRISMA_REPORT,
     DEFAULT_GENERATE_QUALITY_REPORT,
     DEFAULT_MAX_PAPERS,
+    DEFAULT_RECOVER_MISSING_DOIS,
     DEFAULT_RELEVANCE_WEIGHTS,
     DEFAULT_TRACK_DUPLICATE_SOURCES,
+    DEFAULT_USE_VENUE_RANKING,
     DEFAULT_VALIDATE_YEAR_RANGE,
     MAX_ABSTRACT_WORDS,
     MIN_ABSTRACT_WORDS,
@@ -53,6 +61,22 @@ class SearchSettings(BaseModel):
     apis: list[str]
     max_articles_per_query: int | None = None
     semantic_scholar_mode: Literal["regular", "bulk"] = "regular"
+    since: str | None = None
+
+    @field_validator("since", mode="before")
+    @classmethod
+    def _normalize_since(cls, value: Any) -> Any:
+        """Accept a YAML date or a ``YYYY-MM-DD`` string; reject anything else."""
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            return value.date().isoformat()
+        if isinstance(value, date):
+            return value.isoformat()
+        try:
+            return datetime.strptime(str(value).strip(), "%Y-%m-%d").date().isoformat()
+        except ValueError as exc:
+            raise ValueError("expected a date in YYYY-MM-DD format") from exc
 
     @field_validator("keywords", mode="before")
     @classmethod
@@ -145,6 +169,9 @@ class CitationsSettings(BaseModel):
     fallbacks: list[Literal["semantic_scholar", "openalex"]] = Field(
         default_factory=lambda: ["semantic_scholar", "openalex"]
     )
+    discrepancy_threshold: float = Field(
+        default=DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD, ge=0
+    )
 
 
 class RankingSettings(BaseModel):
@@ -158,6 +185,7 @@ class RankingSettings(BaseModel):
         default_factory=lambda: dict(DEFAULT_RELEVANCE_WEIGHTS)
     )
     itemtype_weights: dict[str, bool] = Field(default_factory=dict)
+    venue_ranking: bool = DEFAULT_USE_VENUE_RANKING
 
     @field_validator("weights")
     @classmethod
@@ -199,6 +227,12 @@ class EnrichmentSettings(BaseModel):
     model_config = _STRICT
 
     huggingface: HuggingFaceSettings = Field(default_factory=HuggingFaceSettings)
+    recover_dois: bool = DEFAULT_RECOVER_MISSING_DOIS
+    doi_recovery_min_similarity: float = Field(
+        default=DEFAULT_DOI_RECOVERY_MIN_SIMILARITY, ge=0, le=1
+    )
+    unpaywall: bool = DEFAULT_ENRICH_UNPAYWALL
+    author_hindex: bool = DEFAULT_ENRICH_AUTHOR_HINDEX
 
 
 class ReportSettings(BaseModel):
@@ -208,6 +242,7 @@ class ReportSettings(BaseModel):
 
     quality_report: bool = DEFAULT_GENERATE_QUALITY_REPORT
     track_duplicates: bool = DEFAULT_TRACK_DUPLICATE_SOURCES
+    prisma: bool = DEFAULT_GENERATE_PRISMA_REPORT
 
 
 class CollectSettings(BaseModel):
@@ -217,6 +252,21 @@ class CollectSettings(BaseModel):
 
     enabled: bool = DEFAULT_COLLECT_ENABLED
     vpn: dict[str, Any] | None = None
+
+
+class LLMScreeningSettings(BaseModel):
+    """Optional LLM relevance screening (OpenRouter), see ``llm_relevance.py``."""
+
+    model_config = _STRICT
+
+    enabled: bool = False
+    topic: str = ""
+    model: str = "openai/gpt-4o-mini"
+    threshold: float | None = None
+    max_papers: int = Field(default=500, ge=1)
+    workers: int = Field(default=4, ge=1)
+    price_input_per_m: float = Field(default=0.15, ge=0)
+    price_output_per_m: float = Field(default=0.60, ge=0)
 
 
 class ScilexSettings(BaseModel):
@@ -234,6 +284,7 @@ class ScilexSettings(BaseModel):
     enrichment: EnrichmentSettings = Field(default_factory=EnrichmentSettings)
     report: ReportSettings = Field(default_factory=ReportSettings)
     collect: CollectSettings = Field(default_factory=CollectSettings)
+    llm_screening: LLMScreeningSettings = Field(default_factory=LLMScreeningSettings)
 
 
 class KeysSettings(BaseModel):

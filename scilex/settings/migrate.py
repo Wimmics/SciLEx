@@ -1,18 +1,27 @@
 """Convert the legacy configuration files to the new ``scilex.yml`` format."""
 
 import copy
+import logging
 from pathlib import Path
 
 import yaml
 
-from scilex.config import _merge_advanced_config
 from scilex.config_defaults import (
+    DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
+    DEFAULT_DOI_RECOVERY_MIN_SIMILARITY,
+    DEFAULT_ENRICH_AUTHOR_HINDEX,
+    DEFAULT_ENRICH_UNPAYWALL,
+    DEFAULT_GENERATE_PRISMA_REPORT,
     DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
+    DEFAULT_RECOVER_MISSING_DOIS,
     DEFAULT_RELEVANCE_WEIGHTS,
+    DEFAULT_USE_VENUE_RANKING,
     get_default_quality_filters,
 )
+from scilex.settings.advanced import merge_advanced_config
 from scilex.settings.schema import REQUIRE_CHOICES, default_settings_dict
 
+logger = logging.getLogger(__name__)
 _DEFAULT_NAME = "my_review"
 
 
@@ -53,7 +62,7 @@ def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -
         A dict ready to be dumped as ``scilex.yml``.
     """
     merged = copy.deepcopy(main_config)
-    _merge_advanced_config(merged, advanced_config)
+    merge_advanced_config(merged, advanced_config)
     defaults = default_settings_dict()
     qf = {**get_default_quality_filters(), **(merged.get("quality_filters") or {})}
 
@@ -143,11 +152,39 @@ def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -
     )
     if itemtype_weights:
         ranking.setdefault("ranking", {})["itemtype_weights"] = itemtype_weights
+    _set_if_different(
+        ranking,
+        "ranking",
+        "venue_ranking",
+        bool(qf.get("use_venue_ranking", DEFAULT_USE_VENUE_RANKING)),
+        defaults,
+    )
     result.update(ranking)
 
+    enrichment: dict = {}
     huggingface = _huggingface_block(merged.get("hf_enrichment"), defaults)
     if huggingface is not None:
-        result["enrichment"] = {"huggingface": huggingface}
+        enrichment["huggingface"] = huggingface
+    for new_key, legacy_key, default in (
+        ("recover_dois", "recover_missing_dois", DEFAULT_RECOVER_MISSING_DOIS),
+        (
+            "doi_recovery_min_similarity",
+            "doi_recovery_min_similarity",
+            DEFAULT_DOI_RECOVERY_MIN_SIMILARITY,
+        ),
+        ("unpaywall", "enrich_unpaywall", DEFAULT_ENRICH_UNPAYWALL),
+        ("author_hindex", "enrich_author_hindex", DEFAULT_ENRICH_AUTHOR_HINDEX),
+    ):
+        value = qf.get(legacy_key, default)
+        if value != default:
+            enrichment[new_key] = value
+    if enrichment:
+        result["enrichment"] = enrichment
+    if qf.get("unpaywall_email"):
+        logger.warning(
+            "quality_filters.unpaywall_email cannot be stored in scilex.yml: "
+            "put it in keys.yml under Unpaywall.email."
+        )
 
     report: dict = {}
     _set_if_different(
@@ -156,7 +193,29 @@ def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -
     _set_if_different(
         report, "report", "track_duplicates", qf["track_duplicate_sources"], defaults
     )
+    prisma = merged.get("generate_prisma_report", DEFAULT_GENERATE_PRISMA_REPORT)
+    if prisma != defaults["report"]["prisma"]:
+        report.setdefault("report", {})["prisma"] = prisma
     result.update(report)
+
+    threshold = qf.get(
+        "canonical_citation_discrepancy_threshold",
+        DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
+    )
+    if threshold != defaults["citations"]["discrepancy_threshold"]:
+        result.setdefault("citations", {})["discrepancy_threshold"] = threshold
+    if merged.get("since"):
+        result["search"]["since"] = str(merged["since"])
+    llm_block = merged.get("llm_screening")
+    if isinstance(llm_block, dict):
+        llm_defaults = defaults["llm_screening"]
+        changed = {
+            key: value
+            for key, value in llm_block.items()
+            if llm_defaults.get(key, object()) != value
+        }
+        if changed:
+            result["llm_screening"] = changed
 
     collect: dict = {}
     if merged.get("collect") is False:
