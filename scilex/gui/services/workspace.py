@@ -268,8 +268,21 @@ class Workspace:
         ``output_dir`` is rewritten as an absolute path so the pipeline writes
         into the review folder whatever the app's working directory.
         """
-        config = SciLExConfig.from_files(
-            config_path=review.config_path, keys_path=keys_path
-        )
+        from scilex.gui.services import keys_editor
+
+        # Keys come only from the file the API keys screen shows (plus the
+        # SCILEX_<API>_<FIELD> overrides): never the legacy api.config.yml.
+        chosen = keys_path if keys_path is not None else keys_editor.keys_path()
+        if Path(chosen).is_file():
+            config = SciLExConfig.from_files(
+                config_path=review.config_path, keys_path=chosen
+            )
+        else:
+            with tempfile.TemporaryDirectory() as tmp:
+                empty_keys = Path(tmp) / "keys.yml"
+                empty_keys.write_text("{}\n", encoding="utf-8")
+                config = SciLExConfig.from_files(
+                    config_path=review.config_path, keys_path=empty_keys
+                )
         config.main["output_dir"] = str(review.output_root)
         return config

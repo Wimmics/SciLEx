@@ -160,6 +160,41 @@ def render(ctx: AppContext, review: Review) -> None:
     )
     show_history()
 
+    def confirm_zotero() -> None:
+        """Ask before anything is sent to Zotero."""
+        chosen = scope.value
+        try:
+            settings = exports.zotero_settings(Workspace.load_config(review))
+            count = len(exports.select_papers(review, chosen))
+        except Exception as exc:
+            show_error("Cannot prepare the Zotero push", exc)
+            return
+        if settings is None:
+            show_error(
+                "Cannot prepare the Zotero push",
+                ValueError("Zotero user ID and API key are missing."),
+                expected=True,
+            )
+            return
+        with ui.dialog() as dialog, ui.card().mark("zotero-confirm"):
+            ui.label(
+                f"Push {count} papers to the Zotero {settings.user_mode} library "
+                f'{settings.user_id} (collection "{review.name}")?'
+            )
+            with ui.row().classes("justify-end w-full"):
+                ui.button("Cancel", on_click=dialog.close).props("flat").mark(
+                    "zotero-cancel"
+                )
+
+                def push() -> None:
+                    dialog.close()
+                    start(exports.ZOTERO)
+
+                ui.button("Push", on_click=push).props("color=negative").mark(
+                    "zotero-push"
+                )
+        dialog.open()
+
     def start(fmt: str) -> None:
         chosen = scope.value
 
@@ -183,4 +218,7 @@ def render(ctx: AppContext, review: Review) -> None:
             show_error("Cannot start the export", exc)
 
     for fmt, button in buttons.items():
-        button.on_click(lambda fmt=fmt: start(fmt))
+        if fmt == exports.ZOTERO:
+            button.on_click(confirm_zotero)
+        else:
+            button.on_click(lambda fmt=fmt: start(fmt))
