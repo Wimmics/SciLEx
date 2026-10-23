@@ -1,0 +1,32 @@
+# SciLEx domain template: social-sciences
+# Social sciences and humanities. OpenAlex, HAL and OpenAIRE cover books and non-English output; books and chapters kept, strict citation filter off.
+# Edit keywords, years and collect_name, then run: scilex-collect
+keywords:
+  - ["social network", "inequality", "public policy"]
+  - ["qualitative", "survey", "case study"]
+bonus_keywords: []
+years:
+  - 2022
+  - 2023
+  - 2024
+  - 2025
+apis:
+  - OpenAlex
+  - HAL
+  - OpenAIRE
+  - SemanticScholar
+semantic_scholar_mode: regular
+collect_name: social-sciences_review
+aggregate_get_citations: true
+quality_filters:
+  enable_itemtype_filter: true
+  allowed_item_types:
+    - journalArticle
+    - book
+    - bookSection
+    - conferencePaper
+  require_abstract: true
+  require_doi: false
+  apply_citation_filter: false
+  max_papers: 1000
+  validate_abstracts: false
