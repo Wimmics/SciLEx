@@ -1,0 +1,67 @@
+name: GUI build
+
+# Build the desktop app on each OS (PyInstaller cannot cross-compile) and
+# run the packaged executable's self-test, which catches missing modules and
+# data files that a successful build does not reveal.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["gui-v*"]
+  pull_request:
+    paths:
+      - "scilex/gui/**"
+      - "packaging/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/gui-build.yml"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            executable: dist/SciLEx.app/Contents/MacOS/SciLEx
+            artifact: SciLEx-macos.dmg
+          - os: windows-latest
+            executable: dist/SciLEx/SciLEx.exe
+            artifact: SciLEx-windows.zip
+          - os: ubuntu-22.04  # older glibc: the build runs on more distributions
+            executable: dist/SciLEx/SciLEx
+            artifact: SciLEx-linux.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --extra gui --extra build
+
+      - name: Build
+        run: uv run pyinstaller packaging/scilex-gui.spec --noconfirm --clean
+
+      - name: Self-test of the packaged app
+        shell: bash
+        run: ${{ matrix.executable }} --self-test
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: hdiutil create -volname SciLEx -srcfolder dist/SciLEx.app -ov -format UDZO ${{ matrix.artifact }}
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/SciLEx -DestinationPath ${{ matrix.artifact }}
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: tar -czf ${{ matrix.artifact }} -C dist SciLEx
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error

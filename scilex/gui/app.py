@@ -3,6 +3,7 @@
 import argparse
 import logging
 import multiprocessing
+import os
 import sys
 from collections.abc import Callable
 
@@ -54,6 +55,11 @@ def main(argv: list[str] | None = None) -> int:
     # Must come first: in the frozen app every multiprocessing worker
     # re-executes this entry point.
     multiprocessing.freeze_support()
+    # A windowed frozen app has no console: give writers somewhere to go.
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")  # noqa: SIM115
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")  # noqa: SIM115
     args = build_parser().parse_args(argv)
 
     if args.self_test:

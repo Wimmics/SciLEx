@@ -10,9 +10,9 @@ Branche : `feat/gui-desktop`, worktree `.claude/worktrees/gui-desktop`
 - [x] Étape 3 — services/jobs.py
 - [x] Étape 4 — coquille NiceGUI
 - [x] Étape 5 — --self-test
-- [ ] Étape 6 — packaging PyInstaller
-- [ ] Étape 7 — CI
-- [ ] Étape 8 — docs, ADR 0004
+- [x] Étape 6 — packaging PyInstaller
+- [x] Étape 7 — CI
+- [x] Étape 8 — docs, ADR 0004
 
 ## Notes
 
@@ -24,6 +24,17 @@ Branche : `feat/gui-desktop`, worktree `.claude/worktrees/gui-desktop`
 - `app.py` : garde `__name__ == "__main__"` seulement (pas `__mp_main__`, sinon chaque processus enfant relancerait l'app).
 - Annulation : la collecte s'arrête à la requête suivante ; l'agrégation n'est pas interruptible (le job finit « annulé » après).
 
+- Étape 6 : 1er build → self-test a détecté `rdflib` absent (aucune page ne l'importe encore) ; corrigé par `collect_submodules("scilex")` (hors `scilex.webapi`, dont la page Streamlit s'exécute à l'import) + `rdflib.plugins`. Bundle macOS : 275 Mo, self-test OK, lancement réel OK (HTTP 200, 0 erreur de log).
+- Étape 7 : Linux livré en `.tar.gz` (pas d'AppImage) en attendant le choix du moteur pywebview (GTK ou Qt).
+
+## Points ouverts (pour la suite)
+
+- Workflow CI `gui-build.yml` jamais exécuté : nécessite un push de la branche (à faire avec l'accord de l'utilisateur).
+- Vérification visuelle de la fenêtre native par l'utilisateur.
+- Linux : moteur pywebview à choisir (GTK système ou `pywebview[qt]`), puis AppImage.
+- Icône de l'application (le logo actuel est une bannière 600×150).
+- Annulation pendant l'agrégation non interruptible.
+
 ## Prochaine étape
 
-Étape 6 (spec PyInstaller, build local macOS, self-test sur le bundle). Vérification manuelle de la fenêtre native à faire par l'utilisateur.
+Fusion `--ff-only` dans `dev` après validation de l'utilisateur ; puis spec du lot 1 (Configurer + clés).
