@@ -48,7 +48,7 @@ def _resolve_collect_dir(collection_arg: str | None, src_dir: str) -> str:
     return os.path.join(output_dir, collection_arg)
 
 
-def _build_query_index(config: dict) -> dict[str, list[dict]]:
+def _build_query_index(config: dict) -> tuple[dict[str, list[dict]], list[list]]:
     """
     Reconstruct the per-API query list from a config dict.
 
