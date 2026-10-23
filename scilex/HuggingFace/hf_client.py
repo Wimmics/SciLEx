@@ -3,9 +3,10 @@
 
 This module provides a clean interface to HuggingFace Hub API for:
 - Searching models by paper title
-- Searching datasets by paper title
-- Extracting metadata from model/dataset cards
+- Searching papers (HF Daily Papers) and their linked resources
 - Caching results to avoid redundant API calls
+
+Rate limiting only applies to real network calls (never to cache hits).
 """
 
 import json
@@ -22,6 +23,9 @@ from ratelimit import limits, sleep_and_retry
 class HFCache:
     """SQLite cache for HuggingFace API responses (30-day TTL)."""
 
+    # Allowlist: table name -> key column (names kept for existing databases)
+    TABLES = {"hf_models": "paper_title", "hf_papers": "paper_query"}
+
     def __init__(self, cache_path: str = "output/hf_cache.db"):
         """Initialize cache with WAL mode for thread safety.
 
@@ -33,294 +37,139 @@ class HFCache:
         Path(cache_path).parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
+    def _connect(self) -> sqlite3.Connection:
+        """Open a connection that waits for concurrent writers."""
+        return sqlite3.connect(self.cache_path, timeout=30)
+
     def _init_db(self):
         """Create cache tables if not exist."""
-        conn = sqlite3.connect(self.cache_path)
-        conn.execute("PRAGMA journal_mode=WAL")  # WAL mode for thread safety
+        conn = self._connect()
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")  # WAL mode for thread safety
+            for table, key_column in self.TABLES.items():
+                conn.execute(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {table} (
+                        {key_column} TEXT PRIMARY KEY,
+                        result_json TEXT NOT NULL,
+                        cached_at TIMESTAMP NOT NULL,
+                        expires_at TIMESTAMP NOT NULL
+                    )
+                    """
+                )
+                # Index for faster expiration cleanup
+                conn.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_{table}_expires "
+                    f"ON {table}(expires_at)"
+                )
+            conn.commit()
+        finally:
+            conn.close()
 
-        # Create models cache table
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS hf_models (
-                paper_title TEXT PRIMARY KEY,
-                result_json TEXT NOT NULL,
-                cached_at TIMESTAMP NOT NULL,
-                expires_at TIMESTAMP NOT NULL
+    def _get(self, table: str, key: str) -> list[dict] | None:
+        """Return the cached payload for key, or None if absent/expired."""
+        key_column = self.TABLES[table]
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                f"SELECT result_json, expires_at FROM {table} WHERE {key_column} = ?",
+                (key,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if not row:
+            return None
+
+        result_json, expires_at_str = row
+        if datetime.now() >= datetime.fromisoformat(expires_at_str):
+            logging.debug(f"Cache expired for: {key}")
+            return None
+
+        return json.loads(result_json)
+
+    def _set(self, table: str, key: str, payload: list[dict], ttl_days: int):
+        """Store payload under key with a TTL in days."""
+        key_column = self.TABLES[table]
+        now = datetime.now()
+        expires_at = now + timedelta(days=ttl_days)
+        conn = self._connect()
+        try:
+            conn.execute(
+                f"""
+                INSERT OR REPLACE INTO {table}
+                ({key_column}, result_json, cached_at, expires_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    key,
+                    json.dumps(payload, default=str),
+                    now.isoformat(),
+                    expires_at.isoformat(),
+                ),
             )
-            """
-        )
-
-        # Create datasets cache table
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS hf_datasets (
-                paper_title TEXT PRIMARY KEY,
-                result_json TEXT NOT NULL,
-                cached_at TIMESTAMP NOT NULL,
-                expires_at TIMESTAMP NOT NULL
-            )
-            """
-        )
-
-        # Create papers cache table
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS hf_papers (
-                paper_query TEXT PRIMARY KEY,
-                result_json TEXT NOT NULL,
-                cached_at TIMESTAMP NOT NULL,
-                expires_at TIMESTAMP NOT NULL
-            )
-            """
-        )
-
-        # Create index for faster expiration cleanup
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_models_expires ON hf_models(expires_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_datasets_expires ON hf_datasets(expires_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_papers_expires ON hf_papers(expires_at)"
-        )
-
-        conn.commit()
-        conn.close()
+            conn.commit()
+        finally:
+            conn.close()
 
     def get_models(self, paper_title: str) -> list[dict] | None:
-        """Retrieve cached models for paper title.
-
-        Args:
-            paper_title: Academic paper title
-
-        Returns:
-            List of model metadata dictionaries, or None if expired/not found
-        """
-        conn = sqlite3.connect(self.cache_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT result_json, expires_at
-            FROM hf_models
-            WHERE paper_title = ?
-            """,
-            (paper_title,),
-        )
-
-        row = cursor.fetchone()
-        conn.close()
-
-        if not row:
-            return None
-
-        result_json, expires_at_str = row
-
-        # Check expiration
-        expires_at = datetime.fromisoformat(expires_at_str)
-        if datetime.now() >= expires_at:
-            logging.debug(f"Cache expired for: {paper_title}")
-            return None
-
-        # Return cached results
-        return json.loads(result_json)
+        """Retrieve cached models for a key, or None if expired/not found."""
+        return self._get("hf_models", paper_title)
 
     def cache_models(self, paper_title: str, models: list[dict], ttl_days: int = 30):
-        """Cache models with configurable TTL.
-
-        Args:
-            paper_title: Academic paper title
-            models: List of model metadata dictionaries
-            ttl_days: Time-to-live in days (default: 30)
-        """
-        conn = sqlite3.connect(self.cache_path)
-
-        now = datetime.now()
-        expires_at = now + timedelta(days=ttl_days)
-
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO hf_models
-            (paper_title, result_json, cached_at, expires_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (paper_title, json.dumps(models), now.isoformat(), expires_at.isoformat()),
-        )
-
-        conn.commit()
-        conn.close()
-
-    def get_datasets(self, paper_title: str) -> list[dict] | None:
-        """Retrieve cached datasets for paper title.
-
-        Args:
-            paper_title: Academic paper title
-
-        Returns:
-            List of dataset metadata dictionaries, or None if expired/not found
-        """
-        conn = sqlite3.connect(self.cache_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT result_json, expires_at
-            FROM hf_datasets
-            WHERE paper_title = ?
-            """,
-            (paper_title,),
-        )
-
-        row = cursor.fetchone()
-        conn.close()
-
-        if not row:
-            return None
-
-        result_json, expires_at_str = row
-
-        # Check expiration
-        expires_at = datetime.fromisoformat(expires_at_str)
-        if datetime.now() >= expires_at:
-            logging.debug(f"Cache expired for: {paper_title}")
-            return None
-
-        # Return cached results
-        return json.loads(result_json)
-
-    def cache_datasets(
-        self, paper_title: str, datasets: list[dict], ttl_days: int = 30
-    ):
-        """Cache datasets with configurable TTL.
-
-        Args:
-            paper_title: Academic paper title
-            datasets: List of dataset metadata dictionaries
-            ttl_days: Time-to-live in days (default: 30)
-        """
-        conn = sqlite3.connect(self.cache_path)
-
-        now = datetime.now()
-        expires_at = now + timedelta(days=ttl_days)
-
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO hf_datasets
-            (paper_title, result_json, cached_at, expires_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                paper_title,
-                json.dumps(datasets),
-                now.isoformat(),
-                expires_at.isoformat(),
-            ),
-        )
-
-        conn.commit()
-        conn.close()
+        """Cache models with configurable TTL (default: 30 days)."""
+        self._set("hf_models", paper_title, models, ttl_days)
 
     def get_papers(self, query: str) -> list[dict] | None:
-        """Retrieve cached papers for query (title or paper ID).
-
-        Args:
-            query: Paper title or identifier to search for
-
-        Returns:
-            List of paper metadata dictionaries, or None if expired/not found
-        """
-        conn = sqlite3.connect(self.cache_path)
-        cursor = conn.cursor()
-
-        cursor.execute(
-            """
-            SELECT result_json, expires_at
-            FROM hf_papers
-            WHERE paper_query = ?
-            """,
-            (query,),
-        )
-
-        row = cursor.fetchone()
-        conn.close()
-
-        if not row:
-            return None
-
-        result_json, expires_at = row
-
-        # Check expiration
-        expires_at_dt = datetime.fromisoformat(expires_at)
-        if datetime.now() > expires_at_dt:
-            return None
-
-        return json.loads(result_json)
+        """Retrieve cached papers for a key, or None if expired/not found."""
+        return self._get("hf_papers", query)
 
     def cache_papers(self, query: str, papers: list[dict], ttl_days: int = 30):
-        """Cache papers with configurable TTL.
-
-        Args:
-            query: Paper title or identifier used for search
-            papers: List of paper metadata dictionaries
-            ttl_days: Time-to-live in days (default: 30)
-        """
-        conn = sqlite3.connect(self.cache_path)
-
-        now = datetime.now()
-        expires_at = now + timedelta(days=ttl_days)
-
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO hf_papers
-            (paper_query, result_json, cached_at, expires_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (
-                query,
-                json.dumps(papers),
-                now.isoformat(),
-                expires_at.isoformat(),
-            ),
-        )
-
-        conn.commit()
-        conn.close()
+        """Cache papers with configurable TTL (default: 30 days)."""
+        self._set("hf_papers", query, papers, ttl_days)
 
     def cleanup_expired(self):
         """Remove expired cache entries."""
-        conn = sqlite3.connect(self.cache_path)
-
         now = datetime.now().isoformat()
+        deleted_counts = {}
+        conn = self._connect()
+        try:
+            for table in self.TABLES:
+                cursor = conn.execute(
+                    f"DELETE FROM {table} WHERE expires_at < ?", (now,)
+                )
+                deleted_counts[table] = cursor.rowcount
+            conn.commit()
+        finally:
+            conn.close()
 
-        # Clean models
-        cursor = conn.execute(
-            "DELETE FROM hf_models WHERE expires_at < ?",
-            (now,),
-        )
-        models_deleted = cursor.rowcount
-
-        # Clean datasets
-        cursor = conn.execute(
-            "DELETE FROM hf_datasets WHERE expires_at < ?",
-            (now,),
-        )
-        datasets_deleted = cursor.rowcount
-
-        # Clean papers
-        cursor = conn.execute(
-            "DELETE FROM hf_papers WHERE expires_at < ?",
-            (now,),
-        )
-        papers_deleted = cursor.rowcount
-
-        conn.commit()
-        conn.close()
-
-        if models_deleted + datasets_deleted + papers_deleted > 0:
+        if sum(deleted_counts.values()) > 0:
             logging.info(
-                f"Cleaned {models_deleted} model + {datasets_deleted} dataset + {papers_deleted} paper cache entries"
+                f"Cleaned {deleted_counts['hf_models']} model + "
+                f"{deleted_counts['hf_papers']} paper cache entries"
             )
+
+
+@sleep_and_retry
+@limits(calls=5, period=1)  # 5 calls per second (HF Hub default)
+def _throttle() -> None:
+    """Block until a network call is allowed (cache hits never call this)."""
+
+
+def _normalize_cache_key(query: str, limit: int) -> str:
+    """Normalize a query (strip, lowercase, collapse whitespace) and add limit."""
+    return f"{' '.join(query.lower().split())}|limit={limit}"
+
+
+def _card_data_to_dict(card_data) -> dict:
+    """Convert huggingface_hub CardData (or None) to a JSON-serializable dict."""
+    if card_data is None:
+        return {}
+    if isinstance(card_data, dict):
+        return card_data
+    if hasattr(card_data, "to_dict"):
+        return card_data.to_dict()
+    return {}
 
 
 class HFClient:
@@ -332,6 +181,8 @@ class HFClient:
         cache: HFCache instance for persistent caching
         cache_ttl_days: Cache time-to-live in days
     """
+
+    REST_BASE_URL = "https://huggingface.co/api"
 
     def __init__(
         self,
@@ -351,14 +202,34 @@ class HFClient:
         self.cache = HFCache(cache_path)
         self.cache_ttl_days = cache_ttl_days
 
-    @sleep_and_retry
-    @limits(calls=5, period=1)  # 5 calls per second (HF Hub default)
+    def _rest_get(self, path: str, params: dict | None = None):
+        """Rate-limited GET on the HF REST API; returns parsed JSON.
+
+        Raises:
+            requests.exceptions.RequestException: On network/HTTP errors.
+        """
+        _throttle()
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        response = requests.get(
+            f"{self.REST_BASE_URL}/{path}",
+            params=params,
+            headers=headers,
+            timeout=30,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def _hub_call(self, function, *args, **kwargs):
+        """Rate-limited call into huggingface_hub."""
+        _throttle()
+        return function(*args, **kwargs)
+
     def search_models_by_title(self, paper_title: str, limit: int = 10) -> list[dict]:
         """Search HuggingFace models by paper title.
 
         Strategy:
         1. Check cache first (30-day TTL)
-        2. If cache miss, query HF Hub API
+        2. If cache miss, query HF Hub API (rate-limited)
         3. Cache results before returning
 
         Args:
@@ -368,83 +239,33 @@ class HFClient:
         Returns:
             List of model metadata dictionaries
         """
-        # Check cache
-        cached = self.cache.get_models(paper_title)
+        cache_key = _normalize_cache_key(paper_title, limit)
+        cached = self.cache.get_models(cache_key)
         if cached is not None:
-            logging.debug(f"💾 Cache hit for models: {paper_title[:50]}...")
+            logging.debug(f"Cache hit for models: {paper_title[:50]}...")
             return cached
 
-        # API call (rate-limited)
-        logging.debug(f"🔗 API call for models: {paper_title[:50]}...")
+        logging.debug(f"API call for models: {paper_title[:50]}...")
         try:
-            # Use HfApi.list_models() with search parameter
             models = list(
-                self.api.list_models(
-                    search=paper_title, limit=limit, sort="downloads"
+                self._hub_call(
+                    self.api.list_models,
+                    search=paper_title,
+                    limit=limit,
+                    sort="downloads",
                 )
             )
-
-            # Convert to dict format
             results = [self._model_to_dict(m) for m in models]
-
-            # Cache results
-            self.cache.cache_models(paper_title, results, ttl_days=self.cache_ttl_days)
-
+            self.cache.cache_models(cache_key, results, ttl_days=self.cache_ttl_days)
             return results
         except Exception as e:
             logging.error(f"HF API error for models: {e}")
             return []
 
-    @sleep_and_retry
-    @limits(calls=5, period=1)
-    def search_datasets_by_title(self, paper_title: str, limit: int = 10) -> list[dict]:
-        """Search HuggingFace datasets by paper title.
-
-        Similar strategy to search_models_by_title but for datasets.
-
-        Args:
-            paper_title: Academic paper title to search for
-            limit: Maximum datasets to return (default: 10)
-
-        Returns:
-            List of dataset metadata dictionaries
-        """
-        # Check cache
-        cached = self.cache.get_datasets(paper_title)
-        if cached is not None:
-            logging.debug(f"💾 Cache hit for datasets: {paper_title[:50]}...")
-            return cached
-
-        # API call (rate-limited)
-        logging.debug(f"🔗 API call for datasets: {paper_title[:50]}...")
-        try:
-            # Use HfApi.list_datasets() with search parameter
-            datasets = list(
-                self.api.list_datasets(
-                    search=paper_title, limit=limit, sort="downloads"
-                )
-            )
-
-            # Convert to dict format
-            results = [self._dataset_to_dict(d) for d in datasets]
-
-            # Cache results
-            self.cache.cache_datasets(
-                paper_title, results, ttl_days=self.cache_ttl_days
-            )
-
-            return results
-        except Exception as e:
-            logging.error(f"HF API error for datasets: {e}")
-            return []
-
-    @sleep_and_retry
-    @limits(calls=5, period=1)
     def search_papers_by_title(self, paper_title: str, limit: int = 10) -> list[dict]:
-        """Search HuggingFace Daily Papers by title using REST API.
+        """Search HuggingFace Daily Papers by title using the REST API.
 
-        Uses the HuggingFace REST API /api/papers/search endpoint to find
-        academic papers indexed on HF Daily Papers.
+        Uses /api/papers/search to find papers indexed on HF Daily Papers.
 
         Args:
             paper_title: Academic paper title to search for
@@ -452,88 +273,43 @@ class HFClient:
 
         Returns:
             List of paper metadata dictionaries with fields:
-            - id: Paper ID (often arXiv ID)
-            - title: Paper title
-            - authors: List of author names
-            - summary: Abstract
-            - published_at: Publication date
+            id, title, authors, summary, published_at
         """
-        # Check cache
-        cached = self.cache.get_papers(paper_title)
+        cache_key = _normalize_cache_key(paper_title, limit)
+        cached = self.cache.get_papers(cache_key)
         if cached is not None:
-            logging.debug(f"💾 Cache hit for papers: {paper_title[:50]}...")
+            logging.debug(f"Cache hit for papers: {paper_title[:50]}...")
             return cached
 
-        # API call (rate-limited) - Use REST API directly
-        logging.debug(f"🔗 REST API call for papers: {paper_title[:50]}...")
+        logging.debug(f"REST API call for papers: {paper_title[:50]}...")
         try:
-            url = "https://huggingface.co/api/papers/search"
-            params = {"q": paper_title}
-            headers = {}
-            if self.token:
-                headers["Authorization"] = f"Bearer {self.token}"
-
-            response = requests.get(url, params=params, headers=headers, timeout=30)
-            response.raise_for_status()
-
-            papers_data = response.json()
-
-            # Limit results
-            papers_data = papers_data[:limit]
-
-            # Convert to dict format
+            papers_data = self._rest_get("papers/search", {"q": paper_title})[:limit]
             results = [self._paper_to_dict(p) for p in papers_data]
-
-            # Cache results
-            self.cache.cache_papers(paper_title, results, ttl_days=self.cache_ttl_days)
-
+            self.cache.cache_papers(cache_key, results, ttl_days=self.cache_ttl_days)
             return results
-        except requests.exceptions.RequestException as e:
-            logging.error(f"HF Papers REST API error: {e}")
-            return []
         except Exception as e:
             logging.error(f"HF API error for papers: {e}")
             return []
 
-    @sleep_and_retry
-    @limits(calls=5, period=1)
     def get_paper_info(self, paper_id: str) -> dict | None:
         """Get paper info including the paper's actual GitHub repo.
 
-        Uses GET /api/papers/{paper_id} endpoint to fetch paper metadata
-        that includes the paper's own GitHub repository (not citing repos).
+        Uses GET /api/papers/{paper_id}; the result includes githubRepo,
+        githubStars, ai_keywords, title, authors, summary, etc.
 
         Args:
             paper_id: Paper ID (arXiv ID like "2307.03172")
 
         Returns:
-            Dictionary with paper metadata:
-            - githubRepo: Paper's actual GitHub repository URL
-            - githubStars: Star count on GitHub
-            - ai_keywords: AI-extracted keywords from paper
-            - title, authors, summary, etc.
-            Returns None if paper not found or error occurs.
+            Paper metadata dictionary, or None if not found or on error.
         """
-        logging.debug(f"🔗 REST API call for paper info: {paper_id}")
+        logging.debug(f"REST API call for paper info: {paper_id}")
         try:
-            url = f"https://huggingface.co/api/papers/{paper_id}"
-            headers = {}
-            if self.token:
-                headers["Authorization"] = f"Bearer {self.token}"
-
-            response = requests.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
-
-            return response.json()
-        except requests.exceptions.RequestException as e:
+            return self._rest_get(f"papers/{paper_id}")
+        except Exception as e:
             logging.warning(f"Failed to fetch paper info for {paper_id}: {e}")
             return None
-        except Exception as e:
-            logging.warning(f"Error fetching paper info for {paper_id}: {e}")
-            return None
 
-    @sleep_and_retry
-    @limits(calls=5, period=1)
     def get_paper_linked_resources(self, paper_id: str) -> dict:
         """Get models and datasets that CITE this paper via REST API.
 
@@ -544,71 +320,45 @@ class HFClient:
             paper_id: Paper ID from HF Papers API (e.g., arXiv ID like "2301.12345")
 
         Returns:
-            Dictionary with:
-            {
-                "citing_models": [list of model dicts that cite this paper],
-                "citing_datasets": [list of dataset dicts that cite this paper]
-            }
+            {"citing_models": [...], "citing_datasets": [...]}
         """
         results = {"citing_models": [], "citing_datasets": []}
 
-        # Use REST API: GET /api/arxiv/{arxiv_id}/repos
         try:
-            url = f"https://huggingface.co/api/arxiv/{paper_id}/repos"
-            headers = {}
-            if self.token:
-                headers["Authorization"] = f"Bearer {self.token}"
+            # GET /api/arxiv/{arxiv_id}/repos -> {"models": [], "datasets": [], ...}
+            repos_data = self._rest_get(f"arxiv/{paper_id}/repos")
 
-            response = requests.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
-
-            repos_data = response.json()
-
-            # Response is a dict with "models", "datasets", "spaces" keys
-            # These are repos that CITE this paper, not the paper's own repos
             for model in repos_data.get("models", []):
-                model_id = model.get("id", "")
-                model_dict = {
-                    "modelId": model_id,
-                    "author": model.get("author"),
-                    "tags": model.get("tags", []),
-                    "pipeline_tag": model.get("pipeline_tag"),
-                    "downloads": model.get("downloads", 0),
-                    "likes": model.get("likes", 0),
-                    "card_data": model.get("cardData", {}),
-                }
-                results["citing_models"].append(model_dict)
+                results["citing_models"].append(
+                    {
+                        "modelId": model.get("id", ""),
+                        "author": model.get("author"),
+                        "tags": model.get("tags", []),
+                        "pipeline_tag": model.get("pipeline_tag"),
+                        "downloads": model.get("downloads", 0),
+                        "likes": model.get("likes", 0),
+                        "card_data": model.get("cardData", {}),
+                    }
+                )
 
             for dataset in repos_data.get("datasets", []):
-                dataset_id = dataset.get("id", "")
-                dataset_dict = {
-                    "datasetId": dataset_id,
-                    "author": dataset.get("author"),
-                    "tags": dataset.get("tags", []),
-                    "downloads": dataset.get("downloads", 0),
-                    "likes": dataset.get("likes", 0),
-                    "card_data": dataset.get("cardData", {}),
-                }
-                results["citing_datasets"].append(dataset_dict)
-
-        except requests.exceptions.RequestException as e:
-            logging.warning(f"Failed to fetch linked repos for paper {paper_id}: {e}")
+                results["citing_datasets"].append(
+                    {
+                        "datasetId": dataset.get("id", ""),
+                        "author": dataset.get("author"),
+                        "tags": dataset.get("tags", []),
+                        "downloads": dataset.get("downloads", 0),
+                        "likes": dataset.get("likes", 0),
+                        "card_data": dataset.get("cardData", {}),
+                    }
+                )
         except Exception as e:
-            logging.warning(
-                f"Error fetching linked resources for paper {paper_id}: {e}"
-            )
+            logging.warning(f"Failed to fetch linked repos for paper {paper_id}: {e}")
 
         return results
 
     def _model_to_dict(self, model_info) -> dict:
-        """Convert HfApi ModelInfo object to dictionary.
-
-        Args:
-            model_info: ModelInfo object from huggingface_hub
-
-        Returns:
-            Dictionary with model metadata
-        """
+        """Convert HfApi ModelInfo object to a JSON-serializable dictionary."""
         return {
             "modelId": model_info.id,
             "author": model_info.author,
@@ -616,25 +366,7 @@ class HFClient:
             "pipeline_tag": getattr(model_info, "pipeline_tag", None),
             "downloads": getattr(model_info, "downloads", 0),
             "likes": getattr(model_info, "likes", 0),
-            "card_data": getattr(model_info, "card_data", {}),
-        }
-
-    def _dataset_to_dict(self, dataset_info) -> dict:
-        """Convert HfApi DatasetInfo object to dictionary.
-
-        Args:
-            dataset_info: DatasetInfo object from huggingface_hub
-
-        Returns:
-            Dictionary with dataset metadata
-        """
-        return {
-            "datasetId": dataset_info.id,
-            "author": dataset_info.author,
-            "tags": dataset_info.tags if dataset_info.tags else [],
-            "downloads": getattr(dataset_info, "downloads", 0),
-            "likes": getattr(dataset_info, "likes", 0),
-            "card_data": getattr(dataset_info, "card_data", {}),
+            "card_data": _card_data_to_dict(getattr(model_info, "card_data", None)),
         }
 
     def _paper_to_dict(self, paper_info) -> dict:
