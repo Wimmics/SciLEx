@@ -284,6 +284,41 @@ def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
     return final_key
 
 
+def _format_keywords(tags_str) -> str:
+    """Format HF tags as a comma-separated BibTeX keywords value."""
+    return ", ".join(parse_tags(tags_str))
+
+
+def _plain(value) -> str:
+    return str(value)
+
+
+# (bibtex_field, row_field, formatter, allowed_entry_types or None for all).
+# Order is the output order. Title, author and year are handled separately
+# because author has a mandatory "Unknown" fallback and year is derived.
+_PUBLISHER_TYPES = ("book", "incollection", "inproceedings")
+_ENTRY_FIELDS = [
+    ("journal", "journalAbbreviation", lambda v: escape_bibtex(v), ("article",)),
+    ("booktitle", "conferenceName", lambda v: escape_bibtex(v), ("inproceedings",)),
+    ("volume", "volume", lambda v: escape_bibtex(str(v)), None),
+    ("number", "issue", lambda v: escape_bibtex(str(v)), None),
+    ("pages", "pages", format_pages, None),
+    ("publisher", "publisher", lambda v: escape_bibtex(v), _PUBLISHER_TYPES),
+    ("series", "serie", lambda v: escape_bibtex(str(v)), None),
+    ("doi", "DOI", lambda v: escape_bibtex(str(v)), None),
+    ("url", "url", _plain, None),
+    ("file", "pdf_url", _plain, None),
+    ("abstract", "abstract", lambda v: escape_bibtex(str(v)), None),
+    ("language", "language", lambda v: escape_bibtex(str(v)), None),
+    ("copyright", "rights", lambda v: escape_bibtex(str(v)), None),
+    ("archiveprefix", "archive", lambda v: escape_bibtex(str(v)), None),
+    ("eprint", "archiveID", lambda v: escape_bibtex(str(v)), None),
+    ("keywords", "tags", _format_keywords, None),
+    ("note", "hf_url", lambda v: f"HuggingFace: {v}", None),
+    ("howpublished", "github_repo", _plain, None),
+]
+
+
 def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
     """
     Generate complete BibTeX entry for a paper.
@@ -295,134 +330,35 @@ def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
     Returns:
         Formatted BibTeX entry string
     """
-    itemtype = safe_get(row, "itemType")
-    entry_type = ITEMTYPE_TO_BIBTEX.get(itemtype, "misc")
-
-    # Start entry
+    entry_type = ITEMTYPE_TO_BIBTEX.get(safe_get(row, "itemType"), "misc")
     lines = [f"@{entry_type}{{{citation_key},"]
 
-    # Title (required)
     title = safe_get(row, "title")
     if is_valid(title):
         lines.append(f"  title = {{{escape_bibtex(title)}}},")
 
-    # Author (required)
+    # BibTeX requires author or organization
     authors_str = safe_get(row, "authors")
-    if is_valid(authors_str):
-        authors = format_authors(authors_str)
-        lines.append(f"  author = {{{authors}}},")
-    else:
-        # BibTeX requires author or organization
-        lines.append("  author = {Unknown},")
+    authors = format_authors(authors_str) if is_valid(authors_str) else "Unknown"
+    lines.append(f"  author = {{{authors}}},")
 
-    # Year (required)
-    date_str = safe_get(row, "date")
-    year = extract_year(date_str)
+    year = extract_year(safe_get(row, "date"))
     if year:
         lines.append(f"  year = {{{year}}},")
 
-    # Journal (for articles)
-    if entry_type == "article":
-        journal = safe_get(row, "journalAbbreviation")
-        if is_valid(journal):
-            lines.append(f"  journal = {{{escape_bibtex(journal)}}},")
-
-    # Booktitle (for inproceedings)
-    if entry_type == "inproceedings":
-        conference = safe_get(row, "conferenceName")
-        if is_valid(conference):
-            lines.append(f"  booktitle = {{{escape_bibtex(conference)}}},")
-
-    # Volume
-    volume = safe_get(row, "volume")
-    if is_valid(volume):
-        lines.append(f"  volume = {{{escape_bibtex(str(volume))}}},")
-
-    # Issue/Number
-    issue = safe_get(row, "issue")
-    if is_valid(issue):
-        lines.append(f"  number = {{{escape_bibtex(str(issue))}}},")
-
-    # Pages
-    pages = safe_get(row, "pages")
-    if is_valid(pages):
-        pages = format_pages(pages)
-        lines.append(f"  pages = {{{pages}}},")
-
-    # Publisher (for books, incollections, and inproceedings)
-    # Note: Publisher is NOT included for @article entries (not standard per BibTeX spec)
-    publisher = safe_get(row, "publisher")
-    if is_valid(publisher) and entry_type in ["book", "incollection", "inproceedings"]:
-        lines.append(f"  publisher = {{{escape_bibtex(publisher)}}},")
-
-    # Series/ISSN (for books, journals, conferences)
-    serie = safe_get(row, "serie")
-    if is_valid(serie):
-        lines.append(f"  series = {{{escape_bibtex(str(serie))}}},")
-
-    # DOI
-    doi = safe_get(row, "DOI")
-    if is_valid(doi):
-        lines.append(f"  doi = {{{escape_bibtex(str(doi))}}},")
-
-    # URL (landing page)
-    url = safe_get(row, "url")
-    if is_valid(url):
-        lines.append(f"  url = {{{url}}},")
-
-    # PDF file link (remote URL - no :PDF suffix needed for standard BibTeX)
-    pdf_url = safe_get(row, "pdf_url")
-    if is_valid(pdf_url):
-        lines.append(f"  file = {{{pdf_url}}},")
-
-    # Abstract (optional, but useful) - no truncation
-    abstract = safe_get(row, "abstract")
-    if is_valid(abstract):
-        abstract_text = escape_bibtex(str(abstract))
-        lines.append(f"  abstract = {{{abstract_text}}},")
-
-    # Language (standard BibTeX field)
-    language = safe_get(row, "language")
-    if is_valid(language):
-        lines.append(f"  language = {{{escape_bibtex(str(language))}}},")
-
-    # Copyright/Rights (standard BibTeX field)
-    rights = safe_get(row, "rights")
-    if is_valid(rights):
-        lines.append(f"  copyright = {{{escape_bibtex(str(rights))}}},")
-
-    # Archive source (API name)
-    archive = safe_get(row, "archive")
-    if is_valid(archive):
-        lines.append(f"  archiveprefix = {{{escape_bibtex(str(archive))}}},")
-
-    # Archive ID (original API ID)
-    archive_id = safe_get(row, "archiveID")
-    if is_valid(archive_id):
-        lines.append(f"  eprint = {{{escape_bibtex(str(archive_id))}}},")
-
-    # Keywords (from HF tags) - standard BibTeX field
-    tags_str = safe_get(row, "tags")
-    if is_valid(tags_str):
-        tags_list = parse_tags(tags_str)
-        if tags_list:
-            # Convert to comma-separated for BibTeX keywords field
-            keywords = ", ".join(tags_list)
-            lines.append(f"  keywords = {{{keywords}}},")
-
-    # HuggingFace URL (in note field)
-    hf_url = safe_get(row, "hf_url")
-    if is_valid(hf_url):
-        lines.append(f"  note = {{HuggingFace: {hf_url}}},")
-
-    # GitHub repository (in howpublished field)
-    github_repo = safe_get(row, "github_repo")
-    if is_valid(github_repo):
-        lines.append(f"  howpublished = {{{github_repo}}},")
+    for bibtex_field, row_field, formatter, allowed_types in _ENTRY_FIELDS:
+        if allowed_types is not None and entry_type not in allowed_types:
+            continue
+        value = safe_get(row, row_field)
+        if not is_valid(value):
+            continue
+        formatted = formatter(value)
+        # Skip fields whose formatter yields nothing (e.g. empty tag list)
+        if formatted:
+            lines.append(f"  {bibtex_field} = {{{formatted}}},")
 
     # Close entry (remove trailing comma from last line)
-    if lines[-1].endswith(","):
-        lines[-1] = lines[-1][:-1]
+    lines[-1] = lines[-1].rstrip(",")
     lines.append("}")
 
     return "\n".join(lines)
