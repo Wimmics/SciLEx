@@ -181,6 +181,7 @@ DEFAULT_RATE_LIMITS = {
     "SemanticScholar": {"without_key": 1.0, "with_key": 1.0},
     "OpenAlex": {"without_key": 10.0, "with_key": 10.0},
     "Arxiv": {"without_key": 0.33, "with_key": 0.33},  # 1 req per 3 seconds
+    "BioRxiv": {"without_key": 1.0, "with_key": 1.0},  # No official limit
     "IEEE": {"without_key": 2.0, "with_key": 2.0},
     "Elsevier": {"without_key": 2.0, "with_key": 9.0},  # Scopus: 9 req/sec with key
     "Springer": {"without_key": 1.67, "with_key": 1.67},  # 100 req/min

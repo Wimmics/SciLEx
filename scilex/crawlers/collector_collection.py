@@ -13,6 +13,7 @@ from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 
 from .collectors import (
     Arxiv_collector,
+    BioRxiv_collector,
     DBLP_collector,
     Elsevier_collector,
     HAL_collector,
@@ -32,6 +33,7 @@ from .utils import sanitize_secrets
 api_collectors = {
     "DBLP": DBLP_collector,
     "Arxiv": Arxiv_collector,
+    "BioRxiv": BioRxiv_collector,
     "Elsevier": Elsevier_collector,
     "IEEE": IEEE_collector,
     "Springer": Springer_collector,
