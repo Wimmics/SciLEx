@@ -128,12 +128,12 @@ class Arxiv_collector(API_collector):
             formatted_keyword_groups.append(f"({'+OR+'.join(group_keywords)})")
 
         years_query = str(self.get_year())
+        start_date = self.get_query_start_date()
+        range_start = (
+            start_date.strftime("%Y%m%d") if start_date else years_query + "0101"
+        )
         year_arg = (
-            "submittedDate:%5B"
-            + years_query
-            + "01010000+TO+"
-            + years_query
-            + "12312359%5D"
+            "submittedDate:%5B" + range_start + "0000+TO+" + years_query + "12312359%5D"
         )
         # Join keyword groups and year filter all within search_query (Arxiv API requirement)
         search_query = "+AND+".join(formatted_keyword_groups) + "+AND+" + year_arg

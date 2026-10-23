@@ -295,6 +295,7 @@ class CollectCollection:
         max_articles_per_query = self.main_config.get("max_articles_per_query", -1)
 
         queries = []
+        since = self.main_config.get("since")
         for keyword_group, year, api in combinations:
             query = {
                 # Two keyword lists give [kw_a, kw_b] pairs; a single list gives [kw]
@@ -306,6 +307,8 @@ class CollectCollection:
             # Add semantic_scholar_mode for SemanticScholar API
             if api == "SemanticScholar":
                 query["semantic_scholar_mode"] = semantic_scholar_mode
+            if since:
+                query["since"] = str(since)
             queries.append(query)
         logger.debug(
             f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs"
@@ -323,6 +326,8 @@ class CollectCollection:
             # Add optional semantic_scholar_mode if present
             if "semantic_scholar_mode" in query:
                 query_dict["semantic_scholar_mode"] = query["semantic_scholar_mode"]
+            if "since" in query:
+                query_dict["since"] = query["since"]
             queries_by_api[query["api"]].append(query_dict)
 
         return queries_by_api

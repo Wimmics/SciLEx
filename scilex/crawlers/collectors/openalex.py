@@ -75,6 +75,9 @@ class OpenAlex_collector(API_collector):
 
         years = self.get_year()
         year_filter = f"publication_year:{years}"
+        start_date = self.get_query_start_date()
+        if start_date:
+            year_filter += f",from_publication_date:{start_date.isoformat()}"
 
         # Base URL without pagination — cursor is appended in runCollect()
         api_url = (

@@ -880,6 +880,7 @@ def parallel_aggregate(
     bonus_keywords: list | None = None,
     cached_abstracts: dict | None = None,
     pre_filters: dict | None = None,
+    since_collect_dirs: list[str] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Main parallel aggregation function (orchestrates all phases).
@@ -894,6 +895,8 @@ def parallel_aggregate(
         keyword_groups: Optional list of keyword groups from config (for dual-group mode)
         load_workers: Number of parallel workers for file loading (default: 4)
         bonus_keywords: Optional list of bonus keywords used as flexible Group 2 fallback
+        since_collect_dirs: Optional ``<collect>_since_<date>`` directories merged into
+            the collection (date post-filtered; overlaps removed by deduplication)
 
     Returns:
         Tuple of:
@@ -925,6 +928,17 @@ def parallel_aggregate(
         year_range=load_year_range,
     )
     combined_stats["loading"] = load_stats
+
+    if since_collect_dirs:
+        from scilex.since_utils import load_since_collection_papers
+
+        for since_dir in since_collect_dirs:
+            since_papers = load_since_collection_papers(since_dir)
+            papers_by_api.extend(since_papers)
+            load_stats["total_papers"] += len(since_papers)
+            per_api = load_stats.setdefault("per_api", {})
+            for _paper, api_name, _kw in since_papers:
+                per_api[api_name] = per_api.get(api_name, 0) + 1
 
     if not papers_by_api:
         logging.error("No papers loaded. Check collection directory and state file.")

@@ -119,6 +119,14 @@ class SemanticScholar_collector(API_collector):
 
         return page_data
 
+    def _date_param(self):
+        """Year filter, narrowed to ``since`` (publicationDateOrYear) when set."""
+        year = self.get_year()
+        start_date = self.get_query_start_date()
+        if start_date:
+            return f"publicationDateOrYear={start_date.isoformat()}:{year}-12-31"
+        return f"year={year}"
+
     def get_configurated_url(self):
         """
         Constructs the configured API URL with query parameters.
@@ -151,7 +159,7 @@ class SemanticScholar_collector(API_collector):
         # Construct the full URL with pagination parameters
         url = (
             f"{base_url}?query={encoded_keywords}"
-            f"&year={self.get_year()}"
+            f"&{self._date_param()}"
             f"&fieldsOfStudy=Computer%20Science"
             f"&fields={fields}"
             f"&limit={self.max_by_page}&offset={{}}"  # Add pagination: limit=100, offset placeholder

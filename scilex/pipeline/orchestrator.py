@@ -25,6 +25,7 @@ from scilex.config_defaults import (
     DEFAULT_AGGREGATED_FILENAME,
     DEFAULT_GENERATE_PRISMA_REPORT,
     DEFAULT_OUTPUT_DIR,
+    DEFAULT_SINCE,
     MAX_ABSTRACT_WORDS,
     MIN_ABSTRACT_QUALITY_SCORE,
     MIN_ABSTRACT_WORDS,
@@ -54,6 +55,11 @@ from scilex.pipeline.tracker import FilteringTracker
 from scilex.quality_validation import (
     apply_quality_filters,
     generate_data_completeness_report,
+)
+from scilex.since_utils import (
+    find_since_collections,
+    parse_since,
+    prepare_since_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,6 +106,15 @@ def run_collection(
     """
     main_config = config.main
     api_config = config.api
+
+    # Incremental re-collection: restrict years, redirect to the since directory
+    since = parse_since(main_config.get("since", DEFAULT_SINCE))
+    if since:
+        main_config = prepare_since_config(main_config, since)
+        logger.info(
+            f"Since-run from {since.isoformat()}: years {main_config['years']}, "
+            f"collection {main_config['collect_name']}"
+        )
 
     output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
     os.makedirs(output_dir, exist_ok=True)
@@ -309,6 +324,7 @@ def run_aggregation(
         bonus_keywords=bonus_keywords if bonus_keywords else None,
         cached_abstracts=cached_abstracts,
         pre_filters=pre_filters if pre_filters else None,
+        since_collect_dirs=find_since_collections(dir_collect),
     )
 
     if options.profile:

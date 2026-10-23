@@ -62,7 +62,9 @@ class PubMed_collector(API_collector):
 
         # Add date filter with quoted dates and space around colon
         year = str(self.get_year())
-        date_filter = f'"{year}/01/01"[PDAT] : "{year}/12/31"[PDAT]'
+        start_date = self.get_query_start_date()
+        range_start = start_date.strftime("%Y/%m/%d") if start_date else f"{year}/01/01"
+        date_filter = f'"{range_start}"[PDAT] : "{year}/12/31"[PDAT]'
         query_parts.append(date_filter)
 
         final_query = " AND ".join(query_parts)

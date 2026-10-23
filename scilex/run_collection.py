@@ -15,6 +15,7 @@ from scilex.config import SciLExConfig
 from scilex.config_defaults import DEFAULT_COLLECT_ENABLED, DEFAULT_OUTPUT_DIR
 from scilex.logging_config import log_section, setup_logging
 from scilex.pipeline.orchestrator import run_collection
+from scilex.since_utils import parse_since
 
 
 def main():
@@ -45,6 +46,15 @@ def main():
             "The saved config_used.yml is loaded automatically."
         ),
     )
+    parser.add_argument(
+        "--since",
+        metavar="YYYY-MM-DD",
+        help=(
+            "Re-collect only records published on or after this date. Queries the "
+            "years from that date to the current year and writes to "
+            "<collect_name>_since_<date>, merged by scilex-aggregate."
+        ),
+    )
     args = parser.parse_args()
 
     # Load configuration (from a previous collection when resuming)
@@ -54,6 +64,13 @@ def main():
         print(f"Error: {e}")
         sys.exit(1)
     main_config = config.main
+    if args.since:
+        try:
+            parse_since(args.since)
+        except ValueError:
+            print(f"Error: --since must be YYYY-MM-DD, got '{args.since}'")
+            sys.exit(1)
+        main_config["since"] = args.since
 
     output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
     collect = main_config.get("collect", DEFAULT_COLLECT_ENABLED)

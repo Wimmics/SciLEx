@@ -15,6 +15,7 @@ from scilex.crawlers.circuit_breaker import (
     CircuitBreakerRegistry,
 )
 from scilex.crawlers.utils import sanitize_secrets
+from scilex.since_utils import parse_since, query_start_date
 
 # Marker files written in each query directory (see CollectCollection._query_is_complete)
 COMPLETE_FILE_NAME = "_complete"  # query fully collected
@@ -22,13 +23,15 @@ STATE_FILE_NAME = "_state"  # query started but not finished
 
 
 class Filter_param:
-    def __init__(self, year, keywords, max_articles_per_query=-1):
+    def __init__(self, year, keywords, max_articles_per_query=-1, since=None):
         # Initialize the parameters
         self.year = year
         # Keywords is now a list of lists to support multiple sets
         self.keywords = keywords
         # Maximum articles per query (-1 = unlimited)
         self.max_articles_per_query = max_articles_per_query
+        # Optional lower bound date (ISO string) for incremental re-collection
+        self.since = since
 
     def get_dict_param(self):
         # Return the instance's dictionary representation
@@ -39,6 +42,9 @@ class Filter_param:
 
     def get_keywords(self):
         return self.keywords
+
+    def get_since(self):
+        return parse_since(self.since)
 
     def get_max_articles_per_query(self):
         return self.max_articles_per_query
@@ -56,6 +62,7 @@ class API_collector:
             data_query.get(
                 "max_articles_per_query", -1
             ),  # Default to -1 (unlimited) if not in config
+            data_query.get("since"),
         )
         self.rate_limit = 10  # Will be overridden by load_rate_limit_from_config()
         self.datadir = data_path
@@ -246,6 +253,10 @@ class API_collector:
 
     def get_year(self):
         return self.filter_param.get_year()
+
+    def get_query_start_date(self):
+        """Return the ``since`` date if it falls in this query's year, else None."""
+        return query_start_date(self.get_year(), self.filter_param.get_since())
 
     def get_dataDir(self):
         return self.datadir
