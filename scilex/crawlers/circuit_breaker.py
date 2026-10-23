@@ -214,19 +214,6 @@ class CircuitBreakerRegistry:
                 )
             return self._breakers[api_name]
 
-    def get_all_stats(self) -> dict[str, dict]:
-        """Get statistics for all circuit breakers."""
-        with self._registry_lock:
-            return {
-                name: breaker.get_stats() for name, breaker in self._breakers.items()
-            }
-
-    def reset_all(self):
-        """Reset all circuit breakers."""
-        with self._registry_lock:
-            for breaker in self._breakers.values():
-                breaker.reset()
-
 
 class CircuitBreakerOpenError(Exception):
     """Raised when circuit breaker is open and blocks request."""
