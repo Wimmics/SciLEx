@@ -3,6 +3,7 @@
 import importlib
 import os
 
+import matplotlib.pyplot  # noqa: F401  (load the font cache before HOME is isolated)
 import pytest
 import yaml
 
