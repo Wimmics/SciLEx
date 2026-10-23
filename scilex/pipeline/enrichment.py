@@ -4,7 +4,7 @@ import logging
 
 import pandas as pd
 
-from scilex.constants import is_valid
+from scilex.constants import doi_to_url, is_valid
 
 
 def fill_missing_urls_from_doi(df):
@@ -22,31 +22,17 @@ def fill_missing_urls_from_doi(df):
         logging.warning("Cannot fill URLs: missing 'url' or 'DOI' column")
         return df, {"filled": 0, "already_valid": 0, "no_doi": 0}
 
-    stats = {"filled": 0, "already_valid": 0, "no_doi": 0}
-
-    def generate_url_from_doi(row):
-        url = row.get("url")
-        doi = row.get("DOI")
-
-        if is_valid(url):
-            stats["already_valid"] += 1
-            return url
-
-        if not is_valid(doi):
-            stats["no_doi"] += 1
-            return url
-
-        doi_str = str(doi).strip()
-        if doi_str.lower().startswith("https://doi.org/"):
-            doi_str = doi_str[16:]
-        elif doi_str.lower().startswith("http://doi.org/"):
-            doi_str = doi_str[15:]
-
-        stats["filled"] += 1
-        return f"https://doi.org/{doi_str}"
-
     df = df.copy()
-    df["url"] = df.apply(generate_url_from_doi, axis=1)
+    url_valid = df["url"].map(is_valid)
+    doi_valid = df["DOI"].map(is_valid)
+    fill_mask = ~url_valid & doi_valid
+    df.loc[fill_mask, "url"] = df.loc[fill_mask, "DOI"].map(doi_to_url)
+
+    stats = {
+        "filled": int(fill_mask.sum()),
+        "already_valid": int(url_valid.sum()),
+        "no_doi": int((~url_valid & ~doi_valid).sum()),
+    }
 
     logging.info(
         f"URL fallback: {stats['filled']} URLs generated from DOIs, "
@@ -57,16 +43,25 @@ def fill_missing_urls_from_doi(df):
     return df, stats
 
 
-def _needs_citation_fallback(value):
-    """True if a citation count is unset (None/NaN/empty string) or zero."""
-    numeric = pd.to_numeric(value, errors="coerce")
-    return bool(pd.isna(numeric) or numeric == 0)
+def _fill_unset(df, target_col, source_col):
+    """Copy ``source_col`` into ``target_col`` where the target is unset/zero.
+
+    Rows whose source value is NaN are left untouched. Modifies ``df`` in place.
+    """
+    unset_mask = _unset_citation_mask(df[target_col])
+    mask = unset_mask & df[source_col].notna()
+    df.loc[mask, target_col] = df.loc[mask, source_col]
+
+
+def _unset_citation_mask(series):
+    """Boolean mask of citation values that are unset (None/NaN/empty) or zero."""
+    numeric = pd.to_numeric(series, errors="coerce")
+    return numeric.isna() | (numeric == 0)
 
 
 def _count_unset_citations(df):
     """Number of rows whose ``nb_citation`` is unset or zero."""
-    numeric = pd.to_numeric(df["nb_citation"], errors="coerce")
-    return int((numeric.isna() | (numeric == 0)).sum())
+    return int(_unset_citation_mask(df["nb_citation"]).sum())
 
 
 def use_semantic_scholar_citations_fallback(df):
@@ -92,25 +87,8 @@ def use_semantic_scholar_citations_fallback(df):
 
     initial_zero_count = _count_unset_citations(df)
 
-    df["nb_citation"] = df.apply(
-        lambda row: (
-            row["ss_citation_count"]
-            if _needs_citation_fallback(row["nb_citation"])
-            and pd.notna(row["ss_citation_count"])
-            else row["nb_citation"]
-        ),
-        axis=1,
-    )
-
-    df["nb_cited"] = df.apply(
-        lambda row: (
-            row["ss_reference_count"]
-            if _needs_citation_fallback(row["nb_cited"])
-            and pd.notna(row["ss_reference_count"])
-            else row["nb_cited"]
-        ),
-        axis=1,
-    )
+    _fill_unset(df, "nb_citation", "ss_citation_count")
+    _fill_unset(df, "nb_cited", "ss_reference_count")
 
     final_zero_count = _count_unset_citations(df)
     improved_count = initial_zero_count - final_zero_count
@@ -149,15 +127,7 @@ def use_openalex_citations_fallback(df):
 
     initial_zero_count = _count_unset_citations(df)
 
-    df["nb_citation"] = df.apply(
-        lambda row: (
-            row["oa_citation_count"]
-            if _needs_citation_fallback(row["nb_citation"])
-            and pd.notna(row["oa_citation_count"])
-            else row["nb_citation"]
-        ),
-        axis=1,
-    )
+    _fill_unset(df, "nb_citation", "oa_citation_count")
 
     final_zero_count = _count_unset_citations(df)
     improved_count = initial_zero_count - final_zero_count
