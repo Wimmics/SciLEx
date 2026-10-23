@@ -23,6 +23,13 @@ from pydantic import BaseModel, field_validator
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.crawlers.collector_collection import CollectCollection
+from scilex.pipeline.jobs import (
+    ACTIVE_STATUSES,
+    TERMINAL_STATUSES,
+    LogLinesHandler,
+    WorkerThreadFilter,
+    transition_allowed,
+)
 
 # Project root for config file paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -40,45 +47,21 @@ def _add_year_column(df: pd.DataFrame) -> None:
         df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
 
 
-class JobLogHandler(logging.Handler):
-    """Captures log lines into a pipeline job's log list."""
+class JobLogHandler(LogLinesHandler):
+    """Captures log lines into a pipeline job's ``logs`` list."""
 
     def __init__(self, job_dict: dict[str, Any], max_lines: int = 500):
-        super().__init__()
-        self._job = job_dict
-        self._max_lines = max_lines
-        self._job.setdefault("logs", [])
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            msg = self.format(record)
-            logs = self._job["logs"]
-            logs.append(msg)
-            # Trim in-place to avoid replacing the list object (thread-safety)
-            if len(logs) > self._max_lines:
-                del logs[: len(logs) - self._max_lines]
-        except Exception:
-            self.handleError(record)
+        super().__init__(job_dict.setdefault("logs", []), max_lines)
 
 
-class JobThreadFilter(logging.Filter):
-    """Keep only log records emitted by a job's worker threads.
+class JobThreadFilter(WorkerThreadFilter):
+    """Keep only log records emitted by the threads in ``job["log_threads"]``.
 
-    Worker threads register themselves in ``job["log_threads"]`` (see
-    ``_run_in_job_thread``). Threads spawned by the collector are plain
-    ``threading.Thread`` instances with default ``Thread-N`` names; they are
-    accepted too, which is only correct while a single job runs at a time
-    (enforced by ``POST /pipelines/start``).
+    Single job at a time is enforced by ``POST /pipelines/start``.
     """
 
     def __init__(self, job_dict: dict[str, Any]):
-        super().__init__()
-        self._job = job_dict
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        if record.thread in self._job.get("log_threads", ()):
-            return True
-        return (record.threadName or "").startswith("Thread-")
+        super().__init__(job_dict.setdefault("log_threads", set()))
 
 
 def _run_in_job_thread(job: dict[str, Any], func, *args):
@@ -204,25 +187,21 @@ output_dir = DEFAULT_OUTPUT_DIR
 # ============================================================================
 
 
-ACTIVE_JOB_STATUSES = ("pending", "running", "cancelling")
-TERMINAL_JOB_STATUSES = ("completed", "failed", "cancelled")
+ACTIVE_JOB_STATUSES = ACTIVE_STATUSES
+TERMINAL_JOB_STATUSES = TERMINAL_STATUSES
 _status_lock = threading.Lock()
 
 
 def _set_status(job: dict[str, Any], new_status: str) -> bool:
     """Atomically move ``job`` to ``new_status`` if the transition is allowed.
 
-    Terminal states (completed/failed/cancelled) are never left, and a job
-    that is cancelling never goes back to running.
+    See :func:`scilex.pipeline.jobs.transition_allowed` for the rules.
 
     Returns:
         True if the status was changed, False if the transition was refused.
     """
     with _status_lock:
-        current = job.get("status")
-        if current in TERMINAL_JOB_STATUSES:
-            return False
-        if current == "cancelling" and new_status in ("pending", "running"):
+        if not transition_allowed(job.get("status"), new_status):
             return False
         job["status"] = new_status
         return True
