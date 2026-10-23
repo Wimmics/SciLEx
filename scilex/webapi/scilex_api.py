@@ -19,7 +19,7 @@ import pandas as pd
 import yaml
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, field_validator
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
@@ -32,7 +32,6 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 # LOGGING SETUP
 # ============================================================================
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -93,11 +92,19 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Add CORS middleware
+DEFAULT_CORS_ORIGINS = "http://localhost:8501,http://127.0.0.1:8501"
+
+
+def get_cors_origins() -> list[str]:
+    """Return allowed CORS origins from SCILEX_CORS_ORIGINS (comma-separated)."""
+    raw_origins = os.environ.get("SCILEX_CORS_ORIGINS", DEFAULT_CORS_ORIGINS)
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+
+# Add CORS middleware (no credentials: the API uses no cookies or auth headers)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=get_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -178,17 +185,6 @@ class ExportRequest(BaseModel):
 
     collect_name: str
     format: str = "csv"  # csv, bibtex, json
-
-
-class PipelineStatus(BaseModel):
-    """Status of a running pipeline."""
-
-    id: str
-    status: str  # "running", "completed", "failed"
-    progress: int  # 0-100
-    message: str
-    output_path: str | None = None
-    error: str | None = None
 
 
 # ============================================================================
@@ -925,14 +921,20 @@ async def get_results_stats(collect_name: str):
         }
 
         if "year" in df.columns:
-            stats["by_year"] = df["year"].value_counts().sort_index().to_dict()
+            years = pd.to_numeric(df["year"], errors="coerce").dropna().astype(int)
+            stats["by_year"] = {
+                int(year): int(count)
+                for year, count in years.value_counts().sort_index().items()
+            }
 
         if "archive" in df.columns:
             stats["by_source"] = df["archive"].value_counts().to_dict()
 
         if "nb_citation" in df.columns:
-            stats["avg_citations"] = float(df["nb_citation"].mean())
-            stats["max_citations"] = int(df["nb_citation"].max())
+            citations = pd.to_numeric(df["nb_citation"], errors="coerce").dropna()
+            if not citations.empty:
+                stats["avg_citations"] = float(citations.mean())
+                stats["max_citations"] = int(citations.max())
 
         return {"stats": stats}
 
@@ -976,12 +978,14 @@ async def export_results(request: ExportRequest):
 
         elif request.format == "json":
             df = pd.read_csv(csv_path, delimiter=";")
-            json_path = collection_dir / "results_temp.json"
-            df.to_json(json_path, orient="records")
-            return FileResponse(
-                json_path,
+            return Response(
+                content=df.to_json(orient="records"),
                 media_type="application/json",
-                filename=f"{request.collect_name}_results.json",
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{request.collect_name}_results.json"'
+                    )
+                },
             )
 
         else:
@@ -1084,4 +1088,5 @@ async def filter_results(collect_name: str, filters: FilterConfig):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    logging.basicConfig(level=logging.INFO)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

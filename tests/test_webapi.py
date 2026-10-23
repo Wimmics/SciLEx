@@ -542,3 +542,54 @@ def test_api_config_file_has_owner_only_permissions(client):
 def test_api_config_accepts_mailto(client):
     client.post("/api-config", json={"api_name": "CrossRef", "mailto": "a@b.org"})
     assert client.get("/api-config").json()["config"]["CrossRef"]["mailto"] == "a@b.org"
+
+
+# ------------------------------------------------------ CORS / export / stats
+
+
+def test_cors_origins_default_and_env(monkeypatch):
+    monkeypatch.delenv("SCILEX_CORS_ORIGINS", raising=False)
+    assert scilex_api.get_cors_origins() == [
+        "http://localhost:8501",
+        "http://127.0.0.1:8501",
+    ]
+    monkeypatch.setenv("SCILEX_CORS_ORIGINS", " https://a.org , https://b.org ,")
+    assert scilex_api.get_cors_origins() == ["https://a.org", "https://b.org"]
+
+
+def test_cors_middleware_is_not_wildcard_and_has_no_credentials():
+    cors = next(m for m in scilex_api.app.user_middleware if "CORS" in m.cls.__name__)
+    assert "*" not in cors.kwargs["allow_origins"]
+    assert not cors.kwargs.get("allow_credentials", False)
+
+
+def test_json_export_writes_nothing_in_collection_dir(client, output_root):
+    directory = _write_csv(output_root)
+    before = sorted(p.name for p in directory.iterdir())
+    response = client.post(
+        "/export", json={"collect_name": COLLECTION, "format": "json"}
+    )
+    assert response.status_code == 200
+    assert "attachment" in response.headers["content-disposition"]
+    assert sorted(p.name for p in directory.iterdir()) == before
+
+
+def test_stats_coerces_years_and_survives_nan(client, output_root):
+    rows = [
+        {"title": "A", "year": 2021.0, "archive": "X", "nb_citation": 3},
+        {"title": "B", "year": None, "archive": "X", "nb_citation": None},
+    ]
+    _write_csv(output_root, rows=rows)
+    response = client.get(f"/results/{COLLECTION}/stats")
+    assert response.status_code == 200
+    stats = response.json()["stats"]
+    assert stats["by_year"] == {"2021": 1}
+    assert stats["max_citations"] == 3
+
+
+def test_stats_with_all_nan_citations(client, output_root):
+    rows = [{"title": "A", "year": 2021, "archive": "X", "nb_citation": None}]
+    _write_csv(output_root, rows=rows)
+    response = client.get(f"/results/{COLLECTION}/stats")
+    assert response.status_code == 200
+    assert "max_citations" not in response.json()["stats"]

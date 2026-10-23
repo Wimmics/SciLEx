@@ -87,7 +87,7 @@ def main():
             print(
                 f"\n📡 Starting FastAPI backend on http://{args.host}:{args.api_port}"
             )
-            print("   API Documentation: http://localhost:8000/docs")
+            print(f"   API Documentation: http://{args.host}:{args.api_port}/docs")
             print("   (Press Ctrl+C to stop)\n")
 
             api_cmd = [
