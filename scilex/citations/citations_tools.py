@@ -237,25 +237,3 @@ def getCrossRefCitationsBatch(dois, mailto=None):
         )
         for item in items
     }
-
-
-def getCrossRefCitation(doi, mailto=None):
-    """Fetch citation counts for a single DOI from CrossRef.
-
-    Wrapper around getCrossRefCitationsBatch for per-DOI usage.
-
-    Args:
-        doi: DOI string.
-        mailto: Email for CrossRef polite pool.
-
-    Returns:
-        tuple: (citation_count, reference_count) or None if DOI not found.
-    """
-    try:
-        result = getCrossRefCitationsBatch([doi], mailto=mailto)
-        doi_lower = normalize_doi(doi)
-        if doi_lower in result:
-            return result[doi_lower]
-    except Exception as e:
-        logging.debug(f"CrossRef lookup failed for DOI {doi}: {e}")
-    return None

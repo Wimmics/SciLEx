@@ -187,56 +187,6 @@ class TestGetCrossRefCitationsBatch:
 
 
 # ============================================================================
-# getCrossRefCitation (single-DOI wrapper) unit tests
-# ============================================================================
-
-
-class TestGetCrossRefCitation:
-    """Test the single-DOI CrossRef lookup wrapper."""
-
-    @patch("scilex.citations.citations_tools.getCrossRefCitationsBatch")
-    def test_returns_tuple_when_found(self, mock_batch):
-        """Returns (cit, ref) tuple when DOI is found."""
-        mock_batch.return_value = {"10.1234/test": (42, 15)}
-
-        from scilex.citations.citations_tools import getCrossRefCitation
-
-        result = getCrossRefCitation("10.1234/test")
-        assert result == (42, 15)
-        mock_batch.assert_called_once_with(["10.1234/test"], mailto=None)
-
-    @patch("scilex.citations.citations_tools.getCrossRefCitationsBatch")
-    def test_returns_none_when_not_found(self, mock_batch):
-        """Returns None when DOI is not in CrossRef."""
-        mock_batch.return_value = {}
-
-        from scilex.citations.citations_tools import getCrossRefCitation
-
-        result = getCrossRefCitation("10.9999/missing")
-        assert result is None
-
-    @patch("scilex.citations.citations_tools.getCrossRefCitationsBatch")
-    def test_returns_none_on_exception(self, mock_batch):
-        """Returns None when batch call raises an exception."""
-        mock_batch.side_effect = Exception("API error")
-
-        from scilex.citations.citations_tools import getCrossRefCitation
-
-        result = getCrossRefCitation("10.1234/test")
-        assert result is None
-
-    @patch("scilex.citations.citations_tools.getCrossRefCitationsBatch")
-    def test_passes_mailto(self, mock_batch):
-        """Passes mailto parameter to batch function."""
-        mock_batch.return_value = {"10.1234/test": (5, 3)}
-
-        from scilex.citations.citations_tools import getCrossRefCitation
-
-        getCrossRefCitation("10.1234/test", mailto="user@example.org")
-        mock_batch.assert_called_once_with(["10.1234/test"], mailto="user@example.org")
-
-
-# ============================================================================
 # CROSSREF_BATCH_SIZE constant
 # ============================================================================
 
@@ -256,9 +206,8 @@ class TestCrossRefBatchSize:
 class TestOpenCitationsWorker:
     """The phase-4 worker only calls OpenCitations; SS/CrossRef are earlier phases."""
 
-    @patch("scilex.citations.fetcher.cit_tools.getCrossRefCitation")
     @patch("scilex.citations.fetcher.cit_tools.getRefandCitFormatted")
-    def test_worker_returns_counts_and_source(self, mock_oc, mock_cr):
+    def test_worker_returns_counts_and_source(self, mock_oc):
         from scilex.citations.fetcher import _fetch_opencitations_for_doi
 
         mock_oc.return_value = (
@@ -272,7 +221,6 @@ class TestOpenCitationsWorker:
         assert result["nb_cited"] == 2
         assert result["api_stats"]["source"] == "opencitations"
         mock_oc.assert_called_once_with("10.1234/not-in-cr")
-        mock_cr.assert_not_called()
 
 
 # ============================================================================
