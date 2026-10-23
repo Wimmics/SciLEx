@@ -4,12 +4,14 @@
 Handles:
 - Model card parsing (YAML frontmatter + README content)
 - Dataset card parsing
-- GitHub repository extraction
+- GitHub repository extraction (only URLs actually present in card data)
 - Architecture/framework identification
 - Paper reference extraction
 """
 
-from scilex.constants import is_valid
+import re
+
+GITHUB_URL_PATTERN = re.compile(r"https?://(?:www\.)?github\.com/[\w.-]+/[\w.-]+")
 
 
 class MetadataExtractor:
@@ -65,6 +67,10 @@ class MetadataExtractor:
         "longformer": "LongFormer",
     }
 
+    # Prefix fallback limits (avoid "purely" -> PURE, "clipboard" -> CLIP)
+    MIN_PREFIX_KEY_LENGTH = 5
+    MAX_PREFIX_REMAINDER = 4
+
     # Framework mappings
     FRAMEWORKS = {
         "pytorch": "PyTorch",
@@ -73,10 +79,6 @@ class MetadataExtractor:
         "flax": "Flax",
         "keras": "Keras",
     }
-
-    def __init__(self):
-        """Initialize metadata extractor."""
-        pass
 
     def extract_model_metadata(self, model_dict: dict) -> dict:
         """Extract structured metadata from HF model dictionary.
@@ -118,16 +120,8 @@ class MetadataExtractor:
             if isinstance(datasets, list):
                 result["datasets"] = datasets
 
-        # Extract GitHub URL from model card (if available)
-        # Note: HF Hub API doesn't provide card text directly,
-        # but we can infer from model_id sometimes
-        if "/" in model_dict.get("modelId", ""):
-            # Try to construct GitHub URL from model ID
-            parts = model_dict["modelId"].split("/")
-            if len(parts) == 2:
-                author, model_name = parts
-                # Common pattern: many HF models have GitHub repos
-                result["github_url"] = f"https://github.com/{author}/{model_name}"
+        # Only report GitHub URLs actually present in the card data
+        result["github_url"] = self._find_github_url(card_data)
 
         return result
 
@@ -145,7 +139,6 @@ class MetadataExtractor:
                 "architecture": "BERT" | "GPT" | None,
                 "framework": "PyTorch" | "TensorFlow" | None,
                 "datasets": ["squad", "glue"],
-                "github_urls": ["https://github.com/..."],
                 "pipeline_tag": "text-classification",
                 "paper_id": "2409.17957"
             }
@@ -154,7 +147,6 @@ class MetadataExtractor:
             "architecture": None,
             "framework": None,
             "datasets": [],
-            "github_urls": linked_resources.get("github_urls", []),
             "pipeline_tag": None,
             "paper_id": paper_dict.get("id"),
         }
@@ -205,12 +197,44 @@ class MetadataExtractor:
         Returns:
             Architecture name or None
         """
-        tags_lower = " ".join(tags).lower() if tags else ""
+        for tokens in (self._tokenize(model_id), self._tokenize(" ".join(tags or []))):
+            # Whole-token match; dict order breaks ties (e.g. "flan-t5" -> T5)
+            matched = [
+                index for index, key in enumerate(self.ARCHITECTURES) if key in tokens
+            ]
+            if matched:
+                return list(self.ARCHITECTURES.values())[min(matched)]
 
-        for key, name in self.ARCHITECTURES.items():
-            if key in model_id or key in tags_lower:
-                return name
+            # Compound fallback ("bertweet" -> BERT): longest key first
+            for key in sorted(self.ARCHITECTURES, key=len, reverse=True):
+                if len(key) < self.MIN_PREFIX_KEY_LENGTH:
+                    continue
+                for token in tokens:
+                    if (
+                        token.startswith(key)
+                        and len(token) - len(key) <= self.MAX_PREFIX_REMAINDER
+                    ):
+                        return self.ARCHITECTURES[key]
 
+        return None
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        """Split text on [-_/. ] and whitespace into lowercase tokens."""
+        return [token for token in re.split(r"[-_/.\s]+", text.lower()) if token]
+
+    @staticmethod
+    def _find_github_url(card_data) -> str | None:
+        """Return the first GitHub URL found in card data values, else None."""
+        if not isinstance(card_data, dict):
+            return None
+        for value in card_data.values():
+            candidates = value if isinstance(value, list) else [value]
+            for candidate in candidates:
+                if isinstance(candidate, str):
+                    match = GITHUB_URL_PATTERN.search(candidate)
+                    if match:
+                        return match.group(0).rstrip(".,;)")
         return None
 
     def _identify_framework(self, tags: list[str]) -> str | None:
@@ -232,72 +256,3 @@ class MetadataExtractor:
                 return name
 
         return None
-
-    def extract_dataset_metadata(self, dataset_dict: dict) -> dict:
-        """Extract structured metadata from HF dataset dictionary.
-
-        Args:
-            dataset_dict: Dataset info from HFClient.search_datasets_by_title()
-
-        Returns:
-            Dictionary with extracted metadata
-        """
-        result = {
-            "datasets": [dataset_dict.get("datasetId")],
-            "github_url": None,
-        }
-
-        # Try to construct GitHub URL from dataset ID
-        if "/" in dataset_dict.get("datasetId", ""):
-            parts = dataset_dict["datasetId"].split("/")
-            if len(parts) == 2:
-                author, dataset_name = parts
-                result["github_url"] = f"https://github.com/{author}/{dataset_name}"
-
-        return result
-
-    def identify_task(self, pipeline_tag: str | None) -> str | None:
-        """Map HuggingFace pipeline_tag to SciLEx TASK: tag.
-
-        Mappings:
-        - "text-classification" → "TextClassification"
-        - "question-answering" → "QuestionAnswering"
-        - "summarization" → "Summarization"
-        - etc.
-
-        Args:
-            pipeline_tag: HF pipeline tag (e.g., "text-classification")
-
-        Returns:
-            Normalized task name for Zotero tagging
-        """
-        if not is_valid(pipeline_tag):
-            return None
-
-        # Mapping dictionary (NLP tasks)
-        task_map = {
-            "text-classification": "TextClassification",
-            "token-classification": "TokenClassification",
-            "question-answering": "QuestionAnswering",
-            "summarization": "Summarization",
-            "translation": "Translation",
-            "text-generation": "TextGeneration",
-            "fill-mask": "MaskedLanguageModeling",
-            "feature-extraction": "FeatureExtraction",
-            "zero-shot-classification": "ZeroShotClassification",
-            "text2text-generation": "Text2TextGeneration",
-            # Computer Vision tasks
-            "image-classification": "ImageClassification",
-            "object-detection": "ObjectDetection",
-            "image-segmentation": "ImageSegmentation",
-            "image-to-text": "ImageCaptioning",
-            # Audio tasks
-            "automatic-speech-recognition": "SpeechRecognition",
-            "audio-classification": "AudioClassification",
-            "text-to-speech": "TextToSpeech",
-            # Multimodal tasks
-            "visual-question-answering": "VisualQuestionAnswering",
-            "document-question-answering": "DocumentQA",
-        }
-
-        return task_map.get(pipeline_tag.lower())
