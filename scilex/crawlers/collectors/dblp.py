@@ -8,8 +8,7 @@ class DBLP_collector(API_collector):
     """Class to collect publication data from the DBLP API."""
 
     def __init__(self, filter_param, data_path, api_key):
-        """
-        Initializes the DBLP collector with the given parameters.
+        """Initializes the DBLP collector with the given parameters.
 
         Args:
             filter_param (Filter_param): The parameters for filtering results (years, keywords, etc.).
@@ -23,8 +22,7 @@ class DBLP_collector(API_collector):
         self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
-        """
-        Parses the results from a response for a specific page.
+        """Parses the results from a response for a specific page.
 
         Args:
             response (requests.Response): The API response object containing the results.
@@ -59,8 +57,7 @@ class DBLP_collector(API_collector):
         return page_data
 
     def get_configurated_url(self):
-        """
-        Constructs the configured API URL based on keywords and years.
+        """Constructs the configured API URL based on keywords and years.
 
         Returns:
             str: The formatted API URL with the constructed query parameters.

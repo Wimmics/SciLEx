@@ -136,7 +136,7 @@ class TestEntryEscaping:
         )
         assert r"url = {http://a.org/p_1?q=50\%&r\#x}" in entry
         assert r"file = {http://a.org/f\%20.pdf}" in entry
-        assert r"note = {HuggingFace: http://hf.co/a\#b}" in entry
+        assert r"hfurl = {http://hf.co/a\#b}" in entry
         assert r"howpublished = {http://gh.com/a_b/~c\#d}" in entry
 
 
@@ -348,10 +348,12 @@ class TestFormatBibtexEntry:
         assert "copyright" not in entry
         assert "file" not in entry
 
-    def test_hf_tags_in_keywords(self):
-        row = self._make_row(tags="TASK:NER;PTM:BERT")
+    def test_hf_tags_in_dedicated_fields(self):
+        row = self._make_row(tags="TASK:NER;PTM:BERT;transfer learning")
         entry = format_bibtex_entry(row, "key")
-        assert "keywords = {TASK:NER, PTM:BERT}" in entry
+        assert "task = {NER}" in entry
+        assert "ptm = {BERT}" in entry
+        assert "keywords = {transfer learning}" in entry
 
     def test_entry_closes_properly(self):
         row = self._make_row()

@@ -1,5 +1,4 @@
-"""
-SQLite-based citation caching system.
+"""SQLite-based citation caching system.
 
 Provides persistent caching for citation data to avoid redundant API calls.
 Features:

@@ -1,5 +1,4 @@
-"""
-Circuit Breaker pattern for API calls.
+"""Circuit Breaker pattern for API calls.
 
 Prevents wasting time on repeatedly failing API endpoints by "opening the circuit"
 after a threshold of consecutive failures.
@@ -26,8 +25,7 @@ class CircuitState(Enum):
 
 
 class CircuitBreaker:
-    """
-    Circuit breaker for API calls with failure threshold and timeout.
+    """Circuit breaker for API calls with failure threshold and timeout.
 
     Thread-safe implementation using locks.
     """
@@ -38,8 +36,7 @@ class CircuitBreaker:
         timeout_seconds: int = 60,
         name: str = "default",
     ):
-        """
-        Initialize circuit breaker.
+        """Initialize circuit breaker.
 
         Args:
             failure_threshold: Number of consecutive failures before opening circuit
@@ -70,8 +67,7 @@ class CircuitBreaker:
             return self._failure_count
 
     def is_available(self) -> bool:
-        """
-        Check if circuit allows requests.
+        """Check if circuit allows requests.
 
         Returns:
             True if request can proceed, False if circuit is open
@@ -174,8 +170,7 @@ class CircuitBreaker:
 
 
 class CircuitBreakerRegistry:
-    """
-    Global registry for circuit breakers (one per API).
+    """Global registry for circuit breakers (one per API).
 
     Thread-safe singleton pattern.
     """
@@ -196,8 +191,7 @@ class CircuitBreakerRegistry:
     def get_breaker(
         self, api_name: str, failure_threshold: int = 5, timeout_seconds: int = 60
     ) -> CircuitBreaker:
-        """
-        Get or create circuit breaker for an API.
+        """Get or create circuit breaker for an API.
 
         Args:
             api_name: API name

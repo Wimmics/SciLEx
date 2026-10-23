@@ -1,5 +1,4 @@
-"""
-Duplicate source tracking and API overlap analysis for SciLEx.
+"""Duplicate source tracking and API overlap analysis for SciLEx.
 
 This module analyzes:
 - Which APIs found which papers
@@ -36,8 +35,7 @@ class DuplicateSourceAnalyzer:
         self.apis_encountered = set()
 
     def add_paper(self, paper_id: str, api_source: str):
-        """
-        Record that a paper was found by an API.
+        """Record that a paper was found by an API.
 
         Args:
             paper_id: Unique identifier (DOI or normalized title)
@@ -48,8 +46,7 @@ class DuplicateSourceAnalyzer:
         self.apis_encountered.add(api_source)
 
     def analyze_from_dataframe(self, df: pd.DataFrame, archive_column: str = "archive"):
-        """
-        Analyze duplicate sources from aggregated DataFrame.
+        """Analyze duplicate sources from aggregated DataFrame.
 
         The archive column should contain API sources, possibly semicolon-separated
         (e.g., "SemanticScholar;IEEE*" where * indicates the chosen source).
@@ -97,8 +94,7 @@ class DuplicateSourceAnalyzer:
                 self.unique_papers_by_api[api].add(paper_id)
 
     def get_api_overlap(self, api1: str, api2: str) -> tuple[int, float]:
-        """
-        Calculate overlap between two APIs.
+        """Calculate overlap between two APIs.
 
         Args:
             api1: First API name
@@ -126,8 +122,7 @@ class DuplicateSourceAnalyzer:
         return overlap_count, overlap_percentage
 
     def get_all_overlaps(self) -> list[tuple[str, str, int, float]]:
-        """
-        Get all pairwise API overlaps.
+        """Get all pairwise API overlaps.
 
         Returns:
             List of (api1, api2, overlap_count, overlap_percentage) tuples,
@@ -148,8 +143,7 @@ class DuplicateSourceAnalyzer:
         return overlaps
 
     def get_api_statistics(self) -> dict[str, dict]:
-        """
-        Get detailed statistics for each API.
+        """Get detailed statistics for each API.
 
         Returns:
             Dictionary mapping API name to statistics
@@ -351,8 +345,7 @@ class DuplicateSourceAnalyzer:
 
 
 def analyze_api_metadata_quality(df: pd.DataFrame) -> dict[str, dict]:
-    """
-    Analyze metadata completeness by API source.
+    """Analyze metadata completeness by API source.
 
     Args:
         df: DataFrame with papers and archive column
@@ -455,8 +448,7 @@ def generate_metadata_quality_report(quality_stats: dict[str, dict]) -> str:
 
 
 def generate_itemtype_distribution_report(df: pd.DataFrame) -> str:
-    """
-    Generate itemType distribution report by API.
+    """Generate itemType distribution report by API.
 
     Args:
         df: DataFrame with papers, archive column, and itemType column
@@ -522,8 +514,7 @@ def generate_itemtype_distribution_report(df: pd.DataFrame) -> str:
 def analyze_and_report_duplicates(
     df: pd.DataFrame, generate_report: bool = True
 ) -> tuple[DuplicateSourceAnalyzer, dict]:
-    """
-    Analyze duplicate sources and metadata quality.
+    """Analyze duplicate sources and metadata quality.
 
     Args:
         df: DataFrame with aggregated papers

@@ -289,3 +289,33 @@ def get_rate_limit(api_name: str, has_api_key: bool = False) -> float:
         return entry["with_key"] if has_api_key else entry["without_key"]
     # Backward compat: if someone passes a plain float
     return float(entry)  # type: ignore[arg-type]
+
+
+# ============================================================================
+# GRAPH ANALYSIS SETTINGS (scilex-analyze)
+# ============================================================================
+
+DEFAULT_GRAPH_TYPE = "cocitation"
+"""Graph to build: 'cocitation', 'coupling' or 'both'."""
+
+DEFAULT_LOUVAIN_RESOLUTION = 1.0
+"""Louvain resolution; higher values give more, smaller communities (typical 0.5-2.0)."""
+
+DEFAULT_GRAPH_MIN_WEIGHT = 1
+"""Minimum edge weight kept; increase to drop weak links and get cleaner clusters."""
+
+DEFAULT_GRAPH_FORMAT = "gexf"
+"""Graph export format: 'gexf' (Gephi) or 'graphml'."""
+
+# ============================================================================
+# SNOWBALL SAMPLING SETTINGS (scilex-snowball)
+# ============================================================================
+
+DEFAULT_SNOWBALL_DIRECTION = "both"
+"""Direction: 'backward' (references), 'forward' (citing papers) or 'both'."""
+
+DEFAULT_SNOWBALL_TOP_K = 200
+"""Number of top-ranked candidates kept; higher finds more papers but is slower."""
+
+DEFAULT_SNOWBALL_MIN_FREQUENCY = 2
+"""A candidate must be cited by (or cite) at least this many corpus papers."""
