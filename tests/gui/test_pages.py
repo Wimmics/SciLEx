@@ -56,8 +56,7 @@ async def test_run_pipeline_enables_screening(ctx, tmp_path):
         assert screen_button.enabled
 
         user.find(marker="step-screen").click()
-        # The fake pipeline writes an invalid results file: the Screen page reports it.
-        await user.should_see("Cannot load the results")
+        await user.should_see("Graph RAG for metabolomics")
 
 
 async def test_unknown_review(ctx):

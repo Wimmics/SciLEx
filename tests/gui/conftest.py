@@ -33,7 +33,10 @@ def ctx(tmp_path):
     def fake_aggregation(config, options, progress_callback):
         collection_dir = Path(config.main["output_dir"]) / config.main["collect_name"]
         collection_dir.mkdir(parents=True, exist_ok=True)
-        (collection_dir / "aggregated_results.csv").write_text("title\n")
+        (collection_dir / "aggregated_results.csv").write_text(
+            "itemType;title;DOI;date;relevance_score\n"
+            "journalArticle;Graph RAG for metabolomics;10.1/abc;2024;7.5\n"
+        )
         progress_callback("done", 100, "Done")
 
     from scilex.gui.services.jobs import JobRunner
