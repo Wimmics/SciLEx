@@ -13,6 +13,8 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from scilex.constants import extract_year, is_missing, parse_archive_apis
+
 CHART_DIR_NAME = "chart_aggregated_papers"
 CSV_NAMES = ("aggregated_results.csv", "aggregation_results.csv")
 
@@ -56,17 +58,10 @@ def _find_csv(collect_dir: Path) -> Path:
     )
 
 
-def _parse_apis(archive_str: str) -> set[str]:
-    """Return unique API names from the archive column (strips '*' suffixes)."""
-    if not archive_str or archive_str.strip() in ("", "NA"):
-        return set()
-    return {part.strip().rstrip("*") for part in archive_str.split(";") if part.strip()}
-
-
 def _parse_keywords(kw_str: str) -> dict[str, str]:
     """Parse 'Collect_KW1:Value;Collect_KW2:Other' → {'Collect_KW1': 'Value', ...}."""
     result: dict[str, str] = {}
-    if not kw_str or kw_str.strip() in ("", "NA"):
+    if is_missing(kw_str):
         return result
     for part in kw_str.split(";"):
         part = part.strip()
@@ -76,21 +71,14 @@ def _parse_keywords(kw_str: str) -> dict[str, str]:
     return result
 
 
-def _extract_year(date_str: str) -> int | None:
-    if not date_str or date_str.strip() in ("", "NA"):
-        return None
-    m = re.search(r"\b(1[89]\d{2}|20\d{2})\b", date_str)
-    return int(m.group(1)) if m else None
-
-
 def load_data(collect_dir: Path) -> pd.DataFrame:
     csv_path = _find_csv(collect_dir)
     df = pd.read_csv(csv_path, sep=";", dtype=str, on_bad_lines="skip")
     df.fillna("NA", inplace=True)
 
-    df["_apis"] = df["archive"].apply(_parse_apis)
+    df["_apis"] = df["archive"].apply(lambda value: set(parse_archive_apis(value)))
     df["_keywords"] = df["collect_keywords"].apply(_parse_keywords)
-    df["_year"] = df["date"].apply(_extract_year)
+    df["_year"] = df["date"].apply(extract_year)
     df["_itemtype"] = df["itemType"].str.strip()
 
     return df
