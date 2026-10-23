@@ -165,7 +165,12 @@ with st.sidebar.expander("⚙️ Configuration", expanded=True):
                 current_input_values[field_name] = st.text_input(
                     field_label,
                     type="password",
-                    value=default_value,
+                    value=default_value if field_name == "user_mode" else "",
+                    placeholder=(
+                        "Configured (leave blank to keep)"
+                        if api_saved.get(field_name)
+                        else "Not configured"
+                    ),
                     key=f"api_{api_name}_{field_name}",
                 )
 
@@ -587,7 +592,6 @@ with tab1:
                         "output_dir": output_dir,
                         "enable_enrichment": enable_enrichment,
                     },
-                    "api_config": load_local_api_config(),
                     "quality_filters": {
                         "enable_text_filter": enable_base_filters,
                         "min_abstract_words": int(min_abstract),

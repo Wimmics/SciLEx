@@ -112,6 +112,7 @@ class APIKeyConfig(BaseModel):
 
     api_name: str
     api_key: str | None = None
+    mailto: str | None = None
     user_id: str | None = None
     user_mode: str | None = None
     token: str | None = None
@@ -167,7 +168,7 @@ class PipelineRequest(BaseModel):
     """Request for running the full pipeline."""
 
     collection_config: CollectionConfig
-    api_config: dict[str, dict[str, Any]]
+    api_config: dict[str, dict[str, Any]] | None = None  # None: use server-side file
     filter_config: FilterConfig | None = None
     quality_filters: QualityFilters | None = None
 
@@ -312,8 +313,11 @@ def save_api_config(config: dict[str, Any]) -> None:
     """Save API configuration to file."""
     config_path = get_api_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w") as f:
+    # Create with owner-only permissions from the start (file holds secrets)
+    file_descriptor = os.open(config_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(file_descriptor, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
+    os.chmod(config_path, 0o600)  # also tighten a pre-existing file
 
 
 def save_main_config(config: dict[str, Any]) -> None:
@@ -586,7 +590,9 @@ async def update_api_config(api_key_config: APIKeyConfig):
 
         # Update configuration with provided values.
         # Empty string clears the field.
-        update_dict = api_key_config.dict(exclude_unset=True, exclude={"api_name"})
+        update_dict = api_key_config.model_dump(
+            exclude_unset=True, exclude={"api_name"}
+        )
         for key, value in update_dict.items():
             if value is None:
                 continue
@@ -610,7 +616,14 @@ async def update_api_config(api_key_config: APIKeyConfig):
 @app.delete("/api-config/{api_name}/{field_name}")
 async def delete_api_config_field(api_name: str, field_name: str):
     """Delete a specific API configuration field (e.g., api_key, token)."""
-    allowed_fields = {"api_key", "user_id", "user_mode", "token", "inst_token"}
+    allowed_fields = {
+        "api_key",
+        "mailto",
+        "user_id",
+        "user_mode",
+        "token",
+        "inst_token",
+    }
     if field_name not in allowed_fields:
         raise HTTPException(status_code=400, detail="Unsupported field name")
 
@@ -730,6 +743,11 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
     try:
         job_id = generate_job_id()
 
+        # Keys stay server-side unless a client explicitly supplies its own
+        api_config = (
+            request.api_config if request.api_config is not None else load_api_config()
+        )
+
         # Prepare main configuration
         main_config = {
             "keywords": request.collection_config.keywords,
@@ -748,7 +766,7 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
             )
 
         if request.quality_filters:
-            main_config["quality_filters"] = request.quality_filters.dict(
+            main_config["quality_filters"] = request.quality_filters.model_dump(
                 exclude_unset=True
             )
 
@@ -773,7 +791,7 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
             run_collection_task,
             job_id,
             main_config,
-            request.api_config,
+            api_config,
             cancel_event,
         )
 
@@ -1050,7 +1068,7 @@ async def filter_results(collect_name: str, filters: FilterConfig):
         # Apply filters using shared post-filter module
         from scilex.pipeline.post_filter import apply_post_filters
 
-        df = apply_post_filters(df, filters.dict())
+        df = apply_post_filters(df, filters.model_dump())
 
         return {
             "total": len(df),

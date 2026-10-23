@@ -507,3 +507,38 @@ def test_cancel_endpoint_on_cancelling_job_is_refused(client):
     response = client.post("/pipelines/job_c/cancel")
     assert response.status_code == 400
     assert job["status"] == "cancelling"
+
+
+# ------------------------------------------------------------- API keys
+
+
+def test_start_without_api_config_uses_server_side_keys(
+    client, monkeypatch, mocked_pipeline
+):
+    client.post("/api-config", json={"api_name": "OpenAlex", "api_key": "server-key"})
+    received = {}
+
+    class Recorder(FakeCollector):
+        def __init__(self, main_config, api_config, **kwargs):
+            received.update(api_config)
+            super().__init__(main_config, api_config, **kwargs)
+
+    monkeypatch.setattr(scilex_api, "CollectCollection", Recorder)
+    payload = _start_payload()
+    del payload["api_config"]
+    response = client.post("/pipelines/start", json=payload)
+    assert response.status_code == 200
+    assert received == {"OpenAlex": {"api_key": "server-key"}}
+
+
+def test_api_config_file_has_owner_only_permissions(client):
+    client.post("/api-config", json={"api_name": "IEEE", "api_key": "secret"})
+    path = scilex_api.get_api_config_path()
+    assert path.stat().st_mode & 0o777 == 0o600
+    client.post("/api-config", json={"api_name": "IEEE", "token": "t"})
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_api_config_accepts_mailto(client):
+    client.post("/api-config", json={"api_name": "CrossRef", "mailto": "a@b.org"})
+    assert client.get("/api-config").json()["config"]["CrossRef"]["mailto"] == "a@b.org"
