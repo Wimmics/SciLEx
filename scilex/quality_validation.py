@@ -9,7 +9,12 @@ import logging
 
 import pandas as pd
 
-from scilex.constants import is_missing, is_valid, normalize_text_field
+from scilex.constants import (
+    is_missing,
+    is_valid,
+    normalize_text_field,
+    split_semicolon_field,
+)
 
 
 class QualityReport:
@@ -89,7 +94,7 @@ def count_authors(authors_value) -> int:
 
     # Semicolon is the clearest separator
     if ";" in authors_str:
-        return len([a.strip() for a in authors_str.split(";") if a.strip()])
+        return len(split_semicolon_field(authors_str))
 
     # If no semicolon but has comma, check if it's a single "Last, First" author
     # or multiple authors
@@ -230,8 +235,8 @@ def apply_quality_filters(
     # Track which rows to keep
     keep_mask = []
 
-    for _idx, row in df.iterrows():
-        passes, reason = passes_quality_filters(row.to_dict(), filters)
+    for record in df.to_dict("records"):
+        passes, reason = passes_quality_filters(record, filters)
 
         if passes:
             keep_mask.append(True)

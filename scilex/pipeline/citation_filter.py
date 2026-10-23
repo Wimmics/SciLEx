@@ -129,9 +129,8 @@ def apply_time_aware_citation_filter(df, citation_col=None, date_col="date"):
 
     # Calculate zero-citation statistics
     if len(df_filtered) > 0:
-        zero_citation_count = (
-            df_filtered[df_filtered["DOI"].apply(is_valid)][citation_col] == 0
-        ).sum()
+        kept_with_doi = has_valid_doi[keep_mask].to_numpy()
+        zero_citation_count = (df_filtered.loc[kept_with_doi, citation_col] == 0).sum()
     else:
         zero_citation_count = 0
     zero_citation_rate = (
