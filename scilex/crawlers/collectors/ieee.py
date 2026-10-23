@@ -121,7 +121,7 @@ class IEEE_collector(API_collector):
         return (
             self.get_url()
             + "?apikey="
-            + self.get_apikey()
+            + str(self.get_apikey() or "")
             + "&format=json&max_records="
             + str(self.get_max_by_page())
             + "&sort_order=asc&sort_field=article_number&querytext="
