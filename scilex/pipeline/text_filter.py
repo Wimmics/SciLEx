@@ -1,16 +1,19 @@
 """Text-based keyword filtering for the aggregation pipeline."""
 
-from scilex.constants import normalize_text_field
 from scilex.keyword_validation import (
     build_searchable_text,
-    check_keyword_in_text,
-    check_keyword_in_text_flexible,
+    exact_match_prepared,
+    flexible_match_prepared,
+    prepare_text,
 )
 
 
-def keyword_matches_in_abstract(keyword, abstract_text):
-    """Check if keyword appears in abstract text (handles both dict and string formats)."""
-    return keyword.lower() in normalize_text_field(abstract_text).lower()
+def _any_exact(keywords_list, text_lower):
+    return any(exact_match_prepared(kw, text_lower) for kw in keywords_list)
+
+
+def _any_flexible(keywords_list, text_lower):
+    return any(flexible_match_prepared(kw, text_lower) for kw in keywords_list)
 
 
 def check_keywords_in_text(keywords_list, text):
@@ -25,7 +28,7 @@ def check_keywords_in_text(keywords_list, text):
     Returns:
         bool: True if at least one keyword matches
     """
-    return any(check_keyword_in_text(kw, text) for kw in keywords_list)
+    return _any_exact(keywords_list, prepare_text(text))
 
 
 def check_keywords_flexible(keywords_list, text):
@@ -34,7 +37,7 @@ def check_keywords_flexible(keywords_list, text):
     Uses a word-level fallback so 'Cultural Heritage' matches even when
     'cultural' and 'heritage' appear separately in the abstract.
     """
-    return any(check_keyword_in_text_flexible(kw, text) for kw in keywords_list)
+    return _any_flexible(keywords_list, prepare_text(text))
 
 
 def record_passes_text_filter(
@@ -64,7 +67,10 @@ def record_passes_text_filter(
     if not keywords and not keyword_groups:
         return True
 
-    combined_text = build_searchable_text(record.get("title"), record.get("abstract"))
+    # Normalized once per record, then reused for every keyword check
+    combined_text = prepare_text(
+        build_searchable_text(record.get("title"), record.get("abstract"))
+    )
 
     # DUAL KEYWORD GROUP MODE
     if keyword_groups and len(keyword_groups) == 2:
@@ -77,18 +83,18 @@ def record_passes_text_filter(
                 return True
             keywords = all_keywords
         else:
-            if not check_keywords_in_text(group1, combined_text):
+            if not _any_exact(group1, combined_text):
                 return False
 
             # Group 2: exact match first, then bonus keyword flexible fallback
-            if check_keywords_in_text(group2, combined_text):
+            if _any_exact(group2, combined_text):
                 return True
             if bonus_keywords:
-                return check_keywords_flexible(bonus_keywords, combined_text)
+                return _any_flexible(bonus_keywords, combined_text)
             return False
 
     # SINGLE KEYWORD GROUP MODE
     if keyword_groups:
         keywords = [kw for group in keyword_groups for kw in group if group]
 
-    return check_keywords_in_text(keywords, combined_text)
+    return _any_exact(keywords, combined_text)

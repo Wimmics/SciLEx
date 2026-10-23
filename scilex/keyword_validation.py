@@ -26,15 +26,47 @@ def build_searchable_text(title, abstract) -> str:
     return f"{normalize_text_field(title)} {normalize_text_field(abstract)}"
 
 
+def prepare_text(text) -> str:
+    """Normalize searchable text once for repeated keyword matching.
+
+    Returns the lowercased text, or ``""`` when the text is missing (no
+    non-empty keyword can match an empty string).
+    """
+    return "" if is_missing(text) else normalize_text(text)
+
+
+def exact_match_prepared(keyword: str, text_lower: str) -> bool:
+    """Exact substring match against text already passed through ``prepare_text``."""
+    return bool(keyword) and keyword.lower() in text_lower
+
+
+def flexible_match_prepared(keyword: str, text_lower: str) -> bool:
+    """Flexible match against text already passed through ``prepare_text``.
+
+    Exact phrase first, then every meaningful constituent word (length > 2,
+    not a stop word) of a multi-word keyword present anywhere in the text.
+    """
+    if not keyword:
+        return False
+
+    kw_lower = keyword.lower()
+    if kw_lower in text_lower:
+        return True
+
+    words = kw_lower.split()
+    if len(words) < 2:
+        return False
+    meaningful = [w for w in words if len(w) > 2 and w not in _STOP_WORDS]
+    return bool(meaningful) and all(w in text_lower for w in meaningful)
+
+
 def check_keyword_in_text(keyword: str, text: str) -> bool:
     """Exact case-insensitive substring match.
 
     Used for mandatory query-term filtering (Group 1 / Group 2 keywords).
     The keyword must appear verbatim (lowercased) somewhere in the text.
     """
-    if is_missing(text) or not keyword:
-        return False
-    return keyword.lower() in normalize_text(text)
+    return exact_match_prepared(keyword, prepare_text(text))
 
 
 def check_keyword_in_text_flexible(keyword: str, text: str) -> bool:
@@ -45,20 +77,7 @@ def check_keyword_in_text_flexible(keyword: str, text: str) -> bool:
     For multi-word keywords: exact phrase OR every meaningful constituent word
     (length > 2, not a stop word) present anywhere in the text.
     """
-    if is_missing(text) or not keyword:
-        return False
-
-    text_lower = normalize_text(text)
-    kw_lower = keyword.lower()
-
-    if kw_lower in text_lower:
-        return True
-
-    words = kw_lower.split()
-    if len(words) < 2:
-        return False
-    meaningful = [w for w in words if len(w) > 2 and w not in _STOP_WORDS]
-    return bool(meaningful) and all(w in text_lower for w in meaningful)
+    return flexible_match_prepared(keyword, prepare_text(text))
 
 
 def generate_keyword_validation_report(
@@ -106,19 +125,20 @@ def generate_keyword_validation_report(
     both_groups = 0
     neither = 0
 
-    for _, row in df.iterrows():
-        record = row.to_dict()
-        combined = build_searchable_text(record.get("title"), record.get("abstract"))
+    for record in df.to_dict("records"):
+        combined = prepare_text(
+            build_searchable_text(record.get("title"), record.get("abstract"))
+        )
 
         if dual_group_mode:
             g1_hit = False
             g2_hit = False
             for kw in keywords[0]:
-                if check_keyword_in_text(kw, combined):
+                if exact_match_prepared(kw, combined):
                     keyword_counts[kw] += 1
                     g1_hit = True
             for kw in keywords[1]:
-                if check_keyword_in_text(kw, combined):
+                if exact_match_prepared(kw, combined):
                     keyword_counts[kw] += 1
                     g2_hit = True
             if g1_hit and g2_hit:
@@ -133,7 +153,7 @@ def generate_keyword_validation_report(
             group = keywords[0] if keywords else []
             hit = False
             for kw in group:
-                if check_keyword_in_text(kw, combined):
+                if exact_match_prepared(kw, combined):
                     keyword_counts[kw] += 1
                     hit = True
             if hit:
@@ -143,7 +163,7 @@ def generate_keyword_validation_report(
 
         if bonus_keywords:
             for kw in bonus_keywords:
-                if check_keyword_in_text_flexible(kw, combined):
+                if flexible_match_prepared(kw, combined):
                     bonus_counts[kw] += 1
 
     # -----------------------------------------------------------------------
