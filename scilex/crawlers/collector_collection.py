@@ -147,6 +147,9 @@ def _run_job_collects_worker(
             else:
                 current_coll = collector_class(data_query, repo, api_key)
 
+            # Apply user-configured rate limits (api.config.yml `rate_limits`)
+            current_coll.load_rate_limit_from_config(api_config.get("rate_limits"))
+
             logging.info(f"[{api_name}] Q{query_id}: {kw_str} ({year})")
 
             # Run collection

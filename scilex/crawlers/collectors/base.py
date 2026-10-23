@@ -6,7 +6,6 @@ import time
 from datetime import date
 
 import requests
-import yaml
 
 from scilex.config_defaults import get_rate_limit
 from scilex.constants import CircuitBreakerConfig, RateLimitBackoffConfig
@@ -103,41 +102,30 @@ class API_collector:
             return
         AdaptiveRateLimiterRegistry().get(self.api_name).wait(self.rate_limit)
 
-    def load_rate_limit_from_config(self):
+    def load_rate_limit_from_config(self, rate_limits=None):
+        """Set ``self.rate_limit`` for this API (requests per second).
+
+        Args:
+            rate_limits: Optional ``rate_limits`` mapping from the user's
+                api config (``{api_name: req_per_sec}``). When it contains this
+                API, the value wins; otherwise the key-aware defaults from
+                ``config_defaults.get_rate_limit`` apply.
+
+        Must be called after ``self.api_name`` is set in the subclass __init__.
         """
-        Load rate limit for this API from the configuration file.
-        Falls back to DEFAULT_RATE_LIMITS if config is not available.
-        Automatically selects with_key/without_key rate based on self.api_key.
+        if isinstance(rate_limits, dict) and self.api_name in rate_limits:
+            try:
+                self.rate_limit = float(rate_limits[self.api_name])
+                logging.debug(
+                    f"{self.api_name}: Using configured rate limit of {self.rate_limit} req/sec"
+                )
+                return
+            except (TypeError, ValueError):
+                logging.warning(
+                    f"{self.api_name}: Invalid configured rate limit "
+                    f"{rate_limits[self.api_name]!r}. Using default."
+                )
 
-        This method should be called after self.api_name is set in subclass __init__.
-        """
-        try:
-            # Try to find api.config.yml in the src directory
-            config_path = os.path.join(
-                os.path.dirname(__file__), "..", "api.config.yml"
-            )
-
-            if os.path.exists(config_path):
-                with open(config_path) as f:
-                    config = yaml.safe_load(f)
-
-                if (
-                    config
-                    and "rate_limits" in config
-                    and self.api_name in config["rate_limits"]
-                ):
-                    configured_limit = float(config["rate_limits"][self.api_name])
-                    self.rate_limit = configured_limit
-                    logging.debug(
-                        f"{self.api_name}: Using configured rate limit of {configured_limit} req/sec"
-                    )
-                    return
-        except Exception as e:
-            logging.warning(
-                f"{self.api_name}: Could not load rate limit from config: {e}. Using default."
-            )
-
-        # Fall back to default rate limits (key-aware)
         has_key = bool(self.api_key)
         default_limit = get_rate_limit(self.api_name, has_api_key=has_key)
         self.rate_limit = default_limit
@@ -422,7 +410,10 @@ class API_collector:
                     status_code = e.response.status_code
                     last_exception = e
 
-                    if status_code in [409, 429]:  # Throttle / conflict (treat both as rate-limit)
+                    if status_code in [
+                        409,
+                        429,
+                    ]:  # Throttle / conflict (treat both as rate-limit)
                         # Respect Retry-After header if provided by server
                         retry_after = e.response.headers.get("Retry-After")
                         if retry_after:
@@ -461,7 +452,11 @@ class API_collector:
                             continue
                         else:
                             # Final retry failed — increase adaptive inter-request delay
-                            new_delay = AdaptiveRateLimiterRegistry().get(self.api_name).on_throttle()
+                            new_delay = (
+                                AdaptiveRateLimiterRegistry()
+                                .get(self.api_name)
+                                .on_throttle()
+                            )
                             logging.warning(
                                 f"{self.api_name} API: Throttle ({status_code}) persists after {max_retries} retries. "
                                 f"Inter-request delay increased to +{new_delay:.0f}s."
@@ -716,7 +711,9 @@ class API_collector:
                 logging.debug(f"Fetching data from URL: {url}")
 
                 try:
-                    response = self.api_call_decorator(url, headers=self.get_auth_headers())
+                    response = self.api_call_decorator(
+                        url, headers=self.get_auth_headers()
+                    )
                 except Exception as api_exc:
                     self.createCollectDir()
                     self._flush_buffer()
@@ -728,6 +725,7 @@ class API_collector:
                         # Before giving up, try rotating the VPN IP so the next
                         # attempt comes from a fresh address.
                         from scilex.vpn.rotator import get_vpn_rotator
+
                         rotator = get_vpn_rotator()
                         if rotator.should_rotate(self.api_name):
                             logging.warning(
@@ -747,7 +745,9 @@ class API_collector:
                             )
 
                         # VPN rotation unavailable or failed — record and give up.
-                        CircuitBreakerRegistry().get_breaker(self.api_name).record_failure()
+                        CircuitBreakerRegistry().get_breaker(
+                            self.api_name
+                        ).record_failure()
                         if page == 1 and self.nb_art_collected == 0:
                             logging.warning(
                                 f"{self.api_name}: persistent {throttle_code} on first page "

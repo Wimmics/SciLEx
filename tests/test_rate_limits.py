@@ -170,54 +170,65 @@ class TestRateLimitWait:
 class TestConfigOverridePriority:
     """Test that user config overrides defaults."""
 
-    def test_config_overrides_default(self, tmp_path):
+    def test_config_overrides_default(self):
         """User config rate_limits should override DEFAULT_RATE_LIMITS."""
-        config_content = """
-rate_limits:
-  TestAPI: 42.0
-"""
-        config_file = tmp_path / "api.config.yml"
-        config_file.write_text(config_content)
-
         collector = _make_collector(api_name="TestAPI", rate_limit=10.0)
-
-        # Patch os.path to find our temp config
-        with (
-            patch(
-                "scilex.crawlers.collectors.base.os.path.join",
-                return_value=str(config_file),
-            ),
-            patch("scilex.crawlers.collectors.base.os.path.exists", return_value=True),
-        ):
-            collector.load_rate_limit_from_config()
-
+        collector.load_rate_limit_from_config({"TestAPI": 42.0})
         assert collector.rate_limit == 42.0
 
+    def test_config_for_other_api_ignored(self):
+        collector = _make_collector(api_name="PubMed", api_key="k")
+        collector.load_rate_limit_from_config({"Other": 1.0})
+        assert collector.rate_limit == 10.0
+
+    def test_invalid_configured_value_falls_back(self):
+        collector = _make_collector(api_name="PubMed", api_key="k")
+        collector.load_rate_limit_from_config({"PubMed": "fast"})
+        assert collector.rate_limit == 10.0
+
     def test_missing_config_uses_defaults(self):
-        """When no config file exists, should use DEFAULT_RATE_LIMITS."""
+        """With no rate_limits given, should use DEFAULT_RATE_LIMITS."""
         collector = _make_collector(
             api_name="PubMed", rate_limit=10.0, api_key="test-key"
         )
-
-        with patch(
-            "scilex.crawlers.collectors.base.os.path.exists", return_value=False
-        ):
-            collector.load_rate_limit_from_config()
-
-        # PubMed with key should get 10.0
+        collector.load_rate_limit_from_config()
         assert collector.rate_limit == 10.0
 
     def test_missing_config_without_key(self):
         """Without key, should select without_key rate."""
         collector = _make_collector(api_name="PubMed", rate_limit=10.0, api_key=None)
-
-        with patch(
-            "scilex.crawlers.collectors.base.os.path.exists", return_value=False
-        ):
-            collector.load_rate_limit_from_config()
-
-        # PubMed without key should get 3.0
+        collector.load_rate_limit_from_config()
         assert collector.rate_limit == 3.0
+
+    def test_worker_applies_configured_rate_limit(self, tmp_path):
+        """The collection worker passes api_config['rate_limits'] to collectors."""
+        from queue import Queue
+
+        from scilex.crawlers import collector_collection as cc
+
+        seen = {}
+
+        class FakeCollector:
+            def __init__(self, data_query, repo, api_key):
+                pass
+
+            def load_rate_limit_from_config(self, rate_limits=None):
+                seen["rate_limits"] = rate_limits
+
+            def runCollect(self):
+                return {"coll_art": 0}
+
+        query = {"id_collect": 0, "keyword": ["a"], "year": 2020}
+        with patch.dict(cc.api_collectors, {"FakeAPI": FakeCollector}):
+            cc._run_job_collects_worker(
+                "FakeAPI",
+                [{"query": query, "api": "FakeAPI"}],
+                {"rate_limits": {"FakeAPI": 7.0}},
+                str(tmp_path),
+                "c",
+                Queue(),
+            )
+        assert seen["rate_limits"] == {"FakeAPI": 7.0}
 
 
 # ============================================================================
