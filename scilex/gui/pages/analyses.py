@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
@@ -36,25 +37,48 @@ def render(ctx: AppContext, review: Review) -> None:
     with ui.tabs().classes("w-full") as tabs:
         for info in service.ANALYSES:
             ui.tab(info.name, label=info.title).mark(f"analysis-tab-{info.name}")
+    # Finishing one analysis (e.g. Citations) can lift another tab's warning.
+    problem_refreshers: list[Callable[[], None]] = []
     with ui.tab_panels(tabs, value=service.ANALYSES[0].name).classes("w-full"):
         for info in service.ANALYSES:
             with ui.tab_panel(info.name):
-                _render_analysis(ctx, review, info)
+                _render_analysis(ctx, review, info, problem_refreshers)
 
 
-def _render_analysis(ctx: AppContext, review: Review, info: service.AnalysisInfo):
+def _render_analysis(
+    ctx: AppContext,
+    review: Review,
+    info: service.AnalysisInfo,
+    problem_refreshers: list[Callable[[], None]],
+):
     name = info.name
     ui.label(info.description).classes("text-gray-500")
     collect_dir = review.collection_dir
-    problem = service.missing_prerequisite(collect_dir, info.needs)
-    if problem:
-        ui.label(problem).classes("text-orange-700").mark(f"analysis-missing-{name}")
+
+    @ui.refreshable
+    def show_problem() -> None:
+        problem = service.missing_prerequisite(collect_dir, info.needs)
+        if problem:
+            ui.label(problem).classes("text-orange-700").mark(
+                f"analysis-missing-{name}"
+            )
+
+    show_problem()
+    problem_refreshers.append(show_problem.refresh)
 
     options = _render_options(name)
 
-    run_button = ui.button("Run", icon="play_arrow").mark(f"analysis-run-{name}")
-    with run_button:
-        busy_tooltip = ui.tooltip("Another job is running")
+    with ui.row().classes("items-center gap-2"):
+        run_button = ui.button("Run", icon="play_arrow").mark(f"analysis-run-{name}")
+        with run_button:
+            busy_tooltip = ui.tooltip("Another job is running")
+        cancel_button = (
+            ui.button("Cancel", icon="stop")
+            .props("outline color=negative")
+            .mark(f"analysis-cancel-{name}")
+        )
+        with cancel_button:
+            ui.tooltip(info.cancel_note)
 
     result_area = ui.column().classes("w-full")
 
@@ -86,15 +110,29 @@ def _render_analysis(ctx: AppContext, review: Review, info: service.AnalysisInfo
             show_result(job.result.message, job.result.files)
         busy_elsewhere = not running and ctx.runner.active_job() is not None
         run_button.set_enabled(not running and not busy_elsewhere)
+        # One tooltip, shown or hidden: calling .tooltip() here would add one per tick.
         busy_tooltip.set_visibility(busy_elsewhere)
+        cancel_button.set_visibility(running)
 
-    JobPanel(
+    def on_finished(job: Job) -> None:
+        for refresh_problem in problem_refreshers:
+            refresh_problem()
+
+    panel = JobPanel(
         ctx,
         review,
         kind_of(name),
         on_change=update_buttons,
+        on_finished=on_finished,
     )
     show_existing()
+
+    def cancel() -> None:
+        job = panel.job
+        if job is not None:
+            ctx.runner.cancel(job.id)
+
+    cancel_button.on_click(cancel)
 
     def run() -> None:
         title = f"Cannot run {info.title}"
@@ -112,7 +150,9 @@ def _render_analysis(ctx: AppContext, review: Review, info: service.AnalysisInfo
                     job.progress = percent
                     job.message = message
 
-                result = service.RUNNERS[name](config, progress, **kwargs)
+                result = service.RUNNERS[name](
+                    config, progress, cancel_event=job.cancel_event, **kwargs
+                )
                 job.result = result
                 return result.message
 
@@ -155,6 +195,10 @@ def _render_options(name: str) -> dict:
             checkbox("dry_run", "Dry run (do not write the CSV)")
             number("limit", "Max papers (0 = all)", 0, min=0, precision=0)
             number("threshold", "Title match threshold (0-100)", 85, min=0, max=100)
+        elif name == "citations":
+            number("limit", "Max papers (0 = all)", 0, min=0, precision=0)
+            checkbox("skip_citers", "Skip citing papers (references only)")
+            checkbox("no_fallback", "No OpenCitations fallback")
         elif name == "snowball":
             select("direction", "Direction", DIRECTIONS, "both")
             number("top_k", "Max candidates", 200, min=1, precision=0)

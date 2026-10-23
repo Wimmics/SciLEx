@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from nicegui.testing import user_simulation
 
@@ -152,3 +153,155 @@ async def test_run_each_analysis(ctx, tmp_path, monkeypatch, name):
         await user.should_see(f"{name} finished", retries=50)
         await user.should_see(f"Output of {name}", retries=50)
     assert len(calls) == 1
+
+
+# --- citations, cancel, busy buttons -------------------------------------------
+
+
+def _fake_fetchers(monkeypatch, calls, on_batch=None):
+    from scilex.citations import reference_fetcher
+
+    def fake(dois, api_key=None, cache_path=None, **kwargs):
+        calls.append((Path(cache_path).name, list(dois)))
+        if on_batch:
+            on_batch()
+        Path(cache_path).write_text("{}")
+        return {doi: [] for doi in dois}
+
+    monkeypatch.setattr(reference_fetcher, "fetch_references_batch", fake)
+    monkeypatch.setattr(reference_fetcher, "fetch_citers_batch", fake)
+
+
+def _review_with_dois(ctx, tmp_path, count=3):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    review.collection_dir.mkdir(parents=True)
+    review.results_path.write_text(
+        "itemType,title,DOI\n"
+        + "\n".join(f"journalArticle,T{i},10.1/{i}" for i in range(count))
+        + "\n"
+    )
+    return review
+
+
+def test_run_citations_writes_both_caches(ctx, tmp_path, monkeypatch):
+    calls = []
+    _fake_fetchers(monkeypatch, calls)
+    review = _review_with_dois(ctx, tmp_path)
+    config = ctx.workspace.load_config(review)
+    result = service.run_citations(config, lambda p, m: None)
+    assert [name for name, _ in calls] == ["citations_cache.json", "citers_cache.json"]
+    assert service.missing_prerequisite(review.collection_dir, "citations") is None
+    assert len(result.files) == 2
+
+
+def test_run_citations_skip_citers_and_batches(ctx, tmp_path, monkeypatch):
+    calls = []
+    _fake_fetchers(monkeypatch, calls)
+    monkeypatch.setattr(service, "CITATION_BATCH_SIZE", 2)
+    review = _review_with_dois(ctx, tmp_path, count=5)
+    config = ctx.workspace.load_config(review)
+    service.run_citations(config, lambda p, m: None, skip_citers=True)
+    assert [len(batch) for _, batch in calls] == [2, 2, 1]
+
+
+def test_run_citations_stops_on_cancel(ctx, tmp_path, monkeypatch):
+    import threading
+
+    calls = []
+    cancel = threading.Event()
+    _fake_fetchers(monkeypatch, calls, on_batch=cancel.set)
+    monkeypatch.setattr(service, "CITATION_BATCH_SIZE", 1)
+    review = _review_with_dois(ctx, tmp_path, count=5)
+    config = ctx.workspace.load_config(review)
+    result = service.run_citations(config, lambda p, m: None, cancel_event=cancel)
+    assert len(calls) == 1
+    assert "Cancelled" in result.message
+
+
+def test_run_report_cancelled_before_drawing(ctx, tmp_path, monkeypatch):
+    import threading
+
+    from scilex import report_charts
+
+    monkeypatch.setattr(report_charts, "load_data", lambda directory: pd.DataFrame())
+    review = _review_with_results(ctx, tmp_path)
+    config = ctx.workspace.load_config(review)
+    cancel = threading.Event()
+    cancel.set()
+    result = service.run_report(config, lambda p, m: None, cancel_event=cancel)
+    assert result.message == "Cancelled."
+
+
+async def test_citations_job_lifts_snowball_warning(ctx, tmp_path, monkeypatch):
+    calls = []
+    _fake_fetchers(monkeypatch, calls)
+    review = _review_with_dois(ctx, tmp_path)
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/analyses")
+        user.find(marker="analysis-tab-snowball").click()
+        await user.should_see(marker="analysis-missing-snowball")
+        user.find(marker="analysis-tab-citations").click()
+        user.find(marker="analysis-run-citations").click()
+        await user.should_see("Completed", retries=50)
+        user.find(marker="analysis-tab-snowball").click()
+        await user.should_not_see(marker="analysis-missing-snowball", retries=50)
+
+
+async def test_cancel_stops_running_analysis(ctx, tmp_path, monkeypatch):
+    import threading
+
+    review = _review_with_results(ctx, tmp_path)
+    started = threading.Event()
+
+    def slow_runner(config, progress, cancel_event=None, **kwargs):
+        started.set()
+        cancel_event.wait(10)
+        return service.AnalysisResult("stopped")
+
+    monkeypatch.setitem(service.RUNNERS, "report", slow_runner)
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/analyses")
+        user.find(marker="analysis-run-report").click()
+        await user.should_see(marker="analysis-cancel-report", retries=50)
+        user.find(marker="analysis-cancel-report").click()
+        await user.should_see("Cancelled", retries=50)
+
+
+async def test_run_buttons_disabled_while_another_job_runs(ctx, tmp_path, monkeypatch):
+    import threading
+
+    review = _review_with_results(ctx, tmp_path)
+    release = threading.Event()
+
+    def slow_runner(config, progress, cancel_event=None, **kwargs):
+        release.wait(10)
+        return service.AnalysisResult("ok")
+
+    monkeypatch.setitem(service.RUNNERS, "report", slow_runner)
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/analyses")
+        user.find(marker="analysis-run-report").click()
+        await user.should_see("Running", retries=50)
+        user.find(marker="analysis-tab-enrich").click()
+        buttons = user.find(marker="analysis-run-enrich").elements
+        assert all(not button.enabled for button in buttons)
+        release.set()
+        await user.should_see("Completed", retries=50)
+
+
+def test_run_enrich_cache_path_is_inside_review(ctx, tmp_path, monkeypatch):
+    from scilex.pipeline import enrichment_hf
+
+    seen = {}
+
+    def fake_enrichment(config, options, progress_callback):
+        seen["cache_path"] = config.main["hf_enrichment"]["cache_path"]
+        return enrichment_hf.EnrichmentResult(total=0)
+
+    monkeypatch.setattr(enrichment_hf, "run_enrichment", fake_enrichment)
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = ctx.workspace.load_config(review)
+    service.run_enrich(config, lambda p, m: None)
+    cache = Path(seen["cache_path"])
+    assert cache.is_absolute()
+    assert cache.is_relative_to(tmp_path / "rag")
