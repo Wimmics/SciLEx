@@ -13,7 +13,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-from scilex.constants import MISSING_VALUE, is_missing, is_valid
+from scilex.constants import MISSING_VALUE, is_missing, is_valid, parse_archive_apis
 
 
 class DuplicateSourceAnalyzer:
@@ -64,7 +64,7 @@ class DuplicateSourceAnalyzer:
                 continue
 
             # Parse archive field (may be "API1;API2;API3*")
-            apis = [api.replace("*", "").strip() for api in str(archive).split(";")]
+            apis = parse_archive_apis(archive)
 
             # Get paper identifier (prefer DOI, fall back to title)
             paper_id = row.get("DOI")
@@ -373,7 +373,7 @@ def analyze_api_metadata_quality(df: pd.DataFrame) -> dict[str, dict]:
             continue
 
         # Parse archive (primary API is marked with *)
-        apis = [api.replace("*", "").strip() for api in str(archive).split(";")]
+        apis = parse_archive_apis(archive)
         primary_api = next(
             (api for api in apis if "*" in str(row.get("archive", "")) and api),
             apis[0] if apis else "Unknown",
@@ -476,7 +476,7 @@ def generate_itemtype_distribution_report(df: pd.DataFrame) -> str:
             continue
 
         # Parse archive (primary API is marked with *)
-        apis = [api.replace("*", "").strip() for api in str(archive).split(";")]
+        apis = parse_archive_apis(archive)
         primary_api = next(
             (api for api in apis if "*" in str(row.get("archive", "")) and api),
             apis[0] if apis else "Unknown",
