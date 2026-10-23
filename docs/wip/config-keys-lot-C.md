@@ -18,3 +18,9 @@ openrouter:
 | price_input_per_m / price_output_per_m | 0.15 / 0.60 | USD par million de tokens, pour l'estimation |
 
 Cache : `output/<collect>/llm_relevance_cache.json`.
+
+## scilex-seed (#18, #4)
+Aucune nouvelle clé de config. Utilise `SemanticScholar.api_key` (api.config.yml), `quality_filters`,
+`collect_name` (sortie `output/<collect_name>_seed/`, ou `--collect-name`), `aggregate_file`,
+`keywords`/`bonus_keywords` (seulement avec `--keyword-filter`).
+Options CLI : `--dois`, `--doi-file`, `--bibtex`, `--limit`, `--snowball`, `--keyword-filter`, `--collect-name`.

@@ -66,6 +66,28 @@ def _do_batch_request(ids: list[str], api_key: str | None) -> list[dict]:
     return resp.json()
 
 
+def convert_ss_paper(paper: dict) -> dict:
+    """Convert one raw Semantic Scholar paper dict to the internal format.
+
+    Shared by the snowball fetcher and the seed-papers recommendations.
+    Missing ``DOI`` is filled from ``externalIds``.
+    """
+    paper = dict(paper)
+    if "paperId" in paper and "paper_id" not in paper:
+        paper["paper_id"] = paper["paperId"]
+    if "publicationDate" in paper and "publication_date" not in paper:
+        paper["publication_date"] = paper["publicationDate"]
+    open_access = paper.get("openAccessPdf")
+    if isinstance(open_access, dict) and open_access.get("url"):
+        paper["open_access_pdf"] = open_access["url"]
+    if "authors" not in paper:
+        paper["authors"] = []
+    external_ids = paper.get("externalIds")
+    if not paper.get("DOI") and isinstance(external_ids, dict):
+        paper["DOI"] = external_ids.get("DOI")
+    return SemanticScholartoZoteroFormat(paper)
+
+
 def fetch_metadata_batch(
     candidate_dois: list[str],
     api_key: str | None = None,
@@ -100,20 +122,7 @@ def fetch_metadata_batch(
             if paper is None:
                 continue
             try:
-                # Map SS field names for the converter
-                if "paperId" in paper and "paper_id" not in paper:
-                    paper["paper_id"] = paper["paperId"]
-                if "publicationDate" in paper and "publication_date" not in paper:
-                    paper["publication_date"] = paper["publicationDate"]
-                if "openAccessPdf" in paper:
-                    oap = paper["openAccessPdf"]
-                    if isinstance(oap, dict) and oap.get("url"):
-                        paper["open_access_pdf"] = oap["url"]
-                if "authors" not in paper:
-                    paper["authors"] = []
-
-                converted = SemanticScholartoZoteroFormat(paper)
-                results.append(converted)
+                results.append(convert_ss_paper(paper))
             except Exception as e:
                 doi = paper.get("DOI", paper.get("externalIds", {}).get("DOI", "?"))
                 logger.debug(f"Failed to convert paper {doi}: {e}")
