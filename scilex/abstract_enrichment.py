@@ -25,6 +25,8 @@ from pathlib import Path
 import requests
 from tqdm import tqdm
 
+from scilex.constants import normalize_doi
+
 # ---------------------------------------------------------------------------
 # Persistent DOI → abstract cache  (SQLite backend)
 # ---------------------------------------------------------------------------
@@ -182,15 +184,6 @@ def _is_abstract_missing(value) -> bool:
     return value is None or str(value).strip() in _MISSING_MARKERS
 
 
-def _clean_doi(doi: str) -> str:
-    return (
-        doi.replace("https://doi.org/", "")
-        .replace("http://doi.org/", "")
-        .strip()
-        .lower()
-    )
-
-
 def _extract_doi(record: dict, api_name: str) -> str | None:
     """Extract raw DOI string from an API-format record."""
     if api_name == "Elsevier":
@@ -204,7 +197,7 @@ def _extract_doi(record: dict, api_name: str) -> str | None:
     else:
         doi = record.get("doi") or record.get("DOI") or record.get("prism:doi")
 
-    return _clean_doi(doi) if doi else None
+    return normalize_doi(doi)
 
 
 def _abstract_field(api_name: str) -> str:

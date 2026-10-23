@@ -10,7 +10,7 @@ Created on Fri Feb 10 10:57:49 2023
 
 import contextlib
 
-from scilex.constants import MISSING_VALUE, is_valid
+from scilex.constants import MISSING_VALUE, is_valid, strip_doi_prefix
 from scilex.crawlers.converter_utils import (
     dig,
     fill_record,
@@ -98,37 +98,15 @@ def safe_get(obj, key, default=None):
 
 
 def clean_doi(doi_value):
-    """
-    Extract clean DOI from URL-formatted DOI or return as-is.
-
-    Converts: "https://doi.org/10.1007/..." → "10.1007/..."
-    Keeps: "10.1007/..." → "10.1007/..."
+    """Strip the doi.org URL prefix from a DOI, keeping its case.
 
     Args:
         doi_value: DOI string (may be URL-formatted or clean)
 
     Returns:
-        Clean DOI string without URL prefix, or MISSING_VALUE if invalid
+        Bare DOI string, or MISSING_VALUE if invalid
     """
-    if not is_valid(doi_value):
-        return MISSING_VALUE
-
-    doi_str = str(doi_value).strip()
-
-    # Remove common DOI URL prefixes
-    prefixes = [
-        "https://doi.org/",
-        "http://doi.org/",
-        "https://dx.doi.org/",
-        "http://dx.doi.org/",
-    ]
-
-    for prefix in prefixes:
-        if doi_str.lower().startswith(prefix.lower()):
-            return doi_str[len(prefix) :]
-
-    # Already clean or unknown format
-    return doi_str
+    return strip_doi_prefix(doi_value) or MISSING_VALUE
 
 
 def getquality(df_row, column_names):
