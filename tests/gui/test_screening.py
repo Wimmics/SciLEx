@@ -54,3 +54,21 @@ def test_decisions_round_trip_and_survive_reaggregation(tmp_path):
 
     screening.set_decision(review, second, None)
     assert second not in screening.load_decisions(review)
+
+
+def test_session_rows_counts_filters_and_navigation(tmp_path):
+    review = make_review(tmp_path)
+    session = screening.ScreeningSession(review)
+    assert len(session.rows) == 2
+    keys = [r["paper_key"] for r in session.rows]
+    row = session.decide(keys[0], screening.INCLUDE, "n")
+    assert row["decision"] == "Include"
+    assert session.counts()["undecided"] == 1
+    assert [r["paper_key"] for r in session.visible_rows("undecided")] == [keys[1]]
+    assert session.visible_rows("exclude") == []
+    assert session.next_undecided(keys, keys[0]) == keys[1]
+    assert session.next_undecided(keys, keys[1]) is None
+    assert session.update_note(keys[0], "changed")
+    assert screening.load_decisions(review)[keys[0]].note == "changed"
+    session.decide(keys[0], None)
+    assert session.counts()["undecided"] == 2
