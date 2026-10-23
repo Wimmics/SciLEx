@@ -113,3 +113,14 @@ def test_relative_folder_starts_at_home(workspace, tmp_path, monkeypatch):
 
     assert review.folder == (tmp_path / "home" / "Test").resolve()
     assert review.config_path.is_file()
+
+
+def test_invalid_config_keeps_review_listed_with_error(tmp_path):
+    workspace = Workspace(registry_path=tmp_path / "registry.yml")
+    review = workspace.create_review(tmp_path / "rag", name="rag_kg")
+    review.config_path.write_text("search:\n  keywords: [[a]]\n  yearz: [2024]\n")
+
+    listed = workspace.list_reviews()
+    assert [r.id for r in listed] == [review.id]
+    assert listed[0].error
+    assert workspace.get(review.id).name == "rag"

@@ -62,7 +62,11 @@ def _review_card(ctx: AppContext, review: Review) -> None:
     ):
         ui.label(review.name).classes("text-lg font-bold")
         ui.label(str(review.folder)).classes("text-xs text-gray-500 break-all")
-        if job is not None and job.is_active:
+        if review.error:
+            ui.label("scilex.yml is invalid: open to fix it").classes(
+                "text-sm text-negative"
+            )
+        elif job is not None and job.is_active:
             ui.label(f"Running: {job.message}").classes("text-sm text-primary")
         elif review.has_results:
             ui.label("Results available").classes("text-sm text-positive")

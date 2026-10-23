@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -40,6 +40,9 @@ class Review:
     folder: Path
     name: str
     output_root: Path
+    # Set when scilex.yml exists but cannot be loaded: the review stays listed
+    # so the user can fix it in the Configure screen instead of losing it.
+    error: str | None = field(default=None, compare=False)
 
     @property
     def id(self) -> str:
@@ -119,13 +122,27 @@ class Workspace:
         self.registry_path.write_text(yaml.safe_dump(data), encoding="utf-8")
 
     def list_reviews(self) -> list[Review]:
-        """Return the known reviews; folders that vanished or became invalid are skipped."""
+        """Return the known reviews.
+
+        Folders that vanished are skipped; a review whose ``scilex.yml`` is
+        invalid is returned with ``error`` set (named after its folder).
+        """
         reviews = []
         for folder in self._load_folders():
             try:
                 reviews.append(read_review(folder))
-            except (OSError, ValueError) as exc:
+            except OSError as exc:
                 logger.warning("Skipping review %s: %s", folder, exc)
+            except (ValueError, yaml.YAMLError) as exc:
+                logger.warning("Invalid configuration in %s: %s", folder, exc)
+                reviews.append(
+                    Review(
+                        folder=folder,
+                        name=folder.name,
+                        output_root=folder / "output",
+                        error=str(exc),
+                    )
+                )
         return reviews
 
     def get(self, review_id: str) -> Review | None:

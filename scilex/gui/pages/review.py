@@ -18,6 +18,22 @@ from scilex.gui.state import AppContext
 # a step without its module yet shows a placeholder.
 
 
+# Steps usable while scilex.yml cannot be loaded (to repair it).
+EDITABLE_WHEN_INVALID = ("configure", "keys")
+
+
+def _invalid_config_banner(review) -> None:
+    with ui.card().classes("w-full bg-red-50").mark("invalid-config"):
+        ui.label("This review's scilex.yml cannot be loaded.").classes(
+            "font-bold text-negative"
+        )
+        ui.label(review.error).classes("text-sm whitespace-pre-wrap")
+        ui.button(
+            "Fix in ① Configure",
+            on_click=lambda: ui.navigate.to(f"/review/{review.id}/configure"),
+        ).props("flat")
+
+
 def step_module(step: str):
     """Return the page module drawing ``step``, or None if it is not built yet."""
     name = f"scilex.gui.pages.{step}"
@@ -45,7 +61,11 @@ def render(ctx: AppContext, review_id: str, step: str = DEFAULT_STEP) -> None:
             render_sidebar(review, step)
         with ui.column().classes("grow gap-3"):
             module = step_module(step)
-            if not is_enabled(STEPS[step], review):
+            if review.error:
+                _invalid_config_banner(review)
+            if review.error and step not in EDITABLE_WHEN_INVALID:
+                pass
+            elif not is_enabled(STEPS[step], review):
                 ui.label(NEEDS_RESULTS_HINT)
             elif module is not None:
                 module.render(ctx, review)
