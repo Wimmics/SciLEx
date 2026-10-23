@@ -426,7 +426,7 @@ def validate_dataframe_abstracts(
     ``AbstractQualityScore.is_acceptable(min_quality_score)`` holds (score at
     or above the threshold and no critical issue); this single definition is
     used both for the statistics and for the ``abstract_quality_acceptable``
-    column consumed by :func:`filter_by_abstract_quality`.
+    column.
 
     Args:
         df: DataFrame with paper records
@@ -523,50 +523,3 @@ SCORING_COLUMNS = [
     "abstract_quality_issues",
     "abstract_quality_acceptable",
 ]
-
-
-def filter_by_abstract_quality(
-    df: pd.DataFrame,
-    min_quality_score: int = 50,
-    abstract_column: str = "abstract",
-    min_words: int = 30,
-    max_words: int = 1000,
-) -> pd.DataFrame:
-    """Filter DataFrame to keep only papers with acceptable abstract quality.
-
-    Args:
-        df: DataFrame with paper records
-        min_quality_score: Minimum acceptable quality score
-        abstract_column: Name of abstract column
-        min_words: Minimum abstract word count
-        max_words: Maximum abstract word count (0 for no limit)
-
-    Returns:
-        Filtered DataFrame (without the temporary scoring columns)
-    """
-    if len(df) == 0:
-        return df
-
-    df_with_scores, _ = validate_dataframe_abstracts(
-        df,
-        abstract_column,
-        min_quality_score,
-        generate_report=False,
-        min_words=min_words,
-        max_words=max_words,
-    )
-    if "abstract_quality_acceptable" not in df_with_scores.columns:
-        return df  # no abstract column: nothing to validate
-
-    df_filtered = df_with_scores[df_with_scores["abstract_quality_acceptable"]].drop(
-        columns=SCORING_COLUMNS
-    )
-
-    removed = len(df) - len(df_filtered)
-    if removed > 0:
-        logging.info(
-            f"Filtered out {removed} papers ({removed / len(df) * 100:.1f}%) "
-            f"with poor abstract quality (score < {min_quality_score})"
-        )
-
-    return df_filtered
