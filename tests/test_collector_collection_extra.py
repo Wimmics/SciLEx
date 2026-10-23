@@ -1,8 +1,7 @@
 """Additional tests for scilex/crawlers/collector_collection.py — CollectCollection methods."""
 
-import pytest
 
-from scilex.crawlers.collector_collection import CollectCollection, _sanitize_error_message
+from scilex.crawlers.collector_collection import CollectCollection
 
 
 def _make_collection(main_config=None, api_config=None):
@@ -88,7 +87,6 @@ class TestQueryIsCompleteMethod:
         assert coll._query_is_complete(str(tmp_path), "HAL", 0) is False
 
     def test_empty_dir_returns_false(self, tmp_path):
-        import os
         d = tmp_path / "HAL" / "query_1"
         d.mkdir(parents=True)
         coll = _make_collection()

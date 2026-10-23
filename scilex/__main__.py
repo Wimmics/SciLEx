@@ -2,7 +2,6 @@
 
 import sys
 
-
 COMMANDS = {
     "collect": "scilex.run_collection",
     "aggregate": "scilex.aggregate_collect",

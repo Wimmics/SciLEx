@@ -1,7 +1,6 @@
 """Additional tests for scilex/quality_validation.py — apply_quality_filters, completeness report."""
 
 import pandas as pd
-import pytest
 
 from scilex.quality_validation import (
     QualityReport,

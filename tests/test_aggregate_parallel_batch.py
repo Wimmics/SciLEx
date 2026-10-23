@@ -1,7 +1,6 @@
 """Tests for batch processing functions in scilex/crawlers/aggregate_parallel.py"""
 
 import pandas as pd
-import pytest
 
 from scilex.crawlers.aggregate_parallel import (
     _process_batch_worker,

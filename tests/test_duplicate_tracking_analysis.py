@@ -1,7 +1,6 @@
 """Tests for analysis/report functions in scilex/duplicate_tracking.py"""
 
 import pandas as pd
-import pytest
 
 from scilex.duplicate_tracking import (
     DuplicateSourceAnalyzer,
