@@ -1,0 +1,154 @@
+"""Analyses screen and service (analysis functions mocked, no network)."""
+
+from pathlib import Path
+
+import pytest
+from nicegui.testing import user_simulation
+
+from scilex.gui.app import build_root
+from scilex.gui.services import analyses as service
+
+pytestmark = pytest.mark.anyio
+
+NAMES = [info.name for info in service.ANALYSES]
+
+
+def _prepare_outputs(collect_dir: Path) -> None:
+    """Create the inputs every analysis needs."""
+    graph_dir = collect_dir / service.GRAPH_DIRNAME
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    (collect_dir / "aggregated_results.csv").write_text("title\nA\n")
+    (collect_dir / "citations_cache.json").write_text("{}")
+    (graph_dir / "clusters_cocitation.csv").write_text("cluster_id,title\n0,A\n")
+
+
+# --- service ------------------------------------------------------------------
+
+
+def test_normalize_options_casts_and_drops():
+    raw = {"top_k": 30.0, "min_freq": None, "dry_run": 1, "unknown": "x"}
+    assert service.normalize_options("keywords", raw) == {"top_k": 30}
+    assert service.normalize_options("enrich", raw) == {"dry_run": True}
+    assert service.normalize_options(
+        "graph", {"resolution": 1, "fmt": "gexf", "graph_type": ""}
+    ) == {"resolution": 1.0, "fmt": "gexf"}
+
+
+def test_existing_outputs(tmp_path):
+    assert service.existing_outputs(tmp_path, "report") == []
+    charts = tmp_path / service.CHARTS_DIRNAME
+    charts.mkdir()
+    (charts / "a.png").write_bytes(b"x")
+    (charts / "notes.txt").write_text("x")
+    assert service.existing_outputs(tmp_path, "report") == [charts / "a.png"]
+    assert service.existing_outputs(tmp_path, "enrich") == []
+
+
+def test_missing_prerequisite(tmp_path):
+    assert "Collect" in service.missing_prerequisite(tmp_path, "results")
+    assert "citation" in service.missing_prerequisite(tmp_path, "citations")
+    assert "Graph" in service.missing_prerequisite(tmp_path, "clusters")
+    _prepare_outputs(tmp_path)
+    for needs in ("results", "citations", "clusters"):
+        assert service.missing_prerequisite(tmp_path, needs) is None
+
+
+def test_run_summaries_writes_report(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = ctx.workspace.load_config(review)
+    _prepare_outputs(review.collection_dir)
+    result = service.run_summaries(config, lambda percent, message: None)
+    assert result.files == [review.collection_dir / "graph_analysis/summary_report.md"]
+    assert result.files[0].is_file()
+
+
+def test_run_without_input_is_user_error(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = ctx.workspace.load_config(review)
+    with pytest.raises(service.AnalysisError):
+        service.run_graph(config, lambda percent, message: None)
+    with pytest.raises(service.AnalysisError):
+        service.run_keywords(config, lambda percent, message: None)
+
+
+def test_run_enrich_passes_options(ctx, tmp_path, monkeypatch):
+    from scilex.pipeline import enrichment_hf
+
+    seen = {}
+
+    def fake_enrichment(config, options, progress_callback):
+        seen["options"] = options
+        progress_callback(1, 2, {})
+        return enrichment_hf.EnrichmentResult(total=2, matched=1, updated=0)
+
+    monkeypatch.setattr(enrichment_hf, "run_enrichment", fake_enrichment)
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = ctx.workspace.load_config(review)
+    progress_calls = []
+    result = service.run_enrich(
+        config, lambda p, m: progress_calls.append(p), dry_run=True, limit=5
+    )
+    assert seen["options"].dry_run and seen["options"].limit == 5
+    assert progress_calls == [50]
+    assert "1 of 2" in result.message
+
+
+def _review_with_results(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    review.collection_dir.mkdir(parents=True)
+    review.results_path.write_text("title\nA\n")
+    return review
+
+
+# --- page ---------------------------------------------------------------------
+
+
+async def test_tabs_are_rendered(ctx, tmp_path):
+    review = _review_with_results(ctx, tmp_path)
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/analyses")
+        for name in NAMES:
+            await user.should_see(marker=f"analysis-tab-{name}")
+
+
+async def test_missing_input_is_explained(ctx, tmp_path):
+    review = _review_with_results(ctx, tmp_path)
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/analyses")
+        user.find(marker="analysis-tab-snowball").click()
+        await user.should_see(marker="analysis-missing-snowball")
+
+
+async def test_existing_outputs_shown_on_open(ctx, tmp_path):
+    review = _review_with_results(ctx, tmp_path)
+    _prepare_outputs(review.collection_dir)
+    summary = review.collection_dir / "graph_analysis" / "summary_report.md"
+    summary.write_text("# Old summary")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/analyses")
+        user.find(marker="analysis-tab-summaries").click()
+        await user.should_see("Previous results:")
+
+
+@pytest.mark.parametrize("name", NAMES)
+async def test_run_each_analysis(ctx, tmp_path, monkeypatch, name):
+    review = _review_with_results(ctx, tmp_path)
+    _prepare_outputs(review.collection_dir)
+    produced = review.collection_dir / f"{name}_out.md"
+    calls = []
+
+    def fake_runner(config, progress, **kwargs):
+        calls.append(kwargs)
+        progress(50, "halfway")
+        produced.write_text(f"# Output of {name}")
+        return service.AnalysisResult(f"{name} finished", [produced])
+
+    monkeypatch.setitem(service.RUNNERS, name, fake_runner)
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/analyses")
+        user.find(marker=f"analysis-tab-{name}").click()
+        user.find(marker=f"analysis-run-{name}").click()
+        await user.should_see("Completed", retries=50)
+        await user.should_see(f"{name} finished", retries=50)
+        await user.should_see(f"Output of {name}", retries=50)
+    assert len(calls) == 1
