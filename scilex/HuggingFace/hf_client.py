@@ -129,7 +129,6 @@ class HFCache:
         self._set("hf_papers", query, papers, ttl_days)
 
 
-
 @sleep_and_retry
 @limits(calls=5, period=1)  # 5 calls per second (HF Hub default)
 def _throttle() -> None:
