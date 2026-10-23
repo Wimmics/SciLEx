@@ -38,3 +38,10 @@ Mandat utilisateur (2026-10-23) : enchaîner les lots 1 à 5 sans redemander ; a
 3. Supprimer le worktree `../SciLEx-integration` et la branche `gui-integration` une fois dev à jour.
 4. Commits en français antérieurs (lot 0, 56d9b2d8…8b0544b8) : reformuler en anglais seulement si l'utilisateur le demande, avant tout push.
 5. Push + CI multi-OS (avec accord).
+
+## 2026-10-23 — final verification done (d51e3aa5)
+- Final tester walkthrough run. Incident: the tester pushed 1 paper to the user's real Zotero (collection `kg_metabo`) because `load_config` fell back to the legacy `scilex/api.config.yml`. User asked to delete it manually.
+- Fixed: GUI keys come only from `keys_editor.keys_path()` (empty keys otherwise), Zotero push needs a confirmation dialog (`zotero-confirm`); home card refresh, configure reload, full-width collect log, years shown as written, robust result CSVs + graph/scipy warnings, narrow-width tabs/grid.
+- Full suite: 1996 passed. `dist/SciLEx.app` rebuilt, self-test ok.
+- Open: layout fixes C/F only checked by class assertions (no browser re-test yet); reword the older French lot 0 commits before any push (ask the user); push + CI.
+- Tester briefs must forbid any external write (Zotero push, etc.).
