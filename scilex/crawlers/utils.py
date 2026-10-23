@@ -1,7 +1,29 @@
-import logging
 import os
+import re
 
 import yaml
+
+# Query/form parameters whose value must never reach a log line.
+_SECRET_PARAM_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9])"
+    r"((?:api[_-]?key|access[_-]?token|inst[_-]?token|token|key)=)"
+    r"[^&\s\"'<>]+",
+    re.IGNORECASE,
+)
+
+
+def sanitize_secrets(text):
+    """Mask API keys and tokens (``apikey=``, ``api_key=``, ``token=``...) in text.
+
+    Works on URLs as well as on free-form error messages that embed a URL.
+
+    Args:
+        text: String that may contain credentials (non-strings are stringified).
+
+    Returns:
+        str: The text with credential values replaced by ``***REDACTED***``.
+    """
+    return _SECRET_PARAM_PATTERN.sub(r"\1***REDACTED***", str(text))
 
 
 def load_yaml_config(file_path):
@@ -21,46 +43,36 @@ def load_yaml_config(file_path):
         return yaml.safe_load(ymlfile)
 
 
-
 def load_all_configs(config_files):
     """
-    Load multiple YAML configurations based on a dictionary of file paths.
+    Load configurations by name.
 
-    Config files are resolved relative to the scilex package directory
-    (where scilex.config.yml and api.config.yml live).
+    ``main_config`` and ``api_config`` are resolved through
+    :func:`scilex.settings.resolve.resolve_legacy_configs` (``scilex.yml`` /
+    ``keys.yml`` first, legacy files as a fallback); the ``config_files`` paths
+    given for those two names are ignored. Any other name is read as a YAML file
+    relative to the scilex package directory.
 
     Args:
-        config_files (dict): A dictionary where keys are config names and values are relative file paths.
+        config_files (dict): Config names mapped to relative file paths.
 
     Returns:
         dict: A dictionary containing loaded configurations keyed by their names.
     """
-    # Resolve relative to the scilex/ package directory (parent of crawlers/)
-    package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    from scilex.settings.resolve import resolve_legacy_configs, resolve_main_config
 
+    package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    resolved = {}
+    if "api_config" in config_files:
+        main_config, api_config = resolve_legacy_configs()
+        resolved = {"main_config": main_config, "api_config": api_config}
+    elif "main_config" in config_files:
+        resolved = {"main_config": resolve_main_config()}
     return {
-        key: load_yaml_config(os.path.join(package_dir, path))
+        key: (
+            resolved[key]
+            if key in resolved
+            else load_yaml_config(os.path.join(package_dir, path))
+        )
         for key, path in config_files.items()
     }
-
-
-def api_collector_decorator(api_name):
-    """
-    Decorator to handle logging and exception management for API collectors.
-
-    Args:
-        api_name (str): The name of the API being collected.
-    """
-
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            logging.info(f"-------{api_name} Collection Process Started-------")
-            try:
-                func(*args, **kwargs)
-                logging.info(f"{api_name} Collection Completed Successfully.")
-            except Exception as e:
-                logging.error(f"{api_name} Collection Failed: {str(e)}")
-
-        return wrapper
-
-    return decorator

@@ -299,26 +299,3 @@ class TagFormatter:
         tags.extend(self.format_ai_keywords_tags(metadata.get("ai_keywords", [])))
 
         return tags
-
-    def check_existing_tags(self, paper_tags: list[str]) -> dict[str, bool]:
-        """Check which tag prefixes already exist for a paper.
-
-        Args:
-            paper_tags: Existing tags from Zotero paper (e.g., ["TASK:NER"])
-
-        Returns:
-            Dictionary indicating presence of each prefix:
-            {
-                "TASK:": True,
-                "PTM:": False,
-                "ARCHI:": False,
-                "DATASET:": False,
-                "FRAMEWORK:": False
-            }
-        """
-        uppercase_tags = [tag.upper() for tag in paper_tags]
-
-        return {
-            prefix: any(prefix in tag for tag in uppercase_tags)
-            for prefix in self.tag_prefixes
-        }

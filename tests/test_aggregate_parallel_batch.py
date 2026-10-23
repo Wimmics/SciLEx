@@ -1,10 +1,9 @@
 """Tests for batch processing functions in scilex/crawlers/aggregate_parallel.py"""
 
 import pandas as pd
-import pytest
 
 from scilex.crawlers.aggregate_parallel import (
-    _process_batch_worker,
+    _process_batch,
     parallel_process_papers,
 )
 
@@ -37,43 +36,43 @@ def _make_openalex_paper():
     }
 
 
-class TestProcessBatchWorker:
+class TestProcessBatch:
     def test_known_api_returns_results(self):
         paper = _make_hal_paper()
         keywords = ["deep learning"]
         batch = [(paper, "HAL", keywords)]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         assert isinstance(results, list)
         assert len(results) >= 0  # May or may not pass text filter
 
     def test_unknown_api_returns_empty(self):
         batch = [({"title": "test"}, "UnknownAPI", ["test"])]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         assert results == []
 
     def test_keyword_match_passes_filter(self):
         paper = _make_hal_paper()  # title contains "deep learning"
         keywords = ["deep learning"]
         batch = [(paper, "HAL", keywords)]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         # HAL paper with "deep learning" in title should pass
         assert isinstance(results, list)
 
     def test_no_keywords_all_pass(self):
         paper = _make_hal_paper()
         batch = [(paper, "HAL", [])]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         assert isinstance(results, list)
         assert len(results) == 1
 
     def test_malformed_paper_skipped_no_crash(self):
         batch = [({"bad_key": "value"}, "HAL", ["deep learning"])]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         # Should not raise; may return empty or converted result
         assert isinstance(results, list)
 
     def test_empty_batch_returns_empty(self):
-        results = _process_batch_worker(([], None, None, None, None))
+        results = _process_batch([])[0]
         assert results == []
 
     def test_multiple_papers_processed(self):
@@ -81,13 +80,13 @@ class TestProcessBatchWorker:
             (_make_hal_paper(), "HAL", []),
             (_make_hal_paper(), "HAL", []),
         ]
-        results = _process_batch_worker((papers, None, None, None, None))
+        results = _process_batch(papers)[0]
         assert len(results) == 2
 
     def test_openalex_paper_processed(self):
         paper = _make_openalex_paper()
         batch = [(paper, "OpenAlex", [])]
-        results = _process_batch_worker((batch, None, None, None, None))
+        results = _process_batch(batch)[0]
         # OpenAlex conversion may filter or fail silently — just verify no crash
         assert isinstance(results, list)
 
@@ -96,7 +95,9 @@ class TestParallelProcessPapers:
     def test_returns_tuple_dataframe_stats(self):
         paper = _make_hal_paper()
         papers_by_api = [(paper, "HAL", [])]
-        df, stats = parallel_process_papers(papers_by_api, batch_size=100, num_workers=1)
+        df, stats = parallel_process_papers(
+            papers_by_api, batch_size=100, num_workers=1
+        )
         assert isinstance(df, pd.DataFrame)
         assert isinstance(stats, dict)
 
@@ -138,3 +139,29 @@ class TestParallelProcessPapers:
         ]
         df, _ = parallel_process_papers(papers, batch_size=10, num_workers=1)
         assert len(df) == 1  # Only the paper with "deep learning" passes
+
+
+class TestConverterErrorReporting:
+    def test_converter_errors_logged_and_counted(self, caplog):
+        from unittest.mock import patch
+
+        def boom(_paper):
+            raise ValueError("bad record")
+
+        batch = [({"x": 1}, "HAL", ["kw"]), ({"x": 2}, "HAL", ["kw"])]
+        with (
+            patch.dict("scilex.crawlers.aggregate.FORMAT_CONVERTERS", {"HAL": boom}),
+            caplog.at_level("WARNING"),
+        ):
+            df, stats = parallel_process_papers(batch, batch_size=10, num_workers=1)
+        assert df.empty
+        assert stats["converter_errors"] == {"HAL": 2}
+        assert any(
+            r.levelname == "WARNING" and "HAL" in r.message and "2" in r.message
+            for r in caplog.records
+        )
+
+    def test_no_errors_gives_empty_mapping(self):
+        batch = [(_make_hal_paper(), "HAL", ["deep learning"])]
+        _, stats = parallel_process_papers(batch, batch_size=10, num_workers=1)
+        assert stats["converter_errors"] == {}

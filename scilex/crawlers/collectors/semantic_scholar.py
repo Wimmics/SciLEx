@@ -2,8 +2,6 @@ import logging
 import urllib
 from datetime import date
 
-from scilex.constants import CircuitBreakerConfig
-
 from .base import API_collector
 
 
@@ -45,24 +43,9 @@ class SemanticScholar_collector(API_collector):
         # Load rate limit from config (defaults to 1 req/sec with API key)
         self.load_rate_limit_from_config()
 
-    def api_call_decorator(
-        self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES, headers=None
-    ):
-        """
-        API call with SemanticScholar-specific headers.
-        Calls parent decorator with circuit breaker and retry logic.
-
-        Args:
-            configurated_url: The URL to call
-            max_retries: Maximum number of retry attempts (default from CircuitBreakerConfig)
-
-        Returns:
-            Response object from the API
-        """
-        headers = {"x-api-key": self.get_apikey()} if self.get_apikey() else None
-        return super().api_call_decorator(
-            configurated_url, max_retries=max_retries, headers=headers
-        )
+    def get_auth_headers(self):
+        """Semantic Scholar takes the API key in the ``x-api-key`` header (optional)."""
+        return {"x-api-key": self.get_apikey()} if self.get_apikey() else None
 
     def parsePageResults(self, response, page):
         """
@@ -136,6 +119,14 @@ class SemanticScholar_collector(API_collector):
 
         return page_data
 
+    def _date_param(self):
+        """Year filter, narrowed to ``since`` (publicationDateOrYear) when set."""
+        year = self.get_year()
+        start_date = self.get_query_start_date()
+        if start_date:
+            return f"publicationDateOrYear={start_date.isoformat()}:{year}-12-31"
+        return f"year={year}"
+
     def get_configurated_url(self):
         """
         Constructs the configured API URL with query parameters.
@@ -168,7 +159,7 @@ class SemanticScholar_collector(API_collector):
         # Construct the full URL with pagination parameters
         url = (
             f"{base_url}?query={encoded_keywords}"
-            f"&year={self.get_year()}"
+            f"&{self._date_param()}"
             f"&fieldsOfStudy=Computer%20Science"
             f"&fields={fields}"
             f"&limit={self.max_by_page}&offset={{}}"  # Add pagination: limit=100, offset placeholder

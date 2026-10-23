@@ -1,194 +1,132 @@
 # Configuration Guide
 
-This guide explains how to configure SciLEx for your research needs.
+This guide shows how to configure SciLEx for your research. For the exhaustive list of keys, defaults,
+presets, environment variables and the old-to-new name table, see the
+[Configuration Reference](../reference/configuration.md).
 
-## Configuration Files
+## Two files
 
-SciLEx uses two main configuration files:
+1. **`scilex.yml`**: one per review, in your working folder (search, filters, ranking, enrichment).
+2. **`keys.yml`**: your API keys and rate limits, shared by all reviews, in `~/.config/scilex/keys.yml`.
 
-1. **`src/scilex.config.yml`** - Search and collection settings
-2. **`scilex/api.config.yml`** - API credentials and rate limits
+Templates: `scilex.yml.example` and `keys.yml.example` at the repository root.
 
-An example for API credentials is provided at `src/api.config.yml.example`.
+```bash
+mkdir my-review && cd my-review
+scilex init                                     # creates ./scilex.yml
+mkdir -p ~/.config/scilex
+cp /path/to/SciLEx/keys.yml.example ~/.config/scilex/keys.yml
+scilex config check                             # validate without running anything
+scilex config show                              # effective values and where each comes from
+```
+
+You only write what differs from the defaults. A typo is reported with a suggestion instead of being ignored.
+
+Discovery order: `scilex.yml` is `--config PATH`, then `$SCILEX_CONFIG`, then `./scilex.yml`.
+`keys.yml` is `--keys PATH`, then `$SCILEX_KEYS`, then `~/.config/scilex/keys.yml`.
 
 ## Basic Configuration
 
-### Search Configuration (scilex.config.yml)
-
 ```yaml
-# Keywords - Two modes available:
-# Single group: Papers matching ANY keyword
-keywords:
-  - ["machine learning", "deep learning"]
-  - []
+name: my_collection              # results go to output/my_collection
+output_dir: output
 
-# Dual groups: Papers matching keywords from BOTH groups
-keywords:
-  - ["knowledge graph", "ontology"]      # Group 1
-  - ["large language model", "LLM"]      # Group 2
-
-# Years to search
-years: [2022, 2023, 2024]
-
-# APIs to use (see API guide for options)
-apis:
-  - SemanticScholar
-  - OpenAlex
-  - Arxiv
-
-# Fields to search in
-fields: ["title", "abstract"]
-
-# Collection settings
-collect: true
-collect_name: "my_collection"
-output_dir: "output"
+search:
+  keywords:
+    - [knowledge graph, ontology]      # Group 1
+    - [large language model, LLM]      # Group 2
+  years: [2022, 2023, 2024]
+  apis: [SemanticScholar, OpenAlex, Arxiv]
 ```
 
-### API Configuration (scilex/api.config.yml)
+### Keywords
 
-Note: key names use **snake_case** matching the internal API identifiers.
+One group: papers matching ANY term.
 
 ```yaml
-# Semantic Scholar (optional - increases rate limits when provided)
-sem_scholar:
-  api_key: "your-key-here"
-
-# IEEE (required if using IEEE Xplore)
-ieee:
-  api_key: "your-ieee-key"
-
-# Elsevier (required if using)
-elsevier:
-  api_key: "your-elsevier-key"
-
-# Springer (required if using)
-springer:
-  api_key: "your-springer-key"
-
-# Zotero (for export)
-zotero:
-  api_key: "your-zotero-key"
-  user_mode: "user"  # or "group" for group libraries
-
-# Rate limits (requests per second) - override defaults here
-rate_limits:
-  SemanticScholar: 1.0
-  OpenAlex: 10.0
-  IEEE: 10.0
-  Arxiv: 3.0
-  OpenAIRE: 5.0
-  ORKG: 2.0
+search:
+  keywords:
+    - [neural network, deep learning, CNN, RNN]
 ```
 
-## Keyword Configuration
-
-### Single Group Mode (OR Logic)
-
-Papers match if they contain ANY keyword:
+Two groups: papers must contain at least one term from EACH group.
 
 ```yaml
-keywords:
-  - ["neural network", "deep learning", "CNN", "RNN"]
-  - []  # Empty second group
-```
-
-### Dual Group Mode (AND Logic)
-
-Papers must contain at least one keyword from EACH group:
-
-```yaml
-keywords:
-  - ["climate", "weather", "temperature"]     # Topic
-  - ["prediction", "forecast", "model"]       # Method
+search:
+  keywords:
+    - [climate, weather, temperature]     # Topic
+    - [prediction, forecast, model]       # Method
 ```
 
 ## Filtering Configuration
 
-### Basic Quality Filters
-
 ```yaml
-quality_filters:
-  # Filter by publication type
-  enable_itemtype_filter: true
-  allowed_item_types:
-    - journalArticle
-    - conferencePaper
+filters:
+  item_types: [journalArticle, conferencePaper]   # whitelist (null = all types)
+  abstract_quality: 60                            # drop low-quality abstracts (null = off)
+  citations: true                                 # time-aware citation filter
 
-  # Abstract quality
-  validate_abstracts: true
-  min_abstract_quality_score: 60
-  filter_by_abstract_quality: true
+citations:
+  fetch: true                                     # fetch citation counts during aggregation
+
+ranking:
+  enabled: true
+  max_papers: 500                                 # keep the top 500 (null = no limit)
+  weights: {keywords: 0.45, quality: 0.25, itemtype: 0.20, citations: 0.10}
 ```
 
-### Citation Filtering
+See [Advanced Filtering](../user-guides/advanced-filtering.md) for how each filter behaves.
 
-```yaml
-# Enable citation fetching
-aggregate_get_citations: true
+### Presets
 
-quality_filters:
-  # Filter by citations (time-aware)
-  apply_citation_filter: true
-  min_citations_per_year: 2
-```
-
-### Relevance Ranking
-
-```yaml
-quality_filters:
-  # Rank and limit results
-  apply_relevance_ranking: true
-  max_papers: 500  # Keep top 500 papers
-
-  # Scoring weights (must sum to 1.0)
-  relevance_weights:
-    keywords: 0.45
-    quality: 0.25
-    itemtype: 0.20
-    citations: 0.10
-```
+`preset: literature_review` (requires abstract and year, citation filter on, abstract quality 60) or
+`preset: bibliometrics` (no required fields, no citation filter, no cap on papers) set several filters at once.
+Your own keys in `scilex.yml` override the preset.
 
 ## Common Configurations
 
 ### Quick Test
 
 ```yaml
-keywords: [["test"], []]
-years: [2024]
-apis: ["OpenAlex"]
-max_results_per_api: 10
+name: quick_test
+search:
+  keywords: [[test]]
+  years: [2024]
+  apis: [OpenAlex]
+  max_articles_per_query: 10
 ```
 
 ### Comprehensive Search
 
 ```yaml
-keywords:
-  - ["artificial intelligence", "AI"]
-  - []
-years: [2020, 2021, 2022, 2023, 2024]
-apis:
-  - SemanticScholar
-  - OpenAlex
-  - IEEE
-  - Arxiv
-  - OpenAIRE
-aggregate_get_citations: true
-quality_filters:
-  apply_relevance_ranking: true
+name: ai_survey
+preset: literature_review
+search:
+  keywords:
+    - [artificial intelligence, AI]
+  years: "2020-2024"
+  apis: [SemanticScholar, OpenAlex, IEEE, Arxiv, OpenAIRE]
+ranking:
   max_papers: 1000
 ```
 
 ### Focused Conference Papers
 
 ```yaml
-keywords: [["neural networks"], []]
-years: [2023, 2024]
-apis: ["SemanticScholar", "DBLP"]
-quality_filters:
-  enable_itemtype_filter: true
-  allowed_item_types:
-    - conferencePaper
+name: nn_conferences
+search:
+  keywords: [[neural networks]]
+  years: [2023, 2024]
+  apis: [SemanticScholar, DBLP]
+filters:
+  item_types: [conferencePaper]
+```
+
+### Incremental update
+
+```yaml
+search:
+  since: 2025-06-01      # re-collect only newer records; merged by scilex-aggregate
 ```
 
 ## API Selection
@@ -206,34 +144,43 @@ These APIs work without any configuration:
 
 ### APIs Requiring Keys
 
-Must be configured in `scilex/api.config.yml`:
+Must be configured in `~/.config/scilex/keys.yml`:
 - SemanticScholar (optional but recommended for higher rate limits)
 - IEEE
 - Elsevier
 - Springer
 
+A pool of keys can be given as a list (`api_key: ["k1", "k2"]`); SciLEx rotates between them.
+
 ## Environment Variables
 
-Optional environment variables:
-
 ```bash
-# Set log level
-export LOG_LEVEL=INFO
-
-# Disable colored output
-export LOG_COLOR=false
+export LOG_LEVEL=INFO                              # log verbosity
+export LOG_COLOR=false                             # disable colored output
+export SCILEX_SEMANTICSCHOLAR_API_KEY=...          # override keys.yml (SCILEX_<API>_<FIELD>)
+export OPENROUTER_API_KEY=...                      # for llm_screening
+export SCILEX_CONFIG=/path/to/scilex.yml           # same as --config
+export SCILEX_KEYS=/path/to/keys.yml               # same as --keys
 ```
+
+## Migrating from the old format
+
+Older versions used `scilex/scilex.config.yml`, `scilex/scilex.advanced.yml` and `scilex/api.config.yml`.
+They are still read, with a warning. Convert them with `scilex config migrate --write`
+(`--from DIR` to read them from another folder), then move your keys to `~/.config/scilex/keys.yml`.
+The old-to-new name table is in the [reference](../reference/configuration.md).
 
 ## Tips
 
 1. **Start Small**: Test with one year and one API
 2. **Use Open APIs First**: No keys needed (OpenAlex, Arxiv, OpenAIRE, ORKG)
 3. **Add APIs Gradually**: Test each one separately
-4. **Check Rate Limits**: Respect API quotas
-5. **Save Working Configs**: Keep successful configurations for reuse
+4. **Check Rate Limits**: Respect API quotas (`rate_limits` in `keys.yml`)
+5. **Save Working Configs**: `scilex-init --save-profile NAME` stores a `scilex.yml` for reuse
 
 ## Next Steps
 
 - See [Quick Start](quick-start.md) for your first collection
+- See [Configuration Reference](../reference/configuration.md) for every option
 - See [Advanced Filtering](../user-guides/advanced-filtering.md) for filtering options
 - See [API Comparison](../reference/api-comparison.md) for API details

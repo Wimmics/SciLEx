@@ -1,5 +1,4 @@
-"""
-Advanced abstract quality validation for SciLEx.
+"""Advanced abstract quality validation for SciLEx.
 
 This module provides sophisticated abstract quality checks beyond basic length validation:
 - Truncation detection (incomplete abstracts)
@@ -11,10 +10,11 @@ This module provides sophisticated abstract quality checks beyond basic length v
 
 import logging
 import re
+from collections import Counter
 
 import pandas as pd
 
-from scilex.constants import is_missing
+from scilex.constants import normalize_text_field
 
 # Common truncation indicators
 TRUNCATION_PATTERNS = [
@@ -49,6 +49,71 @@ INCOMPLETE_SENTENCE_PATTERNS = [
     r"\b(?:and|or|but|however|therefore|thus|hence|moreover|furthermore)$",  # Ends with conjunction
     r"\b(?:the|a|an|of|in|on|at|to|for|with|by|from)$",  # Ends with preposition/article
 ]
+
+# Precompiled once at import (detectors run once per abstract, thousands of times)
+_TRUNCATION_REGEXES = [(p, re.compile(p, re.IGNORECASE)) for p in TRUNCATION_PATTERNS]
+_BOILERPLATE_REGEXES = [re.compile(p, re.IGNORECASE) for p in BOILERPLATE_PATTERNS]
+_INCOMPLETE_SENTENCE_REGEXES = [
+    re.compile(p, re.IGNORECASE) for p in INCOMPLETE_SENTENCE_PATTERNS
+]
+_WHITESPACE_RE = re.compile(r"\s+")
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_SPECIAL_CHAR_RE = re.compile(r'[^\w\s.,;:!?()\-\'"]')
+_REPEATED_CHAR_RE = re.compile(r"(.)\1{5,}")
+
+
+# Common English words used by the language heuristic
+_COMMON_ENGLISH_WORDS = frozenset(
+    {
+        "the",
+        "be",
+        "to",
+        "of",
+        "and",
+        "a",
+        "in",
+        "that",
+        "have",
+        "i",
+        "it",
+        "for",
+        "not",
+        "on",
+        "with",
+        "he",
+        "as",
+        "you",
+        "do",
+        "at",
+        "this",
+        "but",
+        "his",
+        "by",
+        "from",
+        "they",
+        "we",
+        "say",
+        "her",
+        "she",
+        "or",
+        "an",
+        "will",
+        "my",
+        "one",
+        "all",
+        "would",
+        "there",
+        "their",
+        "is",
+        "are",
+        "was",
+        "were",
+        "been",
+        "has",
+        "had",
+        "having",
+    }
+)
 
 
 class AbstractQualityIssue:
@@ -108,24 +173,16 @@ class AbstractQualityScore:
 
 def normalize_abstract(abstract) -> str:
     """Normalize abstract text for analysis."""
-    if is_missing(abstract):
-        return ""
-
-    # Handle dict format
-    if isinstance(abstract, dict) and "p" in abstract:
-        text = " ".join(abstract["p"])
-    else:
-        text = str(abstract)
+    text = normalize_text_field(abstract)
 
     # Clean up whitespace
-    text = re.sub(r"\s+", " ", text).strip()
+    text = _WHITESPACE_RE.sub(" ", text).strip()
 
     return text
 
 
 def detect_truncation(abstract: str) -> AbstractQualityIssue | None:
-    """
-    Detect if abstract appears truncated.
+    """Detect if abstract appears truncated.
 
     Returns:
         AbstractQualityIssue if truncation detected, None otherwise
@@ -136,8 +193,8 @@ def detect_truncation(abstract: str) -> AbstractQualityIssue | None:
         return None
 
     # Check for explicit truncation indicators
-    for pattern in TRUNCATION_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
+    for pattern, regex in _TRUNCATION_REGEXES:
+        if regex.search(text):
             return AbstractQualityIssue(
                 issue_type="TRUNCATED",
                 severity=AbstractQualityIssue.CRITICAL,
@@ -145,8 +202,8 @@ def detect_truncation(abstract: str) -> AbstractQualityIssue | None:
             )
 
     # Check for incomplete sentences (ends with preposition/conjunction)
-    for pattern in INCOMPLETE_SENTENCE_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
+    for regex in _INCOMPLETE_SENTENCE_REGEXES:
+        if regex.search(text):
             return AbstractQualityIssue(
                 issue_type="INCOMPLETE_SENTENCE",
                 severity=AbstractQualityIssue.WARNING,
@@ -157,8 +214,7 @@ def detect_truncation(abstract: str) -> AbstractQualityIssue | None:
 
 
 def detect_boilerplate(abstract: str) -> AbstractQualityIssue | None:
-    """
-    Detect generic publisher boilerplate text.
+    """Detect generic publisher boilerplate text.
 
     Returns:
         AbstractQualityIssue if boilerplate detected, None otherwise
@@ -168,8 +224,8 @@ def detect_boilerplate(abstract: str) -> AbstractQualityIssue | None:
     if not text:
         return None
 
-    for pattern in BOILERPLATE_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
+    for regex in _BOILERPLATE_REGEXES:
+        if regex.search(text):
             return AbstractQualityIssue(
                 issue_type="BOILERPLATE",
                 severity=AbstractQualityIssue.WARNING,
@@ -182,8 +238,7 @@ def detect_boilerplate(abstract: str) -> AbstractQualityIssue | None:
 def detect_length_issues(
     abstract: str, min_words: int = 30, max_words: int = 1000
 ) -> AbstractQualityIssue | None:
-    """
-    Detect length-related quality issues.
+    """Detect length-related quality issues.
 
     Args:
         abstract: Abstract text
@@ -224,8 +279,7 @@ def detect_length_issues(
 def detect_language_issues(
     abstract: str, expected_language: str = "english"
 ) -> AbstractQualityIssue | None:
-    """
-    Detect if abstract appears to be in wrong language.
+    """Detect if abstract appears to be in wrong language.
 
     Uses simple heuristic based on common English words.
 
@@ -241,63 +295,12 @@ def detect_language_issues(
     if not text or expected_language != "english":
         return None
 
-    # Simple heuristic based on common English words
-    common_english_words = {
-        "the",
-        "be",
-        "to",
-        "of",
-        "and",
-        "a",
-        "in",
-        "that",
-        "have",
-        "i",
-        "it",
-        "for",
-        "not",
-        "on",
-        "with",
-        "he",
-        "as",
-        "you",
-        "do",
-        "at",
-        "this",
-        "but",
-        "his",
-        "by",
-        "from",
-        "they",
-        "we",
-        "say",
-        "her",
-        "she",
-        "or",
-        "an",
-        "will",
-        "my",
-        "one",
-        "all",
-        "would",
-        "there",
-        "their",
-        "is",
-        "are",
-        "was",
-        "were",
-        "been",
-        "has",
-        "had",
-        "having",
-    }
-
     words = text.lower().split()
     if len(words) < 10:
         return None  # Too short to reliably detect language
 
     # Count how many common English words appear
-    english_word_count = sum(1 for word in words if word in common_english_words)
+    english_word_count = sum(1 for word in words if word in _COMMON_ENGLISH_WORDS)
     english_word_ratio = english_word_count / len(words)
 
     # If less than 10% are common English words, likely non-English
@@ -312,8 +315,7 @@ def detect_language_issues(
 
 
 def detect_formatting_issues(abstract: str) -> AbstractQualityIssue | None:
-    """
-    Detect formatting problems that indicate data quality issues.
+    """Detect formatting problems that indicate data quality issues.
 
     Returns:
         AbstractQualityIssue if formatting issue detected, None otherwise
@@ -324,7 +326,7 @@ def detect_formatting_issues(abstract: str) -> AbstractQualityIssue | None:
         return None
 
     # Check for excessive HTML/XML tags
-    if re.search(r"<[^>]+>", text):
+    if _HTML_TAG_RE.search(text):
         return AbstractQualityIssue(
             issue_type="FORMATTING",
             severity=AbstractQualityIssue.WARNING,
@@ -332,7 +334,7 @@ def detect_formatting_issues(abstract: str) -> AbstractQualityIssue | None:
         )
 
     # Check for excessive special characters (indicates encoding issues)
-    special_char_count = len(re.findall(r'[^\w\s.,;:!?()\-\'"]', text))
+    special_char_count = len(_SPECIAL_CHAR_RE.findall(text))
     if special_char_count > len(text) * 0.05:  # More than 5% special chars
         return AbstractQualityIssue(
             issue_type="ENCODING",
@@ -341,7 +343,7 @@ def detect_formatting_issues(abstract: str) -> AbstractQualityIssue | None:
         )
 
     # Check for repeated characters (often indicates errors)
-    if re.search(r"(.)\1{5,}", text):  # Same character repeated 6+ times
+    if _REPEATED_CHAR_RE.search(text):  # Same character repeated 6+ times
         return AbstractQualityIssue(
             issue_type="FORMATTING",
             severity=AbstractQualityIssue.INFO,
@@ -358,8 +360,7 @@ def validate_abstract_quality(
     check_language: bool = True,
     expected_language: str = "english",
 ) -> AbstractQualityScore:
-    """
-    Perform comprehensive quality validation on an abstract.
+    """Perform comprehensive quality validation on an abstract.
 
     Args:
         abstract: Abstract text to validate
@@ -392,85 +393,87 @@ def validate_abstract_quality(
     return quality
 
 
+_ISSUE_TO_STAT = {
+    "TRUNCATED": "truncated",
+    "TOO_SHORT": "too_short",
+    "TOO_LONG": "too_long",
+    "BOILERPLATE": "boilerplate",
+    "ENCODING": "encoding_issues",
+    "FORMATTING": "encoding_issues",
+    "LANGUAGE": "language_issues",
+}
+_STAT_KEYS = (
+    "truncated",
+    "too_short",
+    "too_long",
+    "boilerplate",
+    "encoding_issues",
+    "language_issues",
+)
+
+
 def validate_dataframe_abstracts(
     df: pd.DataFrame,
     abstract_column: str = "abstract",
     min_quality_score: int = 50,
     generate_report: bool = True,
+    min_words: int = 30,
+    max_words: int = 1000,
 ) -> tuple[pd.DataFrame, dict]:
-    """
-    Validate abstract quality for all records in DataFrame.
+    """Validate abstract quality for all records in DataFrame.
+
+    Each abstract is scored once. A paper is "acceptable" when
+    ``AbstractQualityScore.is_acceptable(min_quality_score)`` holds (score at
+    or above the threshold and no critical issue); this single definition is
+    used both for the statistics and for the ``abstract_quality_acceptable``
+    column.
 
     Args:
         df: DataFrame with paper records
         abstract_column: Name of abstract column
         min_quality_score: Minimum acceptable quality score
         generate_report: Whether to generate report
+        min_words: Minimum abstract word count (configured threshold)
+        max_words: Maximum abstract word count (0 for no limit)
 
     Returns:
-        (df_with_scores, report_dict): DataFrame with quality info and statistics
+        (df_with_scores, report_dict): DataFrame with the columns
+        ``abstract_quality_score``, ``abstract_quality_issues`` and
+        ``abstract_quality_acceptable``, and statistics.
     """
     if len(df) == 0 or abstract_column not in df.columns:
         return df, {}
 
+    qualities = [
+        validate_abstract_quality(abstract, min_words=min_words, max_words=max_words)
+        for abstract in df[abstract_column]
+    ]
+    scores = [quality.get_score() for quality in qualities]
+    acceptable = [quality.is_acceptable(min_quality_score) for quality in qualities]
+
     df_result = df.copy()
+    df_result["abstract_quality_score"] = scores
+    df_result["abstract_quality_issues"] = [
+        "; ".join(issue.issue_type for issue in quality.issues) for quality in qualities
+    ]
+    df_result["abstract_quality_acceptable"] = acceptable
 
-    # Add quality columns
-    df_result["abstract_quality_score"] = 0
-    df_result["abstract_quality_issues"] = ""
-
-    # Statistics
+    issue_counts = Counter(
+        _ISSUE_TO_STAT[issue.issue_type]
+        for quality in qualities
+        for issue in quality.issues
+        if issue.issue_type in _ISSUE_TO_STAT
+    )
     stats = {
         "total": len(df),
-        "acceptable": 0,
-        "poor_quality": 0,
-        "truncated": 0,
-        "too_short": 0,
-        "too_long": 0,
-        "boilerplate": 0,
-        "encoding_issues": 0,
-        "language_issues": 0,
-        "average_score": 0.0,
+        "acceptable": sum(acceptable),
+        "poor_quality": len(acceptable) - sum(acceptable),
+        **{stat_key: issue_counts[stat_key] for stat_key in _STAT_KEYS},
+        "average_score": sum(scores) / len(scores),
     }
 
-    scores = []
-
-    for idx, row in df_result.iterrows():
-        abstract = row.get(abstract_column)
-        quality = validate_abstract_quality(abstract)
-
-        df_result.loc[idx, "abstract_quality_score"] = quality.get_score()
-        df_result.loc[idx, "abstract_quality_issues"] = "; ".join(
-            [f"{issue.issue_type}" for issue in quality.issues]
-        )
-
-        scores.append(quality.get_score())
-
-        # Update statistics
-        if quality.is_acceptable(min_quality_score):
-            stats["acceptable"] += 1
-        else:
-            stats["poor_quality"] += 1
-
-        for issue in quality.issues:
-            if issue.issue_type == "TRUNCATED":
-                stats["truncated"] += 1
-            elif issue.issue_type == "TOO_SHORT":
-                stats["too_short"] += 1
-            elif issue.issue_type == "TOO_LONG":
-                stats["too_long"] += 1
-            elif issue.issue_type == "BOILERPLATE":
-                stats["boilerplate"] += 1
-            elif issue.issue_type in ("ENCODING", "FORMATTING"):
-                stats["encoding_issues"] += 1
-            elif issue.issue_type == "LANGUAGE":
-                stats["language_issues"] += 1
-
-    stats["average_score"] = sum(scores) / len(scores) if scores else 0.0
-
     if generate_report:
-        report_str = _generate_abstract_quality_report(stats)
-        logging.info(report_str)
+        logging.info(_generate_abstract_quality_report(stats))
 
     return df_result, stats
 
@@ -515,43 +518,8 @@ def _generate_abstract_quality_report(stats: dict) -> str:
     return "\n".join(report_lines)
 
 
-def filter_by_abstract_quality(
-    df: pd.DataFrame, min_quality_score: int = 50, abstract_column: str = "abstract"
-) -> pd.DataFrame:
-    """
-    Filter DataFrame to keep only papers with acceptable abstract quality.
-
-    Args:
-        df: DataFrame with paper records
-        min_quality_score: Minimum acceptable quality score
-        abstract_column: Name of abstract column
-
-    Returns:
-        Filtered DataFrame
-    """
-    if len(df) == 0:
-        return df
-
-    # Validate abstracts
-    df_with_scores, _ = validate_dataframe_abstracts(
-        df, abstract_column, min_quality_score, generate_report=False
-    )
-
-    # Filter
-    df_filtered = df_with_scores[
-        df_with_scores["abstract_quality_score"] >= min_quality_score
-    ].copy()
-
-    # Remove temporary columns
-    df_filtered = df_filtered.drop(
-        columns=["abstract_quality_score", "abstract_quality_issues"], errors="ignore"
-    )
-
-    removed = len(df) - len(df_filtered)
-    if removed > 0:
-        logging.info(
-            f"Filtered out {removed} papers ({removed / len(df) * 100:.1f}%) "
-            f"with poor abstract quality (score < {min_quality_score})"
-        )
-
-    return df_filtered
+SCORING_COLUMNS = [
+    "abstract_quality_score",
+    "abstract_quality_issues",
+    "abstract_quality_acceptable",
+]

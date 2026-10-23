@@ -162,23 +162,6 @@ class TestCircuitBreakerRegistry:
         cb2 = registry.get_breaker("API2")
         assert cb1 is not cb2
 
-    def test_get_all_stats(self):
-        registry = CircuitBreakerRegistry()
-        registry.get_breaker("API1")
-        registry.get_breaker("API2")
-        stats = registry.get_all_stats()
-        assert "API1" in stats
-        assert "API2" in stats
-
-    def test_reset_all(self):
-        registry = CircuitBreakerRegistry()
-        cb = registry.get_breaker("TestAPI", failure_threshold=2)
-        cb.record_failure()
-        cb.record_failure()
-        assert cb.state == CircuitState.OPEN
-        registry.reset_all()
-        assert cb.state == CircuitState.CLOSED
-
     def teardown_method(self):
         # Clean up singleton
         CircuitBreakerRegistry._instance = None

@@ -11,7 +11,6 @@ from scilex.abstract_validation import (
     detect_language_issues,
     detect_length_issues,
     detect_truncation,
-    filter_by_abstract_quality,
     normalize_abstract,
     validate_abstract_quality,
     validate_dataframe_abstracts,
@@ -28,23 +27,17 @@ class TestAbstractQualityScore:
 
     def test_critical_deducts_40(self):
         qs = AbstractQualityScore("text")
-        qs.add_issue(
-            AbstractQualityIssue("X", AbstractQualityIssue.CRITICAL, "desc")
-        )
+        qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.CRITICAL, "desc"))
         assert qs.get_score() == 60
 
     def test_warning_deducts_15(self):
         qs = AbstractQualityScore("text")
-        qs.add_issue(
-            AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc")
-        )
+        qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc"))
         assert qs.get_score() == 85
 
     def test_info_deducts_5(self):
         qs = AbstractQualityScore("text")
-        qs.add_issue(
-            AbstractQualityIssue("X", AbstractQualityIssue.INFO, "desc")
-        )
+        qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.INFO, "desc"))
         assert qs.get_score() == 95
 
     def test_score_floor_at_zero(self):
@@ -83,14 +76,18 @@ class TestAbstractQualityScore:
     def test_is_acceptable_fails_below_threshold(self):
         qs = AbstractQualityScore("text")
         for _ in range(3):
-            qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc"))
+            qs.add_issue(
+                AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc")
+            )
         # 100 - 3*15 = 55, which is >= 50 by default
         assert qs.is_acceptable() is True
 
     def test_is_acceptable_custom_threshold(self):
         qs = AbstractQualityScore("text")
         for _ in range(3):
-            qs.add_issue(AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc"))
+            qs.add_issue(
+                AbstractQualityIssue("X", AbstractQualityIssue.WARNING, "desc")
+            )
         # 55 < 70
         assert qs.is_acceptable(min_score=70) is False
 
@@ -417,53 +414,3 @@ class TestValidateDataframeAbstracts:
         assert "average_score" in stats
         # "NA" normalizes to "" → MISSING (CRITICAL, -40) → score = 60
         assert stats["average_score"] == pytest.approx(60.0)
-
-
-# -------------------------------------------------------------------------
-# filter_by_abstract_quality
-# -------------------------------------------------------------------------
-class TestFilterByAbstractQuality:
-    def _make_df(self, abstracts: list) -> pd.DataFrame:
-        return pd.DataFrame({"abstract": abstracts, "title": ["T"] * len(abstracts)})
-
-    def test_poor_quality_removed(self):
-        # NA abstract = MISSING (CRITICAL, -40) → score=60; use threshold=70 to filter
-        df = self._make_df(["NA", "NA", "NA"])
-        result = filter_by_abstract_quality(df, min_quality_score=70)
-        assert len(result) == 0
-
-    def test_good_quality_kept(self):
-        good = (
-            "We propose a novel graph neural network architecture for knowledge "
-            "graph completion. We evaluate on FB15k-237 and WN18RR benchmarks. "
-            "Our method achieves state-of-the-art results on link prediction."
-        )
-        df = self._make_df([good])
-        result = filter_by_abstract_quality(df, min_quality_score=50)
-        assert len(result) == 1
-
-    def test_temp_columns_dropped(self):
-        good = (
-            "We propose a novel graph neural network architecture for knowledge "
-            "graph completion. We evaluate on benchmarks and achieve results."
-        )
-        df = self._make_df([good])
-        result = filter_by_abstract_quality(df)
-        assert "abstract_quality_score" not in result.columns
-        assert "abstract_quality_issues" not in result.columns
-
-    def test_empty_df_returns_empty(self):
-        df = pd.DataFrame({"abstract": []})
-        result = filter_by_abstract_quality(df)
-        assert len(result) == 0
-
-    def test_mixed_quality_filters_correctly(self):
-        good = (
-            "We propose a novel graph neural network architecture for knowledge "
-            "graph completion. We evaluate on FB15k-237 and WN18RR benchmarks "
-            "and achieve state-of-the-art results on link prediction tasks."
-        )
-        df = self._make_df(["NA", good, "NA"])
-        # NA abstract = score 60; use threshold=70 to filter them out
-        result = filter_by_abstract_quality(df, min_quality_score=70)
-        assert len(result) == 1

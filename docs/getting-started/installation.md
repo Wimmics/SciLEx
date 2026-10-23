@@ -22,35 +22,43 @@ pip install -r requirements.txt
 
 ### 2. Configure API Keys
 
+API keys are stored once, outside any project, in `~/.config/scilex/keys.yml`:
+
 ```bash
-cp src/api.config.yml.example scilex/api.config.yml
-nano scilex/api.config.yml
+mkdir -p ~/.config/scilex
+cp keys.yml.example ~/.config/scilex/keys.yml
+nano ~/.config/scilex/keys.yml
 ```
 
-Add your API keys. Note that key names use snake_case:
+Keep only the APIs you use:
 
 ```yaml
 # Semantic Scholar (optional but recommended for higher rate limits)
-sem_scholar:
+SemanticScholar:
   api_key: "your-key-here"
 
 # IEEE (required if using IEEE Xplore)
-ieee:
+IEEE:
   api_key: "your-key"
 
 # Elsevier (required if using)
-elsevier:
+Elsevier:
   api_key: "your-key"
 
 # Springer (required if using)
-springer:
+Springer:
   api_key: "your-key"
 
 # Zotero (for export)
-zotero:
+Zotero:
   api_key: "your-key"
-  user_mode: "user"  # or "group" for group libraries
+  user_id: "your-user-id"
+  user_mode: user  # or "group" for group libraries
 ```
+
+Section names are case-sensitive and match the API names (`SemanticScholar`, `OpenAlex`, ...).
+A key can also come from an environment variable such as `SCILEX_SEMANTICSCHOLAR_API_KEY`.
+See the [Configuration Reference](../reference/configuration.md) for every field.
 
 Get API keys from:
 - [Semantic Scholar](https://www.semanticscholar.org/product/api)
@@ -62,20 +70,21 @@ The following APIs do **not** require a key: OpenAlex, arXiv, DBLP, HAL, ISTEX, 
 
 ### 3. Configure Search
 
-Edit `src/scilex.config.yml` with your search parameters:
+In the folder of your review, create `scilex.yml`:
+
+```bash
+scilex init
+```
+
+or write it by hand:
 
 ```yaml
-keywords:
-  - ["machine learning"]
-  - []
-
-years: [2023, 2024]
-
-apis:
-  - OpenAlex
-  - Arxiv
-
-fields: ["title", "abstract"]
+name: my_review
+search:
+  keywords:
+    - [machine learning]
+  years: [2023, 2024]
+  apis: [OpenAlex, Arxiv]
 ```
 
 ## Verify Installation
@@ -84,8 +93,11 @@ fields: ["title", "abstract"]
 # Test that dependencies are installed
 uv run python -c "import pandas, requests, yaml; print('OK')"
 
+# Validate the configuration files
+uv run scilex config check
+
 # Run a test collection
-uv run python src/run_collecte.py
+uv run scilex-collect
 ```
 
 ## Common Issues
@@ -101,12 +113,13 @@ pip install -r requirements.txt
 ```
 
 ### API Key Invalid
-- Check for typos in `scilex/api.config.yml`
-- Verify the key name matches exactly (e.g., `sem_scholar` not `semantic_scholar`)
+- Check for typos in `~/.config/scilex/keys.yml` (run `scilex config show`; secrets are masked)
+- Verify the section name matches exactly (e.g., `SemanticScholar`)
 - Verify the key is active on the API provider's dashboard
 
 ## Next Steps
 
 - [Quick Start](quick-start.md) - Run your first collection
 - [Configuration](configuration.md) - Detailed config options
+- [Configuration Reference](../reference/configuration.md) - Every option
 - [Troubleshooting](troubleshooting.md) - More solutions

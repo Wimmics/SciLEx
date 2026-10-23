@@ -12,6 +12,30 @@ import copy
 import os
 
 # ============================================================================
+# COLLECTOR REGISTRY
+# ============================================================================
+
+COLLECTOR_API_NAMES = (
+    "DBLP",
+    "Arxiv",
+    "BioRxiv",
+    "Elsevier",
+    "IEEE",
+    "Springer",
+    "SemanticScholar",
+    "OpenAlex",
+    "HAL",
+    "Istex",
+    "PubMed",
+    "PubMedCentral",
+    "OpenAIRE",
+    "ORKG",
+)
+"""Names accepted in ``search.apis``. Kept here (a light module) so the settings
+schema can validate them without importing the collectors; a test checks it
+matches ``api_collectors`` and ``FORMAT_CONVERTERS``."""
+
+# ============================================================================
 # OUTPUT AND FILE SETTINGS
 # ============================================================================
 
@@ -23,9 +47,6 @@ Absolute path to ensure consistency regardless of working directory."""
 
 DEFAULT_AGGREGATED_FILENAME = "aggregated_results.csv"
 """Filename for aggregated and deduplicated papers."""
-
-DEFAULT_ENABLE_TEXT_FILTER = True
-"""Always apply text filters during aggregation (filter low-quality papers)."""
 
 # ============================================================================
 # ABSTRACT QUALITY THRESHOLDS
@@ -152,9 +173,34 @@ DEFAULT_USE_SEMANTIC_SCHOLAR_CITATIONS = True
 """Use Semantic Scholar citation data as fallback for OpenCitations.
 Improves citation completeness for preprints and recent papers."""
 
+DEFAULT_USE_OPENALEX_CITATIONS = True
+"""Use OpenAlex as citation fallback (read by the aggregation orchestrator)."""
+
 DEFAULT_APPLY_RELEVANCE_RANKING = True
 """Apply composite relevance scoring to rank papers by importance.
 Papers sorted by relevance_score (higher = more relevant)."""
+
+DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD = 0.5
+"""Relative gap between citation sources above which a discrepancy is logged
+(canonical_citation_count, issue #47)."""
+
+DEFAULT_RECOVER_MISSING_DOIS = False
+"""Opt-in: look up missing DOIs through CrossRef title+author search (#36)."""
+
+DEFAULT_DOI_RECOVERY_MIN_SIMILARITY = 0.90
+"""Minimum title similarity (0-1) to accept a CrossRef DOI candidate (#36)."""
+
+DEFAULT_ENRICH_UNPAYWALL = False
+"""Opt-in: add the oa_type column from Unpaywall (#44). Needs an email."""
+
+DEFAULT_UNPAYWALL_EMAIL = ""
+"""Contact email required by the Unpaywall API (falls back to api_config Unpaywall.email)."""
+
+DEFAULT_ENRICH_AUTHOR_HINDEX = False
+"""Opt-in: add first/last author h-index from Semantic Scholar (#45)."""
+
+DEFAULT_USE_VENUE_RANKING = False
+"""Opt-in: add venue_rank (CORE / SCImago) and blend it into the venue score (#3)."""
 
 DEFAULT_MAX_PAPERS = 1000
 """Maximum number of papers to keep after all filtering.
@@ -173,10 +219,6 @@ DEFAULT_COLLECT_ENABLED = True
 """Enable collection phase by default.
 Set to False to skip collection and only aggregate existing data."""
 
-DEFAULT_SEMANTIC_SCHOLAR_MODE = "regular"
-"""Semantic Scholar API endpoint mode.
-Options: 'regular' (default, recommended) or 'bulk' (requires special access)."""
-
 # ============================================================================
 # API RATE LIMITS (requests per second)
 # ============================================================================
@@ -185,6 +227,7 @@ DEFAULT_RATE_LIMITS = {
     "SemanticScholar": {"without_key": 1.0, "with_key": 1.0},
     "OpenAlex": {"without_key": 10.0, "with_key": 10.0},
     "Arxiv": {"without_key": 0.33, "with_key": 0.33},  # 1 req per 3 seconds
+    "BioRxiv": {"without_key": 1.0, "with_key": 1.0},  # No official limit
     "IEEE": {"without_key": 2.0, "with_key": 2.0},
     "Elsevier": {"without_key": 2.0, "with_key": 9.0},  # Scopus: 9 req/sec with key
     "Springer": {"without_key": 1.67, "with_key": 1.67},  # 100 req/min
@@ -200,8 +243,14 @@ DEFAULT_RATE_LIMITS = {
         "with_key": 10.0,
     },  # NCBI: 3/sec free, 10/sec with key
     "PubMedCentral": {"without_key": 3.0, "with_key": 10.0},  # Same NCBI limits
-    "OpenAIRE": {"without_key": 0.2, "with_key": 1.0},  # anonymous: 5s gap; registered token: ~1 req/s
-    "ORKG": {"without_key": 0.5, "with_key": 0.5},       # 2s between requests; timeouts at higher rates
+    "OpenAIRE": {
+        "without_key": 0.2,
+        "with_key": 1.0,
+    },  # anonymous: 5s gap; registered token: ~1 req/s
+    "ORKG": {
+        "without_key": 0.5,
+        "with_key": 0.5,
+    },  # 2s between requests; timeouts at higher rates
 }
 """Rate limits for each API provider (requests per second).
 Each entry has without_key/with_key values. The correct rate is auto-selected
@@ -229,6 +278,7 @@ QUALITY_FILTER_SCHEMA = {
     "generate_quality_report": bool,
     "apply_citation_filter": bool,
     "use_semantic_scholar_citations": bool,
+    "use_openalex_citations": bool,
     "apply_relevance_ranking": bool,
     "relevance_weights": dict,
     "itemtype_relevance_weights": dict,
@@ -240,30 +290,33 @@ QUALITY_FILTER_SCHEMA = {
 
 def get_default_quality_filters():
     """Return all default quality filter settings as a dictionary."""
-    return copy.deepcopy({
-        "enable_itemtype_bypass": DEFAULT_ENABLE_ITEMTYPE_BYPASS,
-        "bypass_item_types": DEFAULT_BYPASS_ITEM_TYPES,
-        "enable_itemtype_filter": DEFAULT_ENABLE_ITEMTYPE_FILTER,
-        "allowed_item_types": DEFAULT_ALLOWED_ITEM_TYPES,
-        "require_abstract": DEFAULT_REQUIRE_ABSTRACT,
-        "require_doi": DEFAULT_REQUIRE_DOI,
-        "require_year": DEFAULT_REQUIRE_YEAR,
-        "require_open_access": DEFAULT_REQUIRE_OPEN_ACCESS,
-        "min_author_count": MIN_AUTHOR_COUNT,
-        "min_abstract_words": MIN_ABSTRACT_WORDS,
-        "max_abstract_words": MAX_ABSTRACT_WORDS,
-        "validate_year_range": DEFAULT_VALIDATE_YEAR_RANGE,
-        "validate_abstracts": DEFAULT_VALIDATE_ABSTRACTS,
-        "min_abstract_quality_score": MIN_ABSTRACT_QUALITY_SCORE,
-        "generate_quality_report": DEFAULT_GENERATE_QUALITY_REPORT,
-        "apply_citation_filter": DEFAULT_APPLY_CITATION_FILTER,
-        "use_semantic_scholar_citations": DEFAULT_USE_SEMANTIC_SCHOLAR_CITATIONS,
-        "apply_relevance_ranking": DEFAULT_APPLY_RELEVANCE_RANKING,
-        "relevance_weights": DEFAULT_RELEVANCE_WEIGHTS,
-        "itemtype_relevance_weights": DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
-        "max_papers": DEFAULT_MAX_PAPERS,
-        "track_duplicate_sources": DEFAULT_TRACK_DUPLICATE_SOURCES,
-    })
+    return copy.deepcopy(
+        {
+            "enable_itemtype_bypass": DEFAULT_ENABLE_ITEMTYPE_BYPASS,
+            "bypass_item_types": DEFAULT_BYPASS_ITEM_TYPES,
+            "enable_itemtype_filter": DEFAULT_ENABLE_ITEMTYPE_FILTER,
+            "allowed_item_types": DEFAULT_ALLOWED_ITEM_TYPES,
+            "require_abstract": DEFAULT_REQUIRE_ABSTRACT,
+            "require_doi": DEFAULT_REQUIRE_DOI,
+            "require_year": DEFAULT_REQUIRE_YEAR,
+            "require_open_access": DEFAULT_REQUIRE_OPEN_ACCESS,
+            "min_author_count": MIN_AUTHOR_COUNT,
+            "min_abstract_words": MIN_ABSTRACT_WORDS,
+            "max_abstract_words": MAX_ABSTRACT_WORDS,
+            "validate_year_range": DEFAULT_VALIDATE_YEAR_RANGE,
+            "validate_abstracts": DEFAULT_VALIDATE_ABSTRACTS,
+            "min_abstract_quality_score": MIN_ABSTRACT_QUALITY_SCORE,
+            "generate_quality_report": DEFAULT_GENERATE_QUALITY_REPORT,
+            "apply_citation_filter": DEFAULT_APPLY_CITATION_FILTER,
+            "use_semantic_scholar_citations": DEFAULT_USE_SEMANTIC_SCHOLAR_CITATIONS,
+            "use_openalex_citations": DEFAULT_USE_OPENALEX_CITATIONS,
+            "apply_relevance_ranking": DEFAULT_APPLY_RELEVANCE_RANKING,
+            "relevance_weights": DEFAULT_RELEVANCE_WEIGHTS,
+            "itemtype_relevance_weights": DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
+            "max_papers": DEFAULT_MAX_PAPERS,
+            "track_duplicate_sources": DEFAULT_TRACK_DUPLICATE_SOURCES,
+        }
+    )
 
 
 def get_rate_limit(api_name: str, has_api_key: bool = False) -> float:
@@ -283,3 +336,40 @@ def get_rate_limit(api_name: str, has_api_key: bool = False) -> float:
         return entry["with_key"] if has_api_key else entry["without_key"]
     # Backward compat: if someone passes a plain float
     return float(entry)  # type: ignore[arg-type]
+
+
+# ============================================================================
+# GRAPH ANALYSIS SETTINGS (scilex-analyze)
+# ============================================================================
+
+DEFAULT_GRAPH_TYPE = "cocitation"
+"""Graph to build: 'cocitation', 'coupling' or 'both'."""
+
+DEFAULT_LOUVAIN_RESOLUTION = 1.0
+"""Louvain resolution; higher values give more, smaller communities (typical 0.5-2.0)."""
+
+DEFAULT_GRAPH_MIN_WEIGHT = 1
+"""Minimum edge weight kept; increase to drop weak links and get cleaner clusters."""
+
+DEFAULT_GRAPH_FORMAT = "gexf"
+"""Graph export format: 'gexf' (Gephi) or 'graphml'."""
+
+# ============================================================================
+# SNOWBALL SAMPLING SETTINGS (scilex-snowball)
+# ============================================================================
+
+DEFAULT_SNOWBALL_DIRECTION = "both"
+"""Direction: 'backward' (references), 'forward' (citing papers) or 'both'."""
+
+DEFAULT_SNOWBALL_TOP_K = 200
+"""Number of top-ranked candidates kept; higher finds more papers but is slower."""
+
+DEFAULT_SNOWBALL_MIN_FREQUENCY = 2
+"""A candidate must be cited by (or cite) at least this many corpus papers."""
+
+
+# ---------------------------------------------------------------------------
+# Lot B keys (read with config.get(key, DEFAULT_*); not part of the quality schema)
+# ---------------------------------------------------------------------------
+DEFAULT_GENERATE_PRISMA_REPORT = True
+DEFAULT_SINCE = None

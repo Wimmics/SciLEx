@@ -6,13 +6,10 @@ from .base import API_collector
 
 
 class IEEE_collector(API_collector):
-    """
-    Collector for fetching publication metadata from the IEEE Xplore API.
-    """
+    """Collector for fetching publication metadata from the IEEE Xplore API."""
 
     def __init__(self, filter_param, data_path, api_key):
-        """
-        Initializes the IEEE collector with the given parameters.
+        """Initializes the IEEE collector with the given parameters.
 
         Args:
             filter_param (Filter_param): The parameters for filtering results (years, keywords, etc.).
@@ -32,8 +29,7 @@ class IEEE_collector(API_collector):
         self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
-        """
-        Parses the results from a response for a specific page.
+        """Parses the results from a response for a specific page.
 
         Args:
             response (requests.Response): The API response object containing the results.
@@ -98,15 +94,16 @@ class IEEE_collector(API_collector):
         return page_data
 
     def get_configurated_url(self):
-        """
-        Constructs the configured API URL with query parameters based on filters.
+        """Constructs the configured API URL with query parameters based on filters.
 
         Returns:
             str: The formatted API URL with the constructed query parameters.
         """
         # Process keywords: Join multiple keywords with ' AND '
         # keywords_list = self.get_keywords()  # Assuming this returns a list of keyword sets
-        query_keywords = "(" + " AND ".join(f'"{kw}"' for kw in self.get_keywords()) + ")"
+        query_keywords = (
+            "(" + " AND ".join(f'"{kw}"' for kw in self.get_keywords()) + ")"
+        )
         encoded_keywords = urllib.parse.quote(query_keywords)
 
         # Handle year range: Use min and max to set start_year and end_year
@@ -119,7 +116,7 @@ class IEEE_collector(API_collector):
         return (
             self.get_url()
             + "?apikey="
-            + self.get_apikey()
+            + str(self.get_apikey() or "")
             + "&format=json&max_records="
             + str(self.get_max_by_page())
             + "&sort_order=asc&sort_field=article_number&querytext="
@@ -128,3 +125,9 @@ class IEEE_collector(API_collector):
             + str(self.get_year())
             + "&start_record={}"
         )
+
+    def auth_failure_hints(self):
+        return [
+            "3. IEEE-specific: Check your API key quota (200 requests/day limit)",
+            "4. IEEE-specific: Visit https://developer.ieee.org/ to verify key status",
+        ]

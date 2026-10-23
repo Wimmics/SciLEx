@@ -150,25 +150,25 @@ FORMAT_CONVERTERS = {
 
 ## Configuration
 
-Add to `src/api.config.yml.example`:
+Add the API's credentials to `keys.yml.example` (users copy it to `~/.config/scilex/keys.yml`):
 
 ```yaml
-# YourAPI Configuration
-yourapi:
-  api_key: "your-key-here"
+# YourAPI
+YourAPI:
+  api_key: "your-key-here"   # a string or a list of strings (key pool)
 
-# Rate limits
-rate_limits:
-  YourAPI: 2.0  # requests/second
+# Optional rate limit override (requests/second)
+# rate_limits:
+#   YourAPI: 2.0
 ```
 
-Add to `src/scilex.config.yml` APIs list:
+Built-in defaults live in `DEFAULT_RATE_LIMITS` in `scilex/config_defaults.py` (`without_key` / `with_key`).
+
+Add the API name to the `search.apis` list of `scilex.yml.example`:
 
 ```yaml
-apis:
-  - SemanticScholar
-  - OpenAlex
-  - YourAPI  # Add here
+search:
+  apis: [SemanticScholar, OpenAlex, YourAPI]
 ```
 
 ## Testing
@@ -183,12 +183,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from crawlers.collectors import YourAPI_collector
 from crawlers.aggregate import YourAPItoZoteroFormat
-import yaml
+from scilex.config import SciLExConfig
 
 def test_collector():
     # Load config
-    with open('scilex/api.config.yml', 'r') as f:
-        config = yaml.safe_load(f)
+    config = SciLExConfig.from_files().api_config   # reads keys.yml
 
     # Test collection
     collector = YourAPI_collector(config)
@@ -320,7 +319,7 @@ Before submitting:
 - [ ] Handles dict vs list in API responses (normalise to list)
 - [ ] Format converter uses `MISSING_VALUE` for all missing fields
 - [ ] Registered in both `api_collectors` and `FORMAT_CONVERTERS` dicts
-- [ ] Config examples added to `src/api.config.yml.example`
+- [ ] Config examples added to `keys.yml.example`
 - [ ] Test script created in `src/API tests/`
 - [ ] Unit tests added in `tests/`
 - [ ] Code formatted with `uvx ruff format .`

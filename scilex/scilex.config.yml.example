@@ -1,3 +1,4 @@
+# Ancien format, voir scilex.yml.example (racine du dépôt) / `scilex config migrate`.
 # ============================================================================
 # SciLEx Main Configuration - Quick Start
 # ============================================================================
@@ -5,7 +6,7 @@
 # Copy this file to 'scilex.config.yml' and customize for your research
 #
 # Essential variables below (keywords, years, APIs, mode, quality filters).
-# Advanced settings? See scilex.advanced.yml.example
+# Advanced settings? Put them in the same file (see scilex.yml.example)
 # API credentials? See src/api.config.yml.example
 #
 # ============================================================================

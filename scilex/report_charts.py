@@ -10,9 +10,16 @@ import matplotlib
 import numpy as np
 import pandas as pd
 
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
+
+from scilex.constants import extract_year, is_missing, parse_archive_apis
 
 CHART_DIR_NAME = "chart_aggregated_papers"
 CSV_NAMES = ("aggregated_results.csv", "aggregation_results.csv")
@@ -28,9 +35,16 @@ ITEMTYPE_LABELS = {
 }
 
 PALETTE = [
-    "#4C72B0", "#DD8452", "#55A868", "#C44E52",
-    "#8172B3", "#937860", "#DA8BC3", "#8C8C8C",
-    "#CCB974", "#64B5CD",
+    "#4C72B0",
+    "#DD8452",
+    "#55A868",
+    "#C44E52",
+    "#8172B3",
+    "#937860",
+    "#DA8BC3",
+    "#8C8C8C",
+    "#CCB974",
+    "#64B5CD",
 ]
 
 
@@ -50,17 +64,10 @@ def _find_csv(collect_dir: Path) -> Path:
     )
 
 
-def _parse_apis(archive_str: str) -> set[str]:
-    """Return unique API names from the archive column (strips '*' suffixes)."""
-    if not archive_str or archive_str.strip() in ("", "NA"):
-        return set()
-    return {part.strip().rstrip("*") for part in archive_str.split(";") if part.strip()}
-
-
 def _parse_keywords(kw_str: str) -> dict[str, str]:
     """Parse 'Collect_KW1:Value;Collect_KW2:Other' → {'Collect_KW1': 'Value', ...}."""
     result: dict[str, str] = {}
-    if not kw_str or kw_str.strip() in ("", "NA"):
+    if is_missing(kw_str):
         return result
     for part in kw_str.split(";"):
         part = part.strip()
@@ -70,21 +77,14 @@ def _parse_keywords(kw_str: str) -> dict[str, str]:
     return result
 
 
-def _extract_year(date_str: str) -> int | None:
-    if not date_str or date_str.strip() in ("", "NA"):
-        return None
-    m = re.search(r"\b(1[89]\d{2}|20\d{2})\b", date_str)
-    return int(m.group(1)) if m else None
-
-
 def load_data(collect_dir: Path) -> pd.DataFrame:
     csv_path = _find_csv(collect_dir)
     df = pd.read_csv(csv_path, sep=";", dtype=str, on_bad_lines="skip")
     df.fillna("NA", inplace=True)
 
-    df["_apis"] = df["archive"].apply(_parse_apis)
+    df["_apis"] = df["archive"].apply(lambda value: set(parse_archive_apis(value)))
     df["_keywords"] = df["collect_keywords"].apply(_parse_keywords)
-    df["_year"] = df["date"].apply(_extract_year)
+    df["_year"] = df["date"].apply(extract_year)
     df["_itemtype"] = df["itemType"].str.strip()
 
     return df
@@ -119,7 +119,9 @@ def _build_api_matrix(df: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
     return matrix, api_list
 
 
-def _bezier(p0: np.ndarray, p1: np.ndarray, ctrl: np.ndarray, steps: int = 60) -> tuple[np.ndarray, np.ndarray]:
+def _bezier(
+    p0: np.ndarray, p1: np.ndarray, ctrl: np.ndarray, steps: int = 60
+) -> tuple[np.ndarray, np.ndarray]:
     t = np.linspace(0, 1, steps)
     x = (1 - t) ** 2 * p0[0] + 2 * (1 - t) * t * ctrl[0] + t**2 * p1[0]
     y = (1 - t) ** 2 * p0[1] + 2 * (1 - t) * t * ctrl[1] + t**2 * p1[1]
@@ -192,29 +194,53 @@ def _draw_chord_diagram(ax: plt.Axes, matrix: np.ndarray, labels: list[str]) -> 
 
             ax.fill(x, y, color=blend, alpha=0.38, zorder=2)
             ax.plot(
-                np.append(x, x[0]), np.append(y, y[0]),
-                color=blend, alpha=0.55, lw=0.6, zorder=3,
+                np.append(x, x[0]),
+                np.append(y, y[0]),
+                color=blend,
+                alpha=0.55,
+                lw=0.6,
+                zorder=3,
             )
 
             # Chord label
-            mid_angle = (s1 + e1) / 2 - ((s1 + e1) / 2 - (s2 + e2) / 2) / 2
             lx = 0.45 * np.cos((s1 + e1 + s2 + e2) / 4)
             ly = 0.45 * np.sin((s1 + e1 + s2 + e2) / 4)
-            ax.text(lx, ly, str(val), ha="center", va="center",
-                    fontsize=7, color="dimgray", zorder=6)
+            ax.text(
+                lx,
+                ly,
+                str(val),
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="dimgray",
+                zorder=6,
+            )
 
     # Draw outer arcs
     for i in range(n):
         theta = np.linspace(starts[i], starts[i] - spans[i], 300)
-        ax.plot(np.cos(theta), np.sin(theta), lw=22,
-                color=colors[i], solid_capstyle="butt", zorder=5)
+        ax.plot(
+            np.cos(theta),
+            np.sin(theta),
+            lw=22,
+            color=colors[i],
+            solid_capstyle="butt",
+            zorder=5,
+        )
 
         mid = starts[i] - spans[i] / 2
         r = 1.32
-        ax.text(r * np.cos(mid), r * np.sin(mid),
-                f"{labels[i]}\n({int(row_totals[i])})",
-                ha="center", va="center", fontsize=8, fontweight="bold",
-                color=colors[i], zorder=7)
+        ax.text(
+            r * np.cos(mid),
+            r * np.sin(mid),
+            f"{labels[i]}\n({int(row_totals[i])})",
+            ha="center",
+            va="center",
+            fontsize=8,
+            fontweight="bold",
+            color=colors[i],
+            zorder=7,
+        )
 
 
 def plot_chord_diagram(df: pd.DataFrame, out_dir: Path) -> None:
@@ -230,7 +256,9 @@ def plot_chord_diagram(df: pd.DataFrame, out_dir: Path) -> None:
     ax.set_ylim(-1.6, 1.6)
 
     _draw_chord_diagram(ax, matrix, api_list)
-    ax.set_title("Papers by API Source (co-occurrences)", fontsize=13, fontweight="bold", pad=20)
+    ax.set_title(
+        "Papers by API Source (co-occurrences)", fontsize=13, fontweight="bold", pad=20
+    )
 
     fig.tight_layout()
     fig.savefig(out_dir / "chord_api_sources.png", dpi=150, bbox_inches="tight")
@@ -264,7 +292,8 @@ def plot_itemtype_pie(df: pd.DataFrame, out_dir: Path) -> None:
         at.set_fontsize(8)
 
     ax.legend(
-        wedges, labels,
+        wedges,
+        labels,
         title="Publication Type",
         loc="lower center",
         bbox_to_anchor=(0.5, -0.15),
@@ -273,7 +302,8 @@ def plot_itemtype_pie(df: pd.DataFrame, out_dir: Path) -> None:
     )
     ax.set_title(
         f"Publication Type Distribution (n={counts.sum()})",
-        fontsize=13, fontweight="bold",
+        fontsize=13,
+        fontweight="bold",
     )
 
     fig.tight_layout()
@@ -312,7 +342,7 @@ def plot_year_stacked_bar(df: pd.DataFrame, out_dir: Path) -> None:
 
     lefts = np.zeros(len(years))
     bar_patches = []
-    for col_i, (col, label) in enumerate(zip(item_types, type_labels)):
+    for col_i, (col, label) in enumerate(zip(item_types, type_labels, strict=False)):
         vals = pivoted.get(col, pd.Series(0, index=pivoted.index)).values
         bars = ax.barh(
             [str(y) for y in pivoted.index],
@@ -358,7 +388,7 @@ def plot_keyword_bars(df: pd.DataFrame, out_dir: Path) -> None:
     for group_name in sorted(group_counts.keys()):
         counts = group_counts[group_name]
         sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
-        labels, values = zip(*sorted_items)
+        labels, values = zip(*sorted_items, strict=False)
 
         fig_height = max(4, len(labels) * 0.45)
         fig, ax = plt.subplots(figsize=(9, fig_height))
@@ -371,16 +401,20 @@ def plot_keyword_bars(df: pd.DataFrame, out_dir: Path) -> None:
         )
 
         # Value labels on bars
-        for bar, val in zip(bars, reversed(values)):
+        for bar, val in zip(bars, reversed(values), strict=False):
             ax.text(
-                bar.get_width() + 0.3, bar.get_y() + bar.get_height() / 2,
-                str(val), va="center", fontsize=8,
+                bar.get_width() + 0.3,
+                bar.get_y() + bar.get_height() / 2,
+                str(val),
+                va="center",
+                fontsize=8,
             )
 
         ax.set_xlabel("Number of Papers", fontsize=10)
         ax.set_title(
             f"Papers by Keyword — {group_name}  (n={sum(values)})",
-            fontsize=12, fontweight="bold",
+            fontsize=12,
+            fontweight="bold",
         )
         ax.xaxis.grid(True, linestyle="--", alpha=0.5)
         ax.set_axisbelow(True)
@@ -445,7 +479,9 @@ def plot_keyword_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
 
     ax.set_xlabel("Collect KW2", fontsize=10, labelpad=8)
     ax.set_ylabel("Collect KW1", fontsize=10)
-    ax.set_title("Papers per Keyword Combination (KW1 × KW2)", fontsize=12, fontweight="bold")
+    ax.set_title(
+        "Papers per Keyword Combination (KW1 × KW2)", fontsize=12, fontweight="bold"
+    )
 
     # Annotate each cell
     vmax = data.max()
@@ -455,8 +491,16 @@ def plot_keyword_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
             if val == 0:
                 continue
             text_color = "white" if val > vmax * 0.6 else "black"
-            ax.text(c, r, str(val), ha="center", va="center",
-                    fontsize=7.5, color=text_color, fontweight="bold")
+            ax.text(
+                c,
+                r,
+                str(val),
+                ha="center",
+                va="center",
+                fontsize=7.5,
+                color=text_color,
+                fontweight="bold",
+            )
 
     # Grid lines between cells
     ax.set_xticks(np.arange(-0.5, n_kw2, 1), minor=True)
@@ -478,6 +522,7 @@ def plot_keyword_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+@exit_on_config_error
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate charts from an aggregated_results.csv collect directory.",
@@ -487,7 +532,9 @@ def main() -> None:
         type=Path,
         help="Path to the collect directory containing aggregated_results.csv",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     collect_dir: Path = args.collect_dir.resolve()
     if not collect_dir.is_dir():

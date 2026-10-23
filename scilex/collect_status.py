@@ -17,8 +17,13 @@ import sys
 from itertools import product
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
-from scilex.crawlers.utils import load_all_configs, load_yaml_config
-
+from scilex.crawlers.utils import load_yaml_config
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
+from scilex.settings.resolve import resolve_main_config
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -26,26 +31,28 @@ from scilex.crawlers.utils import load_all_configs, load_yaml_config
 def _resolve_collect_dir(collection_arg: str | None, src_dir: str) -> str:
     """Return absolute path to the collection directory."""
     if collection_arg is None:
-        configs = load_all_configs({"main_config": "scilex.config.yml"})
-        cfg = configs["main_config"]
+        cfg = resolve_main_config()
         output_dir = cfg.get("output_dir", DEFAULT_OUTPUT_DIR)
         collect_name = cfg.get("collect_name", "unknown")
         return os.path.join(output_dir, collect_name)
 
-    if os.path.isabs(collection_arg) or os.sep in collection_arg or "/" in collection_arg:
+    if (
+        os.path.isabs(collection_arg)
+        or os.sep in collection_arg
+        or "/" in collection_arg
+    ):
         return collection_arg
 
     # Name only — look up output_dir from the current config
-    current_config_path = os.path.join(src_dir, "scilex.config.yml")
     try:
-        cfg = load_yaml_config(current_config_path)
+        cfg = resolve_main_config()
         output_dir = cfg.get("output_dir", DEFAULT_OUTPUT_DIR)
     except FileNotFoundError:
         output_dir = DEFAULT_OUTPUT_DIR
     return os.path.join(output_dir, collection_arg)
 
 
-def _build_query_index(config: dict) -> dict[str, list[dict]]:
+def _build_query_index(config: dict) -> tuple[dict[str, list[dict]], list[list]]:
     """
     Reconstruct the per-API query list from a config dict.
 
@@ -105,7 +112,9 @@ def build_status(dir_collect: str, config: dict) -> dict:
     # Per-API counts
     api_stats: dict[str, dict] = {}
     # Per-combo: map combo_key → {done, partial, not_started}
-    combo_stats: dict[str, dict] = {str(c): {"done": 0, "partial": 0, "not_started": 0} for c in combos}
+    combo_stats: dict[str, dict] = {
+        str(c): {"done": 0, "partial": 0, "not_started": 0} for c in combos
+    }
 
     for api, queries in queries_by_api.items():
         api_dir = os.path.join(dir_collect, api)
@@ -125,13 +134,15 @@ def build_status(dir_collect: str, config: dict) -> dict:
         ckey = str(combo)
         s = combo_stats[ckey]
         total = n_apis * n_years
-        combo_rows.append({
-            "keyword": combo,
-            "done": s["done"],
-            "partial": s["partial"],
-            "not_started": s["not_started"],
-            "total_slots": total,
-        })
+        combo_rows.append(
+            {
+                "keyword": combo,
+                "done": s["done"],
+                "partial": s["partial"],
+                "not_started": s["not_started"],
+                "total_slots": total,
+            }
+        )
 
     totals = {"done": 0, "partial": 0, "not_started": 0, "total": 0}
     for s in api_stats.values():
@@ -173,14 +184,20 @@ def print_status(status: dict, verbose: bool = False) -> None:
         print(f"  Keywords  : {n_g1} (group 1) × {n_g2} (group 2) = {n_combos} combos")
     else:
         print(f"  Keywords  : {n_g1} (single group = {n_combos} queries per year/API)")
-    print(f"  Years     : {len(years)}  →  {years[0]}–{years[-1]}" if years else "  Years     : —")
+    print(
+        f"  Years     : {len(years)}  →  {years[0]}–{years[-1]}"
+        if years
+        else "  Years     : —"
+    )
     print(f"  APIs      : {len(apis)}  →  {', '.join(apis)}")
     t = status["totals"]
     print(f"  Expected  : {t['total']:,} total queries")
     print()
 
     # ── Per-API table ──────────────────────────────────────────────────────
-    print(f"  {'API':<22} {'Done':>6} {'Partial':>8} {'Not Started':>12} {'Total':>7}  {'%Done':>6}")
+    print(
+        f"  {'API':<22} {'Done':>6} {'Partial':>8} {'Not Started':>12} {'Total':>7}  {'%Done':>6}"
+    )
     print("  " + "─" * (W - 2))
     for api, s in sorted(status["apis"].items()):
         pct = f"{100 * s['done'] / s['total']:.1f}%" if s["total"] else "—"
@@ -198,14 +215,18 @@ def print_status(status: dict, verbose: bool = False) -> None:
 
     # ── Keyword-combo summary ──────────────────────────────────────────────
     combos = status["combos"]
-    done_combos   = [c for c in combos if c["done"] == c["total_slots"]]
-    partial_combos = [c for c in combos if 0 < c["done"] < c["total_slots"] or c["partial"] > 0]
+    done_combos = [c for c in combos if c["done"] == c["total_slots"]]
+    partial_combos = [
+        c for c in combos if 0 < c["done"] < c["total_slots"] or c["partial"] > 0
+    ]
     pending_combos = [c for c in combos if c["done"] == 0 and c["partial"] == 0]
 
     def _combo_label(combo_kw):
         return " + ".join(combo_kw) if isinstance(combo_kw, list) else str(combo_kw)
 
-    print(f"  Keyword combo coverage  ({n_combos} combos × {len(apis)} APIs × {len(years)} years = {n_combos * len(apis) * len(years):,} slots)")
+    print(
+        f"  Keyword combo coverage  ({n_combos} combos × {len(apis)} APIs × {len(years)} years = {n_combos * len(apis) * len(years):,} slots)"
+    )
     print("  " + "─" * (W - 2))
     print(f"  ✓ Fully complete : {len(done_combos)}")
     print(f"  ~ Partial        : {len(partial_combos)}")
@@ -222,7 +243,9 @@ def print_status(status: dict, verbose: bool = False) -> None:
             print("  [PARTIAL]")
             for c in partial_combos:
                 total = c["total_slots"]
-                print(f"    {_combo_label(c['keyword'])}  ({c['done']}/{total} slots done)")
+                print(
+                    f"    {_combo_label(c['keyword'])}  ({c['done']}/{total} slots done)"
+                )
             print()
         if pending_combos:
             print("  [NOT STARTED]")
@@ -236,16 +259,22 @@ def print_status(status: dict, verbose: bool = False) -> None:
             print("  Partial combos:")
             for c in partial_combos[:MAX_SHOW]:
                 total = c["total_slots"]
-                print(f"    ~ {_combo_label(c['keyword'])}  ({c['done']}/{total} slots done)")
+                print(
+                    f"    ~ {_combo_label(c['keyword'])}  ({c['done']}/{total} slots done)"
+                )
             if len(partial_combos) > MAX_SHOW:
-                print(f"    … and {len(partial_combos) - MAX_SHOW} more  (use --verbose to see all)")
+                print(
+                    f"    … and {len(partial_combos) - MAX_SHOW} more  (use --verbose to see all)"
+                )
             print()
         if pending_combos:
             print("  Not-started combos:")
             for c in pending_combos[:MAX_SHOW]:
                 print(f"    ✗ {_combo_label(c['keyword'])}")
             if len(pending_combos) > MAX_SHOW:
-                print(f"    … and {len(pending_combos) - MAX_SHOW} more  (use --verbose to see all)")
+                print(
+                    f"    … and {len(pending_combos) - MAX_SHOW} more  (use --verbose to see all)"
+                )
             print()
 
     # ── Overall verdict ────────────────────────────────────────────────────
@@ -265,6 +294,7 @@ def print_status(status: dict, verbose: bool = False) -> None:
 # ─── entry point ──────────────────────────────────────────────────────────────
 
 
+@exit_on_config_error
 def main():
     parser = argparse.ArgumentParser(
         description="Show collection completeness status",
@@ -283,11 +313,14 @@ def main():
         help="Collection name or full path (default: from scilex.config.yml)",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Show full keyword combo lists instead of truncated summaries",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     src_dir = os.path.dirname(os.path.abspath(__file__))
     dir_collect = _resolve_collect_dir(args.collection, src_dir)

@@ -12,7 +12,7 @@ Tests cover:
 import json
 from pathlib import Path
 
-from scilex.constants import MISSING_VALUE, is_valid
+from scilex.constants import MISSING_VALUE
 from scilex.crawlers.aggregate import ORKGtoZoteroFormat
 
 
@@ -21,16 +21,11 @@ def _make_row(overrides=None):
     row = {
         "id": "R12345",
         "title": "Test Knowledge Graph Paper",
-        "identifiers": {
-            "doi": ["10.1234/orkg-test-2023"]
-        },
+        "identifiers": {"doi": ["10.1234/orkg-test-2023"]},
         "publication_info": {
             "published_year": 2023,
-            "published_in": {
-                "id": "V100",
-                "label": "Journal of Web Semantics"
-            },
-            "url": "https://www.example.com/paper/123"
+            "published_in": {"id": "V100", "label": "Journal of Web Semantics"},
+            "url": "https://www.example.com/paper/123",
         },
         "authors": [
             {"id": "A1", "name": "Emma Wilson"},
@@ -97,13 +92,15 @@ class TestORKGAggregation:
 
     def test_authors_joined(self):
         """Multiple authors are joined with semicolons."""
-        row = _make_row({
-            "authors": [
-                {"id": "A1", "name": "First Author"},
-                {"id": "A2", "name": "Second Author"},
-                {"id": "A3", "name": "Third Author"},
-            ]
-        })
+        row = _make_row(
+            {
+                "authors": [
+                    {"id": "A1", "name": "First Author"},
+                    {"id": "A2", "name": "Second Author"},
+                    {"id": "A3", "name": "Third Author"},
+                ]
+            }
+        )
         result = ORKGtoZoteroFormat(row)
         assert result["authors"] == "First Author;Second Author;Third Author"
 
@@ -123,7 +120,7 @@ class TestORKGAggregation:
         """Missing published_year defaults date to MISSING_VALUE."""
         pub_info = {
             "published_in": {"label": "Test Journal"},
-            "url": "https://example.com"
+            "url": "https://example.com",
         }
         row = _make_row({"publication_info": pub_info})
         result = ORKGtoZoteroFormat(row)
@@ -134,7 +131,7 @@ class TestORKGAggregation:
         pub_info = {
             "published_year": 2021,
             "published_in": "Artificial Intelligence",
-            "url": "https://example.com"
+            "url": "https://example.com",
         }
         row = _make_row({"publication_info": pub_info})
         result = ORKGtoZoteroFormat(row)
@@ -152,7 +149,9 @@ class TestORKGAggregation:
 
     def test_full_fixture_first_result(self):
         """Parse the first result from the full fixture file."""
-        fixture_path = Path(__file__).parent / "fixtures" / "orkg" / "search_results.json"
+        fixture_path = (
+            Path(__file__).parent / "fixtures" / "orkg" / "search_results.json"
+        )
         with open(fixture_path) as f:
             data = json.load(f)
 
@@ -170,7 +169,9 @@ class TestORKGAggregation:
 
     def test_full_fixture_second_result_no_doi_url_fallback(self):
         """Second fixture result: no DOI and empty URL → fallback URL from ORKG ID."""
-        fixture_path = Path(__file__).parent / "fixtures" / "orkg" / "search_results.json"
+        fixture_path = (
+            Path(__file__).parent / "fixtures" / "orkg" / "search_results.json"
+        )
         with open(fixture_path) as f:
             data = json.load(f)
 

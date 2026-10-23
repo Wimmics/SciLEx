@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.13",
-    "bibtexparser>=1.4",
+    "bibtexparser>=2.0.0b7",
     "fake-useragent>=2.0",
     "huggingface-hub>=1.2.1",
     "httpx<0.28.0",
@@ -29,6 +29,8 @@ dependencies = [
     "uvicorn>=0.41.0",
     "streamlit>=1.55.0",
     "matplotlib>=3.7",
+    "rdflib>=7.0",
+    "networkx>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +38,17 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=5.0",
     "ruff>=0.1.0",
+]
+graph = [
+    "python-louvain>=0.16",
+]
+gui = [
+    "nicegui>=3.18.0",
+    "platformdirs>=4.12.4",
+    "pywebview>=6.2.1",
+]
+build = [
+    "pyinstaller>=6.22.3",
 ]
 
 [project.scripts]
@@ -45,6 +58,15 @@ scilex-enrich = "scilex.enrich_with_hf:main"
 scilex-push-zotero = "scilex.push_to_zotero:main"
 scilex-export-bibtex = "scilex.export_to_bibtex:main"
 scilex-report = "scilex.report_charts:main"
+scilex-enrich-citations = "scilex.enrich_with_citations:main"
+scilex-export-turtle = "scilex.export_to_turtle:main"
+scilex-analyze = "scilex.analyze:main"
+scilex-snowball = "scilex.snowball_sampling:main"
+scilex-seed = "scilex.seed_papers:main"
+scilex-summarize = "scilex.summarize_clusters:main"
+scilex-suggest-keywords = "scilex.suggest_keywords:main"
+scilex-init = "scilex.init_templates:main"
+scilex-gui = "scilex.gui.app:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

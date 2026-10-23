@@ -1,8 +1,7 @@
 """Tests for PubMedCentraltoZoteroFormat in scilex/crawlers/aggregate.py"""
 
-import pytest
 
-from scilex.constants import MISSING_VALUE, is_valid
+from scilex.constants import MISSING_VALUE
 from scilex.crawlers.aggregate import PubMedCentraltoZoteroFormat
 
 

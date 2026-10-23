@@ -1,5 +1,4 @@
-"""
-Quality validation module for SciLEx.
+"""Quality validation module for SciLEx.
 
 This module provides functions to validate paper metadata quality based on
 configurable thresholds. It helps filter out incomplete or low-quality records
@@ -10,7 +9,12 @@ import logging
 
 import pandas as pd
 
-from scilex.constants import is_missing, is_valid
+from scilex.constants import (
+    is_missing,
+    is_valid,
+    normalize_text_field,
+    split_semicolon_field,
+)
 
 
 class QualityReport:
@@ -73,14 +77,7 @@ class QualityReport:
 
 def count_words(text: str) -> int:
     """Count words in text (handles various formats)."""
-    if is_missing(text):
-        return 0
-
-    # Handle dict format (some APIs return {"p": ["paragraph1", "paragraph2"]})
-    if isinstance(text, dict) and "p" in text:
-        text = " ".join(text["p"])
-
-    return len(str(text).split())
+    return len(normalize_text_field(text).split())
 
 
 def count_authors(authors_value) -> int:
@@ -97,7 +94,7 @@ def count_authors(authors_value) -> int:
 
     # Semicolon is the clearest separator
     if ";" in authors_str:
-        return len([a.strip() for a in authors_str.split(";") if a.strip()])
+        return len(split_semicolon_field(authors_str))
 
     # If no semicolon but has comma, check if it's a single "Last, First" author
     # or multiple authors
@@ -118,8 +115,7 @@ def count_authors(authors_value) -> int:
 
 
 def validate_abstract(abstract, min_words: int, max_words: int) -> tuple[bool, str]:
-    """
-    Validate abstract quality.
+    """Validate abstract quality.
 
     Returns:
         (is_valid, reason): Tuple of validation result and reason if invalid
@@ -139,8 +135,7 @@ def validate_abstract(abstract, min_words: int, max_words: int) -> tuple[bool, s
 
 
 def passes_quality_filters(record: dict, filters: dict) -> tuple[bool, str]:
-    """
-    Check if a paper record passes all quality filters.
+    """Check if a paper record passes all quality filters.
 
     Args:
         record: Dictionary containing paper metadata
@@ -220,8 +215,7 @@ def passes_quality_filters(record: dict, filters: dict) -> tuple[bool, str]:
 def apply_quality_filters(
     df: pd.DataFrame, filters: dict, generate_report: bool = True
 ) -> tuple[pd.DataFrame, QualityReport]:
-    """
-    Apply quality filters to a DataFrame of papers.
+    """Apply quality filters to a DataFrame of papers.
 
     Args:
         df: DataFrame with paper records
@@ -241,8 +235,8 @@ def apply_quality_filters(
     # Track which rows to keep
     keep_mask = []
 
-    for _idx, row in df.iterrows():
-        passes, reason = passes_quality_filters(row.to_dict(), filters)
+    for record in df.to_dict("records"):
+        passes, reason = passes_quality_filters(record, filters)
 
         if passes:
             keep_mask.append(True)
@@ -263,8 +257,7 @@ def apply_quality_filters(
 
 
 def generate_data_completeness_report(df: pd.DataFrame) -> str:
-    """
-    Generate a report showing data completeness for key fields.
+    """Generate a report showing data completeness for key fields.
 
     Args:
         df: DataFrame with paper records

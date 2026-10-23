@@ -8,19 +8,28 @@ Supports DOI-based citation keys and direct PDF download links.
 import argparse
 import logging
 import os
+import re
 import sys
 
 import pandas as pd
 
-from scilex.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
-from scilex.constants import is_valid, normalize_path_component
-from scilex.crawlers.utils import load_all_configs
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+from scilex.config_defaults import DEFAULT_OUTPUT_DIR
+from scilex.constants import (
+    is_valid,
+    normalize_doi,
+    normalize_path_component,
+    split_semicolon_field,
 )
+from scilex.io_utils import load_aggregated_data
+from scilex.logging_config import setup_logging
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
+from scilex.settings.resolve import resolve_main_config
+from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,66 +67,34 @@ BIBTEX_SPECIAL_CHARS = {
     "\\": r"\textbackslash{}",
 }
 
+_SPECIAL_CHARS_PATTERN = re.compile(
+    "[" + "".join(re.escape(char) for char in BIBTEX_SPECIAL_CHARS) + "]"
+)
+
+
+BIBTEX_PLAIN_FILENAME = "aggregated_results.bib"
+BIBTEX_CITATIONS_FILENAME = "aggregated_results_with_citations.bib"
+
 
 def load_config(collect_name: str | None = None, output_dir: str | None = None) -> dict:
     """Load scilex.config.yml configuration, with optional CLI overrides.
-    
+
     Args:
         collect_name: Override collection name from CLI
         output_dir: Override output directory from CLI
-    
+
     Returns:
         Configuration dictionary
     """
-    config_files = {
-        "main_config": "scilex.config.yml",
-    }
-    configs = load_all_configs(config_files)
-    config = configs["main_config"]
-    
+    config = resolve_main_config()
+
     # Override with CLI arguments if provided
     if collect_name:
         config["collect_name"] = collect_name
     if output_dir:
         config["output_dir"] = output_dir
-    
+
     return config
-
-
-def load_aggregated_data(config: dict) -> pd.DataFrame:
-    """
-    Load aggregated paper data from CSV file.
-
-    Args:
-        config: Configuration dictionary with output_dir and collect_name
-
-    Returns:
-        DataFrame containing aggregated paper data
-    """
-    output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
-    aggregate_file = config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
-    dir_collect = os.path.join(
-        output_dir, normalize_path_component(config["collect_name"])
-    )
-    file_path = os.path.join(dir_collect, normalize_path_component(aggregate_file))
-
-    logger.info(f"Loading data from: {file_path}")
-
-    # Try different delimiters
-    for delimiter in [";", "\t", ","]:
-        try:
-            data = pd.read_csv(file_path, delimiter=delimiter)
-            if "itemType" in data.columns and "title" in data.columns:
-                logger.info(f"Loaded {len(data)} papers (delimiter: '{delimiter}')")
-                return data
-        except Exception as e:
-            logger.debug(f"Failed to load with delimiter '{delimiter}': {e}")
-            continue
-
-    raise ValueError(
-        f"Could not load CSV file with any delimiter (tried: ';', '\\t', ','). "
-        f"File: {file_path}"
-    )
 
 
 def parse_tags(tags_str: str) -> list[str]:
@@ -129,11 +106,40 @@ def parse_tags(tags_str: str) -> list[str]:
     Returns:
         List of tag strings
     """
-    if not is_valid(tags_str):
-        return []
+    return split_semicolon_field(tags_str)
 
-    tags = [tag.strip() for tag in str(tags_str).split(";")]
-    return [t for t in tags if t]  # Remove empty strings
+
+# HuggingFace tag prefixes -> dedicated BibTeX fields (read by the RDF exporter).
+TAG_PREFIX_TO_FIELD: dict[str, str] = {
+    "TASK:": "task",
+    "PTM:": "ptm",
+    "ARCHI:": "archi",
+    "DATASET:": "hfdataset",
+    "FRAMEWORK:": "framework",
+    "GITHUB_STARS:": "githubstars",
+    "CITED_BY_DATASET:": "citingdatasets",
+}
+
+
+def classify_tags(tags_list: list[str]) -> dict[str, list[str]]:
+    """Split tags into HuggingFace fields by prefix; unprefixed tags go to "keywords".
+
+    Args:
+        tags_list: List of tag strings, possibly prefixed (e.g. "TASK:NER").
+
+    Returns:
+        Dict mapping BibTeX field names to lists of stripped tag values.
+    """
+    result: dict[str, list[str]] = {"keywords": []}
+    result.update({field_name: [] for field_name in TAG_PREFIX_TO_FIELD.values()})
+    for tag in tags_list:
+        for prefix, field_name in TAG_PREFIX_TO_FIELD.items():
+            if tag.startswith(prefix):
+                result[field_name].append(tag[len(prefix) :])
+                break
+        else:
+            result["keywords"].append(tag)
+    return result
 
 
 def escape_bibtex(text: str) -> str:
@@ -149,11 +155,36 @@ def escape_bibtex(text: str) -> str:
     if not is_valid(text):
         return ""
 
-    text = str(text)
-    for char, escaped in BIBTEX_SPECIAL_CHARS.items():
-        text = text.replace(char, escaped)
+    # Single pass: sequential str.replace would re-escape the backslashes
+    # introduced by earlier replacements.
+    return _SPECIAL_CHARS_PATTERN.sub(
+        lambda match: BIBTEX_SPECIAL_CHARS[match.group()], str(text)
+    )
 
-    return text
+
+def _escape_url(url) -> str:
+    """Escape a URL-like value for a BibTeX field.
+
+    Only ``%``, ``#`` and unbalanced braces are escaped; ``_`` and ``~`` are
+    legal in URLs and stay untouched.
+    """
+    if not is_valid(url):
+        return ""
+
+    chars = list(str(url))
+    open_brace_positions = []
+    for position, char in enumerate(chars):
+        if char == "{":
+            open_brace_positions.append(position)
+        elif char == "}":
+            if open_brace_positions:
+                open_brace_positions.pop()
+            else:
+                chars[position] = r"\}"
+    for position in open_brace_positions:
+        chars[position] = r"\{"
+
+    return "".join(chars).replace("%", r"\%").replace("#", r"\#")
 
 
 def format_authors(authors_str: str) -> str:
@@ -171,13 +202,7 @@ def format_authors(authors_str: str) -> str:
     if not is_valid(authors_str):
         return ""
 
-    authors = [author.strip() for author in authors_str.split(";")]
-    authors = [a for a in authors if a]  # Remove empty strings
-
-    if not authors:
-        return ""
-
-    return " and ".join(authors)
+    return " and ".join(split_semicolon_field(authors_str))
 
 
 def format_pages(pages_str: str) -> str:
@@ -196,12 +221,8 @@ def format_pages(pages_str: str) -> str:
         return ""
 
     pages_str = str(pages_str).strip()
-    # Replace single dash with double dash (BibTeX en-dash)
-    pages_str = pages_str.replace("-", "--")
-    # But avoid double-replacing if already double
-    pages_str = pages_str.replace("----", "--")
-
-    return pages_str
+    # Any run of hyphens / en / em dashes becomes the BibTeX range "--"
+    return re.sub(r"\s*[-\u2013\u2014]+\s*", "--", pages_str)
 
 
 def extract_year(date_str: str) -> str:
@@ -222,13 +243,23 @@ def extract_year(date_str: str) -> str:
     date_str = str(date_str).strip()
 
     # Extract first 4 consecutive digits (year)
-    import re
-
     match = re.search(r"\d{4}", date_str)
     if match:
         return match.group(0)
 
     return ""
+
+
+_INVALID_KEY_CHARS = re.compile(r"[^A-Za-z0-9_:-]")
+
+
+def _collision_suffix(counter: int) -> str:
+    """Return the collision suffix for a 1-based counter: a..z, aa, ab, ..."""
+    letters = ""
+    while counter > 0:
+        counter, remainder = divmod(counter - 1, 26)
+        letters = chr(ord("a") + remainder) + letters
+    return letters
 
 
 def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
@@ -263,7 +294,13 @@ def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
         if is_valid(authors_str):
             # Get first author's last name
             first_author = str(authors_str).split(";")[0].strip()
-            last_name = first_author.split()[-1] if first_author else "Unknown"
+            if "," in first_author:
+                # "Last, First" format
+                last_name = first_author.split(",")[0].strip()
+            elif first_author:
+                last_name = first_author.split()[-1]
+            else:
+                last_name = "Unknown"
         else:
             last_name = "Unknown"
 
@@ -273,158 +310,120 @@ def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
 
         base_key = f"{last_name}{year}_{first_word}"
 
+    base_key = _INVALID_KEY_CHARS.sub("", base_key) or "Paper"
+
     # Ensure uniqueness
     final_key = base_key
     counter = 0
     while final_key in used_keys:
         counter += 1
-        # Add suffix: a, b, c, etc.
-        suffix = chr(ord("a") + (counter - 1))
+        # Add suffix: a..z, then aa, ab, ...
+        suffix = _collision_suffix(counter)
         final_key = f"{base_key}_{suffix}"
 
     used_keys.add(final_key)
     return final_key
 
 
-def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
-    """
-    Generate complete BibTeX entry for a paper.
+def _tag_field_lines(tags_str) -> list[str]:
+    """Build BibTeX lines for tags: one field per HF prefix, then plain keywords."""
+    classified = classify_tags(parse_tags(tags_str))
+    lines = []
+    for field_name in [*TAG_PREFIX_TO_FIELD.values(), "keywords"]:
+        values = classified[field_name]
+        if values:
+            joined = ", ".join(escape_bibtex(value) for value in values)
+            lines.append(f"  {field_name} = {{{joined}}},")
+    return lines
+
+
+# (bibtex_field, row_field, formatter, allowed_entry_types or None for all).
+# Order is the output order. Title, author and year are handled separately
+# because author has a mandatory "Unknown" fallback and year is derived.
+_PUBLISHER_TYPES = ("book", "incollection", "inproceedings")
+_ENTRY_FIELDS = [
+    ("journal", "journalAbbreviation", lambda v: escape_bibtex(v), ("article",)),
+    ("booktitle", "conferenceName", lambda v: escape_bibtex(v), ("inproceedings",)),
+    ("volume", "volume", lambda v: escape_bibtex(str(v)), None),
+    ("number", "issue", lambda v: escape_bibtex(str(v)), None),
+    ("pages", "pages", format_pages, None),
+    ("publisher", "publisher", lambda v: escape_bibtex(v), _PUBLISHER_TYPES),
+    ("series", "serie", lambda v: escape_bibtex(str(v)), None),
+    ("doi", "DOI", lambda v: escape_bibtex(normalize_doi(v) or str(v)), None),
+    ("url", "url", _escape_url, None),
+    ("file", "pdf_url", _escape_url, None),
+    ("abstract", "abstract", lambda v: escape_bibtex(str(v)), None),
+    ("language", "language", lambda v: escape_bibtex(str(v)), None),
+    ("copyright", "rights", lambda v: escape_bibtex(str(v)), None),
+    ("archiveprefix", "archive", lambda v: escape_bibtex(str(v)), None),
+    ("eprint", "archiveID", lambda v: escape_bibtex(str(v)), None),
+    ("hfurl", "hf_url", _escape_url, None),
+    ("howpublished", "github_repo", _escape_url, None),
+    # SciLEx internal fields, consumed by the RDF exporter
+    ("relevancescore", "relevance_score", str, None),
+    ("citationcount", "nb_citation", str, None),
+]
+
+
+def format_bibtex_entry(
+    row: pd.Series,
+    citation_key: str,
+    references: list[str] | None = None,
+    cited_by: list[str] | None = None,
+) -> str:
+    """Generate complete BibTeX entry for a paper.
 
     Args:
         row: Paper data row
         citation_key: Citation key for the entry
+        references: Optional cited DOIs (outgoing), exported as ``bibo:cites`` in RDF
+        cited_by: Optional citing DOIs (incoming), exported as ``bibo:citedBy`` in RDF
 
     Returns:
         Formatted BibTeX entry string
     """
-    itemtype = safe_get(row, "itemType")
-    entry_type = ITEMTYPE_TO_BIBTEX.get(itemtype, "misc")
-
-    # Start entry
+    entry_type = ITEMTYPE_TO_BIBTEX.get(safe_get(row, "itemType"), "misc")
     lines = [f"@{entry_type}{{{citation_key},"]
 
-    # Title (required)
     title = safe_get(row, "title")
     if is_valid(title):
         lines.append(f"  title = {{{escape_bibtex(title)}}},")
 
-    # Author (required)
+    # BibTeX requires author or organization
     authors_str = safe_get(row, "authors")
-    if is_valid(authors_str):
-        authors = format_authors(authors_str)
-        lines.append(f"  author = {{{authors}}},")
-    else:
-        # BibTeX requires author or organization
-        lines.append("  author = {Unknown},")
+    authors = (
+        escape_bibtex(format_authors(authors_str))
+        if is_valid(authors_str)
+        else "Unknown"
+    )
+    lines.append(f"  author = {{{authors}}},")
 
-    # Year (required)
-    date_str = safe_get(row, "date")
-    year = extract_year(date_str)
+    year = extract_year(safe_get(row, "date"))
     if year:
         lines.append(f"  year = {{{year}}},")
 
-    # Journal (for articles)
-    if entry_type == "article":
-        journal = safe_get(row, "journalAbbreviation")
-        if is_valid(journal):
-            lines.append(f"  journal = {{{escape_bibtex(journal)}}},")
+    for bibtex_field, row_field, formatter, allowed_types in _ENTRY_FIELDS:
+        if allowed_types is not None and entry_type not in allowed_types:
+            continue
+        value = safe_get(row, row_field)
+        if not is_valid(value):
+            continue
+        formatted = formatter(value)
+        # Skip fields whose formatter yields nothing (e.g. empty tag list)
+        if formatted:
+            lines.append(f"  {bibtex_field} = {{{formatted}}},")
 
-    # Booktitle (for inproceedings)
-    if entry_type == "inproceedings":
-        conference = safe_get(row, "conferenceName")
-        if is_valid(conference):
-            lines.append(f"  booktitle = {{{escape_bibtex(conference)}}},")
-
-    # Volume
-    volume = safe_get(row, "volume")
-    if is_valid(volume):
-        lines.append(f"  volume = {{{escape_bibtex(str(volume))}}},")
-
-    # Issue/Number
-    issue = safe_get(row, "issue")
-    if is_valid(issue):
-        lines.append(f"  number = {{{escape_bibtex(str(issue))}}},")
-
-    # Pages
-    pages = safe_get(row, "pages")
-    if is_valid(pages):
-        pages = format_pages(pages)
-        lines.append(f"  pages = {{{pages}}},")
-
-    # Publisher (for books, incollections, and inproceedings)
-    # Note: Publisher is NOT included for @article entries (not standard per BibTeX spec)
-    publisher = safe_get(row, "publisher")
-    if is_valid(publisher) and entry_type in ["book", "incollection", "inproceedings"]:
-        lines.append(f"  publisher = {{{escape_bibtex(publisher)}}},")
-
-    # Series/ISSN (for books, journals, conferences)
-    serie = safe_get(row, "serie")
-    if is_valid(serie):
-        lines.append(f"  series = {{{escape_bibtex(str(serie))}}},")
-
-    # DOI
-    doi = safe_get(row, "DOI")
-    if is_valid(doi):
-        lines.append(f"  doi = {{{escape_bibtex(str(doi))}}},")
-
-    # URL (landing page)
-    url = safe_get(row, "url")
-    if is_valid(url):
-        lines.append(f"  url = {{{url}}},")
-
-    # PDF file link (remote URL - no :PDF suffix needed for standard BibTeX)
-    pdf_url = safe_get(row, "pdf_url")
-    if is_valid(pdf_url):
-        lines.append(f"  file = {{{pdf_url}}},")
-
-    # Abstract (optional, but useful) - no truncation
-    abstract = safe_get(row, "abstract")
-    if is_valid(abstract):
-        abstract_text = escape_bibtex(str(abstract))
-        lines.append(f"  abstract = {{{abstract_text}}},")
-
-    # Language (standard BibTeX field)
-    language = safe_get(row, "language")
-    if is_valid(language):
-        lines.append(f"  language = {{{escape_bibtex(str(language))}}},")
-
-    # Copyright/Rights (standard BibTeX field)
-    rights = safe_get(row, "rights")
-    if is_valid(rights):
-        lines.append(f"  copyright = {{{escape_bibtex(str(rights))}}},")
-
-    # Archive source (API name)
-    archive = safe_get(row, "archive")
-    if is_valid(archive):
-        lines.append(f"  archiveprefix = {{{escape_bibtex(str(archive))}}},")
-
-    # Archive ID (original API ID)
-    archive_id = safe_get(row, "archiveID")
-    if is_valid(archive_id):
-        lines.append(f"  eprint = {{{escape_bibtex(str(archive_id))}}},")
-
-    # Keywords (from HF tags) - standard BibTeX field
     tags_str = safe_get(row, "tags")
     if is_valid(tags_str):
-        tags_list = parse_tags(tags_str)
-        if tags_list:
-            # Convert to comma-separated for BibTeX keywords field
-            keywords = ", ".join(tags_list)
-            lines.append(f"  keywords = {{{keywords}}},")
+        lines.extend(_tag_field_lines(tags_str))
 
-    # HuggingFace URL (in note field)
-    hf_url = safe_get(row, "hf_url")
-    if is_valid(hf_url):
-        lines.append(f"  note = {{HuggingFace: {hf_url}}},")
-
-    # GitHub repository (in howpublished field)
-    github_repo = safe_get(row, "github_repo")
-    if is_valid(github_repo):
-        lines.append(f"  howpublished = {{{github_repo}}},")
+    if references:
+        lines.append(f"  references = {{{', '.join(references)}}},")
+    if cited_by:
+        lines.append(f"  cited_by = {{{', '.join(cited_by)}}},")
 
     # Close entry (remove trailing comma from last line)
-    if lines[-1].endswith(","):
-        lines[-1] = lines[-1][:-1]
+    lines[-1] = lines[-1].rstrip(",")
     lines.append("}")
 
     return "\n".join(lines)
@@ -442,10 +441,12 @@ def export_to_bibtex(data: pd.DataFrame, config: dict) -> str:
         Path to generated BibTeX file
     """
     output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
-    dir_collect = os.path.join(output_dir, config["collect_name"])
+    dir_collect = os.path.join(
+        output_dir, normalize_path_component(config["collect_name"])
+    )
 
     # Output file path
-    output_file = os.path.join(dir_collect, "aggregated_results.bib")
+    output_file = os.path.join(dir_collect, BIBTEX_PLAIN_FILENAME)
 
     logger.info(f"Exporting {len(data)} papers to BibTeX")
     logger.info(f"Output file: {output_file}")
@@ -482,8 +483,10 @@ def export_to_bibtex(data: pd.DataFrame, config: dict) -> str:
     return output_file
 
 
+@exit_on_config_error
 def main():
     """Main entry point for BibTeX export."""
+    setup_logging()
     parser = argparse.ArgumentParser(
         description="Export aggregated papers to BibTeX format"
     )
@@ -499,9 +502,11 @@ def main():
         default=None,
         help="Output directory (overrides scilex.config.yml)",
     )
-    
+
+    add_config_arguments(parser)
     args = parser.parse_args()
-    
+    apply_config_arguments(args)
+
     try:
         # Load configuration with CLI overrides
         config = load_config(
@@ -511,7 +516,9 @@ def main():
 
         # Validate required config
         if "collect_name" not in config:
-            raise ValueError("collect_name not specified in scilex.config.yml or --collect-name")
+            raise ValueError(
+                "collect_name not specified in scilex.config.yml or --collect-name"
+            )
 
         # Load aggregated data
         data = load_aggregated_data(config)
@@ -522,8 +529,10 @@ def main():
         logger.info(f"BibTeX export complete: {output_file}")
         print(f"\n✓ BibTeX file created: {output_file}")
 
-    except FileNotFoundError as e:
-        logger.error(f"Configuration error: {e}")
+    except (SettingsError, ConfigFileNotFoundError):
+        raise  # reported by @exit_on_config_error
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(f"Configuration or data error: {e}")
         sys.exit(1)
     except Exception as e:
         logger.error(f"Error during BibTeX export: {e}", exc_info=True)

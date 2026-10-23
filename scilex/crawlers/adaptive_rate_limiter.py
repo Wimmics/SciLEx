@@ -78,11 +78,6 @@ class AdaptiveRateLimiter:
                     f"(after {self._consecutive_successes} successes)"
                 )
 
-    @property
-    def extra_delay(self) -> float:
-        with self._lock:
-            return self._extra_delay
-
 
 class AdaptiveRateLimiterRegistry:
     """

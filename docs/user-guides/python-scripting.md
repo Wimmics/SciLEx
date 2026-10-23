@@ -14,19 +14,21 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 ```
 
-Load configs using `yaml`:
+Load `scilex.yml` and `keys.yml` with the same discovery rules as the CLI (`SCILEX_CONFIG`, `./scilex.yml`,
+`SCILEX_KEYS`, `~/.config/scilex/keys.yml`):
 
 ```python
-import yaml
+from scilex.config import SciLExConfig
 
-with open("src/scilex.config.yml") as f:
-    main_config = yaml.safe_load(f)
-
-with open("scilex/api.config.yml") as f:
-    api_config = yaml.safe_load(f)
+config = SciLExConfig.from_files()                       # or config_path="scilex.yml", keys_path="keys.yml"
+main_config, api_config = config.main_config, config.api_config
 ```
 
-Or build configs entirely in Python (no YAML files needed):
+`main_config` and `api_config` are the internal dictionaries used by the pipeline (a flat form of `scilex.yml`,
+with `collect_name` for `name` and a `quality_filters` block). See the
+[Configuration Reference](../reference/configuration.md) for the correspondence.
+
+Or build the internal dictionaries entirely in Python (no YAML files needed, as the web API does with `SciLExConfig.from_dicts`):
 
 ```python
 main_config = {

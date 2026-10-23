@@ -3,16 +3,19 @@ import os
 import threading
 from collections import defaultdict
 from itertools import product
-from queue import Queue
+from queue import Empty, Queue
 
 import yaml
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
+from scilex.constants import MISSING_VALUE
+from scilex.vpn.rotator import vpn_config_from_configs
 
 from .collectors import (
     Arxiv_collector,
+    BioRxiv_collector,
     DBLP_collector,
     Elsevier_collector,
     HAL_collector,
@@ -26,10 +29,13 @@ from .collectors import (
     SemanticScholar_collector,
     Springer_collector,
 )
+from .collectors.base import COMPLETE_FILE_NAME, STATE_FILE_NAME
+from .utils import sanitize_secrets
 
 api_collectors = {
     "DBLP": DBLP_collector,
     "Arxiv": Arxiv_collector,
+    "BioRxiv": BioRxiv_collector,
     "Elsevier": Elsevier_collector,
     "IEEE": IEEE_collector,
     "Springer": Springer_collector,
@@ -44,31 +50,22 @@ api_collectors = {
 }
 
 
+# Placeholder values that mean "no institutional token configured"
+# (any "YOUR_..." placeholder is rejected separately).
+_INVALID_INST_TOKENS = {MISSING_VALUE, "TODO", "", None}
+
 # Thread worker function (processes all queries for one API)
 
 
-def _sanitize_error_message(error_msg):
-    """
-    Remove sensitive information (API keys, tokens) from error messages.
-
-    Args:
-        error_msg: Error message string that may contain sensitive parameters
-
-    Returns:
-        str: Sanitized error message with sensitive parameters masked
-    """
-    import re
-
-    # Replace API keys in URLs within error messages
-    error_msg = re.sub(r"([?&]api[Kk]ey=)[^&\s]+", r"\1***REDACTED***", error_msg)
-    error_msg = re.sub(r"([?&]apikey=)[^&\s]+", r"\1***REDACTED***", error_msg)
-    error_msg = re.sub(r"([?&]key=)[^&\s]+", r"\1***REDACTED***", error_msg)
-    error_msg = re.sub(r"([?&]token=)[^&\s]+", r"\1***REDACTED***", error_msg)
-    return error_msg
-
-
 def _run_job_collects_worker(
-    api_name, collect_list, api_config, output_dir, collect_name, progress_queue
+    api_name,
+    collect_list,
+    api_config,
+    output_dir,
+    collect_name,
+    progress_queue,
+    cancel_event=None,
+    vpn_config=None,
 ):
     """
     Thread worker function for one API.
@@ -81,6 +78,8 @@ def _run_job_collects_worker(
         output_dir: Output directory path
         collect_name: Collection name
         progress_queue: Queue for sending progress updates to main thread
+        cancel_event: Optional threading.Event to signal cancellation
+        vpn_config: ``vpn`` block of the job configuration (None disables rotation)
     """
     from scilex.crawlers.circuit_breaker import CircuitBreakerRegistry
 
@@ -89,6 +88,10 @@ def _run_job_collects_worker(
 
     # Process each query for this API
     for coll_dict in collect_list:
+        # Check for cancellation before each query
+        if cancel_event and cancel_event.is_set():
+            logging.info(f"[{api_name}] Cancellation requested, stopping collection.")
+            return
         data_query = coll_dict["query"]
         query_id = data_query.get("id_collect", 0)
         collector_class = api_collectors[api_name]
@@ -119,8 +122,7 @@ def _run_job_collects_worker(
             if api_name == "Elsevier" and "inst_token" in api_config[api_name]:
                 token_value = api_config[api_name]["inst_token"]
                 # Reject placeholder/invalid tokens
-                INVALID_TOKENS = {"YOUR_INSTITUTIONAL_TOKEN", "NA", "TODO", "", None}
-                if token_value not in INVALID_TOKENS and not (
+                if token_value not in _INVALID_INST_TOKENS and not (
                     isinstance(token_value, str) and token_value.startswith("YOUR_")
                 ):
                     inst_token = token_value
@@ -129,12 +131,18 @@ def _run_job_collects_worker(
         kw_str = " + ".join(f'"{k}"' for k in data_query.get("keyword", [])) or "?"
         year = data_query.get("year", "?")
 
+        current_coll = None
         try:
             # Initialize collector
             if api_name == "Elsevier" and inst_token:
                 current_coll = collector_class(data_query, repo, api_key, inst_token)
             else:
                 current_coll = collector_class(data_query, repo, api_key)
+
+            current_coll.vpn_config = vpn_config or {}
+
+            # Apply user-configured rate limits (api.config.yml `rate_limits`)
+            current_coll.load_rate_limit_from_config(api_config.get("rate_limits"))
 
             logging.info(f"[{api_name}] Q{query_id}: {kw_str} ({year})")
 
@@ -165,7 +173,7 @@ def _run_job_collects_worker(
 
         except Exception as e:
             # Sanitize error message to remove API keys
-            sanitized_error = _sanitize_error_message(str(e))
+            sanitized_error = sanitize_secrets(str(e))
             logging.error(
                 f"[{api_name}] Q{query_id} error ({kw_str}, {year}): {sanitized_error}"
             )
@@ -181,16 +189,30 @@ def _run_job_collects_worker(
                     "error": sanitized_error,
                 }
             )
+        finally:
+            # Always flush buffered pages and release the HTTP connection pool
+            if current_coll is not None:
+                try:
+                    current_coll.close_session()
+                except Exception as close_exc:
+                    logging.warning(
+                        f"[{api_name}] Q{query_id}: close_session failed: "
+                        f"{sanitize_secrets(str(close_exc))}"
+                    )
 
     # Note: Rate limiting is handled per-API by individual collectors
     # using configured rate limits from api.config.yml
 
 
 class CollectCollection:
-    def __init__(self, main_config, api_config):
+    def __init__(
+        self, main_config, api_config, progress_callback=None, cancel_event=None
+    ):
         print("Initializing collection")
         self.main_config = main_config
         self.api_config = api_config
+        self.progress_callback = progress_callback
+        self.cancel_event = cancel_event
         self.init_collection_collect()
 
     def validate_api_keys(self):
@@ -224,36 +246,6 @@ class CollectCollection:
 
         logger.debug("API key validation passed")
         return True
-
-    def run_job_collects(self, collect_list):
-        for idx in range(len(collect_list)):
-            coll = collect_list[idx]
-            data_query = coll["query"]
-            collector = api_collectors[coll["api"]]
-            api_key = None
-            inst_token = None  # For Elsevier institutional token
-
-            if coll["api"] in self.api_config:
-                api_key = self.api_config[coll["api"]]["api_key"]
-                # Check for institutional token (Elsevier only)
-                if (
-                    coll["api"] == "Elsevier"
-                    and "inst_token" in self.api_config[coll["api"]]
-                ):
-                    inst_token = self.api_config[coll["api"]]["inst_token"]
-                    logging.info("Using institutional token for Elsevier API")
-
-            repo = self.get_current_repo()
-
-            # Initialize collector with institutional token if applicable
-            if coll["api"] == "Elsevier" and inst_token:
-                current_coll = collector(data_query, repo, api_key, inst_token)
-            else:
-                current_coll = collector(data_query, repo, api_key)
-            current_coll.runCollect()
-
-            # Note: Removed fixed 2-second delay - rate limiting is now handled per-API
-            # by individual collectors using configured rate limits from api.config.yml
 
     def get_current_repo(self):
         output_dir = self.main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
@@ -308,51 +300,26 @@ class CollectCollection:
         # Get max_articles_per_query from config (default to -1 = unlimited)
         max_articles_per_query = self.main_config.get("max_articles_per_query", -1)
 
-        if two_list_k:
-            queries = []
-            for keyword_group, year, api in combinations:
-                query = {
-                    "keyword": keyword_group,
-                    "year": year,
-                    "api": api,
-                    "max_articles_per_query": max_articles_per_query,
-                }
-                # Add semantic_scholar_mode for SemanticScholar API
-                if api == "SemanticScholar":
-                    query["semantic_scholar_mode"] = semantic_scholar_mode
-                queries.append(query)
-        else:
-            queries = []
-            for keyword_group, year, api in combinations:
-                query = {
-                    "keyword": [keyword_group],
-                    "year": year,
-                    "api": api,
-                    "max_articles_per_query": max_articles_per_query,
-                }
-                # Add semantic_scholar_mode for SemanticScholar API
-                if api == "SemanticScholar":
-                    query["semantic_scholar_mode"] = semantic_scholar_mode
-                queries.append(query)
-        logger.debug(
-            f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs"
-        )
-        queries_by_api = {}
-        for query in queries:
-            if query["api"] not in queries_by_api:
-                queries_by_api[query["api"]] = []
-            # Preserve all query fields (max_articles_per_query, semantic_scholar_mode, etc.)
-            query_dict = {
-                "keyword": query["keyword"],
-                "year": query["year"],
-                "max_articles_per_query": query["max_articles_per_query"],
+        queries_by_api = defaultdict(list)
+        since = self.main_config.get("since")
+        for keyword_group, year, api in combinations:
+            query = {
+                # Two keyword lists give [kw_a, kw_b] pairs; a single list gives [kw]
+                "keyword": keyword_group if two_list_k else [keyword_group],
+                "year": year,
+                "max_articles_per_query": max_articles_per_query,
             }
-            # Add optional semantic_scholar_mode if present
-            if "semantic_scholar_mode" in query:
-                query_dict["semantic_scholar_mode"] = query["semantic_scholar_mode"]
-            queries_by_api[query["api"]].append(query_dict)
+            if api == "SemanticScholar":
+                query["semantic_scholar_mode"] = semantic_scholar_mode
+            if since:
+                query["since"] = str(since)
+            queries_by_api[api].append(query)
+        logger.debug(
+            f"Generated {sum(map(len, queries_by_api.values()))} total queries "
+            f"across {len(self.main_config['apis'])} APIs"
+        )
 
-        return queries_by_api
+        return dict(queries_by_api)
 
     def init_collection_collect(self):
         """
@@ -376,11 +343,17 @@ class CollectCollection:
 
     def _query_is_complete(self, repo, api, query_idx):
         """
-        Check if a query is fully complete by looking for the _complete sentinel file.
+        Check whether a query was fully collected.
 
-        A sentinel is written by runCollect only when all pages were fetched
-        successfully. Directories with page files but no sentinel are partially
-        collected and will be resumed rather than skipped.
+        ``runCollect`` writes ``_state`` ("incomplete") when it starts and
+        replaces it with ``_complete`` once every page was fetched (or
+        ``max_articles_per_query`` was reached). A directory with ``_state`` but
+        no ``_complete`` is a partial/failed run and is resumed.
+
+        Backward compatibility: a directory from an older SciLEx version has
+        neither marker. If it holds page files it is treated as complete, so
+        old collections are not re-collected. (A run killed before ``_state``
+        existed cannot be told apart from those.)
 
         Args:
             repo: Collection directory path
@@ -388,10 +361,14 @@ class CollectCollection:
             query_idx: Query index (e.g., 0, 1, 2)
 
         Returns:
-            bool: True only if the _complete sentinel file is present
+            bool: True when the query must not be collected again
         """
         query_dir = os.path.join(repo, api, str(query_idx))
-        return os.path.isfile(os.path.join(query_dir, "_complete"))
+        if os.path.isfile(os.path.join(query_dir, COMPLETE_FILE_NAME)):
+            return True
+        if os.path.isfile(os.path.join(query_dir, STATE_FILE_NAME)):
+            return False
+        return self._get_last_collected_page(repo, api, query_idx) > 0
 
     def _get_last_collected_page(self, repo, api, query_idx):
         """
@@ -459,7 +436,9 @@ class CollectCollection:
                 last_page = self._get_last_collected_page(repo, api, idx)
                 if last_page > 0:
                     n_resumed += 1
-                    kw_str = " + ".join(f'"{k}"' for k in query.get("keyword", [])) or "?"
+                    kw_str = (
+                        " + ".join(f'"{k}"' for k in query.get("keyword", [])) or "?"
+                    )
                     logger.info(
                         f"Resuming {api} query {idx} from page {last_page + 1} "
                         f"({last_page} pages already collected) — {kw_str} ({query.get('year', '?')})"
@@ -516,6 +495,8 @@ class CollectCollection:
         # Extract output_dir with default
         output_dir = self.main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
 
+        vpn_config = vpn_config_from_configs(self.main_config, self.api_config)
+
         # Create one thread per API
         threads = []
         for api_name, api_jobs in jobs_by_api.items():
@@ -528,6 +509,8 @@ class CollectCollection:
                     output_dir,
                     self.main_config["collect_name"],
                     progress_queue,
+                    self.cancel_event,
+                    vpn_config,
                 ),
                 name=f"Worker-{api_name}",
             )
@@ -550,6 +533,13 @@ class CollectCollection:
         try:
             with logging_redirect_tqdm(loggers=[logging.root]):
                 while completed_count < total_queries:
+                    # Check for cancellation
+                    if self.cancel_event and self.cancel_event.is_set():
+                        logging.info(
+                            "Cancellation requested, stopping collection monitoring."
+                        )
+                        break
+
                     try:
                         result = progress_queue.get(timeout=0.1)
 
@@ -567,7 +557,9 @@ class CollectCollection:
                             for a, s in sorted(api_stats.items())
                             if s["completed"] > 0
                         )
-                        overall_bar.set_postfix_str(f"{total_papers} papers [{api_summary}]")
+                        overall_bar.set_postfix_str(
+                            f"{total_papers} papers [{api_summary}]"
+                        )
 
                         # Announce when an API finishes all its queries
                         done = api_stats[api_name]["completed"]
@@ -577,14 +569,25 @@ class CollectCollection:
                                 f"  [{api_name}] finished {done} queries → {api_stats[api_name]['articles']:,} papers"
                             )
 
-                    except Exception:
+                        # Notify progress callback if set
+                        if self.progress_callback:
+                            self.progress_callback(
+                                api_stats, completed_count, total_queries
+                            )
+
+                    except Empty:
+                        # Queue timeout — check if all threads are done
                         if not any(t.is_alive() for t in threads):
                             break
                         continue
 
         finally:
+            # Wait for all threads to complete (with timeout if cancelled)
+            join_timeout = (
+                5 if (self.cancel_event and self.cancel_event.is_set()) else None
+            )
             for thread in threads:
-                thread.join()
+                thread.join(timeout=join_timeout)
 
             overall_bar.close()
 
@@ -600,17 +603,3 @@ class CollectCollection:
                     f"[{api_name}] Complete: {stats['articles']} papers from {stats['completed']} queries"
                 )
             print("=" * 60 + "\n")
-
-        # FIRST ATTEMPT > not ordered by api > could lead to ratelimit overload
-        # random.shuffle(jobs_list)
-        # coll_coll=[]
-        # for job in jobs_list:
-        #    data_query=job["query"]
-        #    collector=api_collectors[job["api"]]
-        #    api_key=None
-        #    if(job["api"] in self.api_config.keys()):
-        #        api_key = self.api_config[job["api"]]["api_key"]
-        #    repo=self.get_current_repo()
-        #    coll_coll.append(collector(data_query, repo,api_key))
-
-        # result=pool.map_async(self.job_collect, coll_coll)

@@ -78,6 +78,7 @@
 | **OpenAlex** | Optional | 250M+ works | Broad coverage, ORCID data |
 | **IEEE** | Yes | 5M+ docs | Engineering, CS conferences |
 | **Arxiv** | No | 2M+ preprints | Preprints, physics, CS |
+| **BioRxiv** | No | ~50k preprints/year | Biology preprints (bioRxiv only; no server-side search, so a yearly cache is filtered client-side) |
 | **Springer** | Yes | 13M+ docs | Journals, books |
 | **Elsevier** | Yes | 18M+ articles | Medical, life sciences |
 | **PubMed** | Optional | 35M+ papers | Biomedical literature |
@@ -98,7 +99,8 @@ See the [API Comparison](https://scilex.readthedocs.io/en/latest/reference/api-c
     ├── README.md
     ├── pyproject.toml
     ├── CONTRIBUTING.md
-    ├── .env.example
+    ├── scilex.yml.example
+    ├── keys.yml.example
     ├── scilex/
     │   ├── run_collection.py
     │   ├── aggregate_collect.py
@@ -109,6 +111,9 @@ See the [API Comparison](https://scilex.readthedocs.io/en/latest/reference/api-c
     │   ├── keyword_validation.py
     │   ├── abstract_validation.py
     │   ├── duplicate_tracking.py
+    │   ├── settings/        # scilex.yml / keys.yml schema, presets, loader, migration
+    │   ├── templates/       # scilex init templates
+    │   ├── pipeline/
     │   ├── crawlers/
     │   ├── citations/
     │   ├── Zotero/
@@ -161,15 +166,37 @@ See the [API Comparison](https://scilex.readthedocs.io/en/latest/reference/api-c
 
 ### Configuration
 
-Copy the example config files and fill in your API keys:
+SciLEx uses two files:
+
+- `scilex.yml`: one per review, in your working folder (search terms, years, APIs, filters).
+- `keys.yml`: your API keys, shared by all reviews, in `~/.config/scilex/keys.yml`.
 
 ```sh
-❯ cp scilex/api.config.yml.example scilex/api.config.yml
-❯ cp scilex/scilex.config.yml.example scilex/scilex.config.yml
-❯ cp scilex/scilex.advanced.yml.example scilex/scilex.advanced.yml
+❯ mkdir my-review && cd my-review
+❯ scilex init                                   # writes ./scilex.yml (or: scilex-init --template computer-science)
+❯ mkdir -p ~/.config/scilex
+❯ cp /path/to/SciLEx/keys.yml.example ~/.config/scilex/keys.yml   # then add your keys
+❯ scilex config check                           # validate both files without running anything
 ```
 
-See the [Configuration Guide](https://scilex.readthedocs.io/en/latest/getting-started/configuration.html) for all available settings.
+`scilex.yml.example` lists every option with its default; you only write what differs from the defaults.
+Typos are reported with a suggestion (`filters.max_paper: unknown key. Did you mean ranking.max_papers?`).
+Use `scilex config show` to see the effective values and where each one comes from.
+
+See the [Configuration Reference](https://scilex.readthedocs.io/en/latest/reference/configuration.html) for all settings.
+
+#### Migrating from the old format
+
+Older versions used `scilex/scilex.config.yml`, `scilex/scilex.advanced.yml` and `scilex/api.config.yml`.
+They are still read (with a warning) but are deprecated. Convert them with:
+
+```sh
+❯ scilex config migrate                  # print the equivalent scilex.yml
+❯ scilex config migrate --write          # write ./scilex.yml (add --force to overwrite)
+❯ scilex config migrate --from DIR       # read the old files from DIR instead of the package
+```
+
+Move your API keys from `scilex/api.config.yml` to `~/.config/scilex/keys.yml` (same structure).
 
 ### Usage
 
@@ -177,7 +204,7 @@ See the [Configuration Guide](https://scilex.readthedocs.io/en/latest/getting-st
 ```sh
 ❯ source .venv/bin/activate       # macOS/Linux
 ❯ .venv\Scripts\activate          # Windows
-❯ scilex-collect
+❯ scilex-collect          # run from the folder that contains scilex.yml
 ```
 
 **Option B — with `uv run` (no activation needed):**
@@ -188,6 +215,9 @@ See the [Configuration Guide](https://scilex.readthedocs.io/en/latest/getting-st
 Run the pipeline step by step:
 
 ```sh
+# 0. Validate the configuration
+❯ scilex config check
+
 # 1. Collect papers from all configured APIs
 ❯ scilex-collect
 
@@ -200,6 +230,7 @@ Run the pipeline step by step:
 # 4. Export results
 ❯ scilex-push-zotero        # Push to a Zotero collection
 ❯ scilex-export-bibtex      # Export to BibTeX
+❯ scilex-export-turtle      # Export to RDF/Turtle
 ```
 
 See the [Quick Start Guide](https://scilex.readthedocs.io/en/latest/getting-started/quick-start.html) for a complete walkthrough.

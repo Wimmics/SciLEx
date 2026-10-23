@@ -75,6 +75,9 @@ class OpenAlex_collector(API_collector):
 
         years = self.get_year()
         year_filter = f"publication_year:{years}"
+        start_date = self.get_query_start_date()
+        if start_date:
+            year_filter += f",from_publication_date:{start_date.isoformat()}"
 
         # Base URL without pagination — cursor is appended in runCollect()
         api_url = (
@@ -96,123 +99,99 @@ class OpenAlex_collector(API_collector):
 
         Cursor pagination has no 10k result limit (unlike page-based pagination).
         See: https://docs.openalex.org/how-to-use-the-api/get-lists-of-entities/paging#cursor-paging
+
+        The cursor is not persisted, so a partial run restarts from the first
+        page (existing page files are overwritten). Buffered pages are always
+        flushed, and the query is only marked complete when the cursor is
+        exhausted or ``max_articles_per_query`` is reached.
         """
-        state_data = {
-            "state": self.state,
-            "last_page": self.lastpage,
-            "total_art": self.total_art,
-            "coll_art": self.nb_art_collected,
-            "update_date": str(date.today()),
-            "id_collect": self.collectId,
-        }
+        state_data = self._state_snapshot()
 
         if self.state == 1:
             logging.info("Collection already completed.")
             return state_data
 
+        if self.lastpage > 0:
+            logging.info(
+                f"OpenAlex Q{self.collectId}: cursor cannot be resumed, "
+                f"restarting collection from the first page"
+            )
+            self.set_lastpage(0)
+            self.nb_art_collected = 0
+            state_data["last_page"] = 0
+            state_data["coll_art"] = 0
+
+        self._mark_incomplete()
+        try:
+            completed = self._collect_with_cursor(state_data)
+        finally:
+            self._flush_buffer()
+
+        if completed:
+            logging.debug("OpenAlex collection complete. Marking as done.")
+            state_data["state"] = 1
+            self._mark_complete()
+        return state_data
+
+    def _collect_with_cursor(self, state_data):
+        """Follow the cursor until exhausted. Return True when fully collected."""
         base_url = self.get_configurated_url()
         cursor = "*"  # Initial cursor value for first request
-        page = int(self.get_lastpage()) + 1
-        _first_results_logged = False
-
-        logging.debug(f"Starting OpenAlex cursor-based collection from page {page}")
+        first_results_logged = False
 
         while cursor is not None:
-            # Check max articles limit before fetching
-            max_articles = self.filter_param.get_max_articles_per_query()
-            if max_articles > 0 and self.nb_art_collected >= max_articles:
+            if self._max_articles_reached():
                 logging.info(
-                    f"Reached max_articles_per_query limit ({max_articles}). "
+                    f"Reached max_articles_per_query limit "
+                    f"({self.filter_param.get_max_articles_per_query()}). "
                     f"Already collected {self.nb_art_collected} articles. Stopping."
                 )
-                break
+                return True
 
+            page = self.get_lastpage() + 1
             url = f"{base_url}&cursor={cursor}"
             logging.debug(f"Fetching data from URL: {self._sanitize_url(url)}")
 
             try:
                 response = self.api_call_decorator(url, headers=self.get_auth_headers())
-                logging.debug(f"OpenAlex API call completed for page {page}")
-
                 page_data, next_cursor = self.parsePageResults(response, page)
-
-                # Log API usage statistics
                 self.log_api_usage(response, page, len(page_data.get("results", [])))
-
-                nb_results = len(page_data["results"])
-                self.nb_art_collected += nb_results
-
-                if not _first_results_logged and nb_results > 0:
-                    kw_str = " + ".join(f'"{k}"' for k in self.get_keywords())
-                    logging.info(
-                        f"[OpenAlex] Q{self.collectId} ({kw_str}, {self.get_year()}): "
-                        f"page {page} → {nb_results} results, {page_data['total']} total"
-                    )
-                    _first_results_logged = True
-
-                if nb_results == 0:
-                    logging.debug("No more results returned. Collection complete.")
-                    break
-
-                self.savePageResults(page_data, page)
-                self.set_lastpage(int(page) + 1)
-                page = self.get_lastpage()
-
-                state_data["last_page"] = page
-                state_data["total_art"] = page_data["total"]
-                state_data["coll_art"] = state_data["coll_art"] + nb_results
-
-                logging.debug(
-                    f"Processed page {page - 1}: {nb_results} results. "
-                    f"Total found: {page_data['total']}. "
-                    f"Collected so far: {self.nb_art_collected}"
+            except Exception as exc:
+                throttle_code = self._throttle_status(exc)
+                if throttle_code and self._try_vpn_rotation(throttle_code, page):
+                    continue  # Same cursor, new IP
+                logging.error(
+                    f"Error processing results on page {page} from OpenAlex API: "
+                    f"{self._sanitize_url(str(exc))}. The query stays incomplete "
+                    f"and will be resumed on the next run."
                 )
+                return False
 
-                # Advance cursor
-                cursor = next_cursor
+            nb_results = len(page_data["results"])
+            if nb_results == 0:
+                logging.debug("No more results returned. Collection complete.")
+                return True
 
-            except Exception as e:
-                exc_str = str(e)
-                is_throttle = "429" in exc_str or "409" in exc_str
-                if is_throttle:
-                    throttle_code = "409" if "409" in exc_str else "429"
-                    from scilex.vpn.rotator import get_vpn_rotator
-                    rotator = get_vpn_rotator()
-                    if rotator.should_rotate(self.api_name):
-                        logging.warning(
-                            f"[VPN] OpenAlex Q{self.collectId} page {page}: "
-                            f"persistent {throttle_code} — triggering IP rotation "
-                            f"(rotation {rotator.rotation_count + 1}/{rotator.max_rotations})"
-                        )
-                        if rotator.rotate():
-                            logging.warning(
-                                f"[VPN] OpenAlex Q{self.collectId}: "
-                                f"retrying page {page} with new IP"
-                            )
-                            continue  # Retry same cursor/page with new IP
-                        logging.warning(
-                            f"[VPN] OpenAlex Q{self.collectId}: "
-                            f"rotation failed — giving up on this query"
-                        )
+            self.nb_art_collected += nb_results
+            if not first_results_logged:
+                kw_str = " + ".join(f'"{k}"' for k in self.get_keywords())
+                logging.info(
+                    f"[OpenAlex] Q{self.collectId} ({kw_str}, {self.get_year()}): "
+                    f"page {page} → {nb_results} results, {page_data['total']} total"
+                )
+                first_results_logged = True
 
-                    from scilex.crawlers.circuit_breaker import CircuitBreakerRegistry
-                    CircuitBreakerRegistry().get_breaker(self.api_name).record_failure()
-                    logging.warning(
-                        f"OpenAlex: persistent {throttle_code} on page {page} "
-                        f"of query {self.collectId} — marking complete."
-                    )
-                    state_data["state"] = 1
-                else:
-                    logging.error(
-                        f"Error processing results on page {page} from OpenAlex API: {e}"
-                    )
-                    state_data["state"] = 0
-                state_data["last_page"] = page
-                self._flush_buffer()
-                return state_data
+            self.savePageResults(page_data, page)
+            self.set_lastpage(page)
 
-        # Collection complete
-        logging.debug("OpenAlex collection complete. Marking as done.")
-        state_data["state"] = 1
-        self._flush_buffer()
-        return state_data
+            state_data["last_page"] = page
+            state_data["total_art"] = page_data["total"]
+            state_data["coll_art"] = self.nb_art_collected
+            logging.debug(
+                f"Processed page {page}: {nb_results} results. "
+                f"Total found: {page_data['total']}. "
+                f"Collected so far: {self.nb_art_collected}"
+            )
+            cursor = next_cursor
+
+        return True

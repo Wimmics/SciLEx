@@ -107,31 +107,35 @@ def pubmed_fixtures_dir():
 @pytest.fixture
 def minimal_paper_df():
     """Single-row DataFrame with all required columns."""
-    return pd.DataFrame([{
-        "DOI": "10.1234/test.001",
-        "title": "A Test Paper",
-        "authors": "Alice Smith",
-        "date": "2024-01-01",
-        "abstract": "A short abstract for testing purposes.",
-        "archive": "SemanticScholar",
-        "itemType": "journalArticle",
-        "nb_citation": "5",
-        "url": "https://example.com/paper",
-        "pdf_url": "NA",
-        "language": "en",
-        "rights": "CC-BY",
-        "journalAbbreviation": "J. Test",
-        "volume": "1",
-        "issue": "1",
-        "pages": "1-10",
-        "publisher": "Test Publisher",
-        "archiveID": "abc123",
-        "serie": "NA",
-        "conferenceName": "NA",
-        "tags": "NA",
-        "hf_url": "NA",
-        "github_repo": "NA",
-    }])
+    return pd.DataFrame(
+        [
+            {
+                "DOI": "10.1234/test.001",
+                "title": "A Test Paper",
+                "authors": "Alice Smith",
+                "date": "2024-01-01",
+                "abstract": "A short abstract for testing purposes.",
+                "archive": "SemanticScholar",
+                "itemType": "journalArticle",
+                "nb_citation": "5",
+                "url": "https://example.com/paper",
+                "pdf_url": "NA",
+                "language": "en",
+                "rights": "CC-BY",
+                "journalAbbreviation": "J. Test",
+                "volume": "1",
+                "issue": "1",
+                "pages": "1-10",
+                "publisher": "Test Publisher",
+                "archiveID": "abc123",
+                "serie": "NA",
+                "conferenceName": "NA",
+                "tags": "NA",
+                "hf_url": "NA",
+                "github_repo": "NA",
+            }
+        ]
+    )
 
 
 @pytest.fixture

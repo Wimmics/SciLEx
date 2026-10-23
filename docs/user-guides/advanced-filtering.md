@@ -15,13 +15,13 @@ SciLEx applies a 5-phase filtering pipeline to refine paper collections.
 Keep only specific publication types.
 
 ```yaml
-quality_filters:
-  enable_itemtype_filter: true
-  allowed_item_types:
+filters:
+  item_types:          # null (default) keeps every type
     - journalArticle
     - conferencePaper
     - bookSection
     - book
+  always_keep: [journalArticle, conferencePaper]   # types never removed by the quality filters
 ```
 
 Common types:
@@ -40,9 +40,9 @@ Common types:
 Papers match ANY keyword:
 
 ```yaml
-keywords:
-  - ["neural network", "deep learning", "CNN"]
-  - []  # Empty
+search:
+  keywords:
+    - [neural network, deep learning, CNN]
 ```
 
 ### Dual Group (AND Logic)
@@ -50,9 +50,10 @@ keywords:
 Papers must match at least one from EACH group:
 
 ```yaml
-keywords:
-  - ["climate", "weather"]         # Topic
-  - ["prediction", "forecast"]     # Method
+search:
+  keywords:
+    - [climate, weather]         # Topic
+    - [prediction, forecast]     # Method
 ```
 
 ## Phase 3: Quality Scoring
@@ -64,10 +65,11 @@ Scores metadata completeness (0-100):
 - Nice-to-have (1 pt each): pages, URL, keywords
 
 ```yaml
-quality_filters:
-  validate_abstracts: true
-  min_abstract_quality_score: 60
-  filter_by_abstract_quality: true
+filters:
+  require: [abstract, year]    # among abstract, doi, year, open_access
+  min_authors: 2
+  abstract_words: [50, 1000]   # [min, max]
+  abstract_quality: 60         # score 0-100; null disables the validation
 ```
 
 ## Phase 4: Citation Filtering
@@ -81,12 +83,14 @@ Time-aware thresholds based on paper age:
 - 24+ months: 10+ required
 
 ```yaml
-aggregate_get_citations: true
+citations:
+  fetch: true                  # fetch citation counts during aggregation
 
-quality_filters:
-  apply_citation_filter: true
-  min_citations_per_year: 2  # Average per year
+filters:
+  citations: true              # apply the time-aware thresholds
 ```
+
+The thresholds above are fixed in the code (`CitationFilterConfig`); `filters.citations` only switches the filter on or off.
 
 ## Phase 5: Relevance Ranking
 
@@ -97,57 +101,47 @@ Composite score combining:
 - Citation impact (10%)
 
 ```yaml
-quality_filters:
-  apply_relevance_ranking: true
-  max_papers: 500  # Keep top 500
+ranking:
+  enabled: true
+  max_papers: 500  # Keep top 500 (null = no limit)
 
-  relevance_weights:
+  weights:
     keywords: 0.45
     quality: 0.25
     itemtype: 0.20
     citations: 0.10
+  venue_ranking: false   # true adds a CORE/SJR venue rank and blends it into the score
 ```
 
 ## Complete Configuration
 
 ```yaml
-keywords:
-  - ["explainable AI", "XAI"]
-  - ["healthcare", "medical"]
+name: xai_healthcare
+preset: literature_review
 
-years: [2022, 2023, 2024]
+search:
+  keywords:
+    - [explainable AI, XAI]
+    - [healthcare, medical]
+  years: [2022, 2023, 2024]
+  apis: [SemanticScholar, OpenAlex]
 
-apis:
-  - SemanticScholar
-  - OpenAlex
-
-aggregate_get_citations: true
-
-quality_filters:
+filters:
   # Phase 1
-  enable_itemtype_filter: true
-  allowed_item_types:
-    - journalArticle
-    - conferencePaper
-
+  item_types: [journalArticle, conferencePaper]
   # Phase 3
-  validate_abstracts: true
-  min_abstract_quality_score: 60
-  filter_by_abstract_quality: true
-
+  abstract_quality: 60
   # Phase 4
-  apply_citation_filter: true
-  min_citations_per_year: 2
+  citations: true
 
-  # Phase 5
-  apply_relevance_ranking: true
+citations:
+  fetch: true
+
+# Phase 5
+ranking:
+  enabled: true
   max_papers: 300
-
-  relevance_weights:
-    keywords: 0.45
-    quality: 0.25
-    itemtype: 0.20
-    citations: 0.10
+  weights: {keywords: 0.45, quality: 0.25, itemtype: 0.20, citations: 0.10}
 ```
 
 ## Monitoring
@@ -163,6 +157,8 @@ After Citations: 2,352
 After Relevance: 300
 ```
 
+All keys are documented in the [Configuration Reference](../reference/configuration.md).
+
 ## Troubleshooting
 
 ### Too Few Papers?
@@ -172,23 +168,23 @@ After Relevance: 300
 3. Disable citation filter
 
 ```yaml
-quality_filters:
-  apply_citation_filter: false
-  min_abstract_quality_score: 40
+filters:
+  citations: false
+  abstract_quality: 40
 ```
 
 ### Too Many Papers?
 
 1. Use dual keyword groups (AND logic)
 2. Enable all filters
-3. Set lower `max_papers` limit
+3. Set lower `ranking.max_papers` limit
 
 ### Check Results
 
 ```python
 import pandas as pd
 
-df = pd.read_csv('aggregated_data.csv', delimiter=';')
+df = pd.read_csv('output/<name>/aggregated_results.csv', delimiter=';')
 
 # Check scores
 top = df.nlargest(10, 'relevance_score')

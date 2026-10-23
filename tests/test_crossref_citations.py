@@ -2,11 +2,10 @@
 
 Tests the getCrossRefCitationsBatch function and its integration
 into the citation pipeline (Cache → SS → CrossRef → OpenCitations).
-Also tests batch cache functions and the phase-based _fetch_citations_parallel.
+Also tests batch cache functions and the phase-based fetch_citations_for_dataframe.
 """
 
 import sqlite3
-import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -188,56 +187,6 @@ class TestGetCrossRefCitationsBatch:
 
 
 # ============================================================================
-# getCrossRefCitation (single-DOI wrapper) unit tests
-# ============================================================================
-
-
-class TestGetCrossRefCitation:
-    """Test the single-DOI CrossRef lookup wrapper."""
-
-    @patch("scilex.citations.citations_tools.getCrossRefCitationsBatch")
-    def test_returns_tuple_when_found(self, mock_batch):
-        """Returns (cit, ref) tuple when DOI is found."""
-        mock_batch.return_value = {"10.1234/test": (42, 15)}
-
-        from scilex.citations.citations_tools import getCrossRefCitation
-
-        result = getCrossRefCitation("10.1234/test")
-        assert result == (42, 15)
-        mock_batch.assert_called_once_with(["10.1234/test"], mailto=None)
-
-    @patch("scilex.citations.citations_tools.getCrossRefCitationsBatch")
-    def test_returns_none_when_not_found(self, mock_batch):
-        """Returns None when DOI is not in CrossRef."""
-        mock_batch.return_value = {}
-
-        from scilex.citations.citations_tools import getCrossRefCitation
-
-        result = getCrossRefCitation("10.9999/missing")
-        assert result is None
-
-    @patch("scilex.citations.citations_tools.getCrossRefCitationsBatch")
-    def test_returns_none_on_exception(self, mock_batch):
-        """Returns None when batch call raises an exception."""
-        mock_batch.side_effect = Exception("API error")
-
-        from scilex.citations.citations_tools import getCrossRefCitation
-
-        result = getCrossRefCitation("10.1234/test")
-        assert result is None
-
-    @patch("scilex.citations.citations_tools.getCrossRefCitationsBatch")
-    def test_passes_mailto(self, mock_batch):
-        """Passes mailto parameter to batch function."""
-        mock_batch.return_value = {"10.1234/test": (5, 3)}
-
-        from scilex.citations.citations_tools import getCrossRefCitation
-
-        getCrossRefCitation("10.1234/test", mailto="user@example.org")
-        mock_batch.assert_called_once_with(["10.1234/test"], mailto="user@example.org")
-
-
-# ============================================================================
 # CROSSREF_BATCH_SIZE constant
 # ============================================================================
 
@@ -250,231 +199,28 @@ class TestCrossRefBatchSize:
 
 
 # ============================================================================
-# Integration: CrossRef tier in _fetch_citation_for_paper
+# OpenCitations worker (the only per-paper tier reachable in production)
 # ============================================================================
 
 
-# Mock config loading for aggregate_collect import
-_MOCK_CONFIGS = {
-    "main_config": {
-        "collect_name": "test_collect",
-        "keywords": [["test"], []],
-        "years": [2024],
-        "apis": ["SemanticScholar"],
-        "output_dir": "/tmp/test_output",
-    },
-    "api_config": {},
-}
+class TestOpenCitationsWorker:
+    """The phase-4 worker only calls OpenCitations; SS/CrossRef are earlier phases."""
 
+    @patch("scilex.citations.fetcher.cit_tools.getRefandCitFormatted")
+    def test_worker_returns_counts_and_source(self, mock_oc):
+        from scilex.citations.fetcher import _fetch_opencitations_for_doi
 
-@pytest.fixture(autouse=True)
-def _patch_aggregate_configs():
-    """Ensure aggregate_collect can be imported by mocking config loading."""
-    if "scilex.aggregate_collect" not in sys.modules:
-        with (
-            patch("scilex.crawlers.utils.load_all_configs", return_value=_MOCK_CONFIGS),
-            patch("scilex.logging_config.setup_logging"),
-        ):
-            import scilex.aggregate_collect  # noqa: F401
-    yield
-
-
-def _get_fetch_fn():
-    from scilex.aggregate_collect import _fetch_citation_for_paper
-
-    return _fetch_citation_for_paper
-
-
-class TestCrossRefTierInPipeline:
-    """Test that CrossRef tier is correctly used between SS and OpenCitations."""
-
-    @patch("scilex.aggregate_collect.cit_tools.getRefandCitFormatted")
-    @patch(
-        "scilex.aggregate_collect.cit_tools.getCrossRefCitation", return_value=(25, 12)
-    )
-    @patch("scilex.citations.cache.cache_citation")
-    @patch("scilex.citations.cache.get_cached_citation", return_value=None)
-    def test_crossref_used_when_found(
-        self, mock_cache_get, mock_cache_set, mock_cr, mock_oc
-    ):
-        """When CrossRef returns data, it is used (no OC call)."""
-        fetch = _get_fetch_fn()
-        extras = [""] * 5
-        nb_citeds = [""] * 5
-        nb_citations = [""] * 5
-        stats = {
-            "success": 0,
-            "timeout": 0,
-            "error": 0,
-            "no_doi": 0,
-            "cache_hit": 0,
-            "cache_miss": 0,
-            "ss_used": 0,
-            "cr_used": 0,
-            "opencitations_used": 0,
-        }
-
-        result = fetch(
-            index=2,
-            doi="10.1234/test",
-            stats=stats,
-            checkpoint_interval=None,
-            checkpoint_path=None,
-            extras=extras,
-            nb_citeds=nb_citeds,
-            nb_citations=nb_citations,
-            cache_path="/tmp/test.db",
-            ss_citation_count=None,
-            ss_reference_count=None,
-            crossref_mailto=None,
-        )
-
-        assert result["status"] == "cr_used"
-        assert stats["cr_used"] == 1
-        assert nb_citations[2] == 25
-        assert nb_citeds[2] == 12
-        mock_oc.assert_not_called()  # No OpenCitations call
-        mock_cache_set.assert_called_once()  # Cached for future runs
-
-    @patch("scilex.aggregate_collect.cit_tools.getRefandCitFormatted")
-    @patch("scilex.aggregate_collect.cit_tools.getCrossRefCitation", return_value=None)
-    @patch("scilex.citations.cache.cache_citation")
-    @patch("scilex.citations.cache.get_cached_citation", return_value=None)
-    def test_cr_miss_falls_through_to_opencitations(
-        self, mock_cache_get, mock_cache_set, mock_cr, mock_oc
-    ):
-        """When CrossRef returns None, falls through to OpenCitations."""
         mock_oc.return_value = (
             {"citing": ["a"], "cited": ["b", "c"]},
             {"cit_status": "success", "ref_status": "success"},
         )
 
-        fetch = _get_fetch_fn()
-        extras = [""] * 5
-        nb_citeds = [""] * 5
-        nb_citations = [""] * 5
-        stats = {
-            "success": 0,
-            "timeout": 0,
-            "error": 0,
-            "no_doi": 0,
-            "cache_hit": 0,
-            "cache_miss": 0,
-            "ss_used": 0,
-            "cr_used": 0,
-            "opencitations_used": 0,
-        }
+        result = _fetch_opencitations_for_doi("10.1234/not-in-cr")
 
-        result = fetch(
-            index=1,
-            doi="10.1234/not-in-cr",
-            stats=stats,
-            checkpoint_interval=None,
-            checkpoint_path=None,
-            extras=extras,
-            nb_citeds=nb_citeds,
-            nb_citations=nb_citations,
-            cache_path="/tmp/test.db",
-            ss_citation_count=None,
-            ss_reference_count=None,
-            crossref_mailto=None,
-        )
-
-        assert result["status"] == "success"
-        assert stats["opencitations_used"] == 1
-        assert stats["cr_used"] == 0
-        mock_oc.assert_called_once()
-
-    @patch(
-        "scilex.aggregate_collect.cit_tools.getCrossRefCitation", return_value=(25, 12)
-    )
-    @patch("scilex.citations.cache.cache_citation")
-    @patch("scilex.citations.cache.get_cached_citation", return_value=None)
-    def test_ss_takes_priority_over_crossref(
-        self, mock_cache_get, mock_cache_set, mock_cr
-    ):
-        """SS data (tier 2) is used — CrossRef is never called."""
-        fetch = _get_fetch_fn()
-        extras = [""] * 3
-        nb_citeds = [""] * 3
-        nb_citations = [""] * 3
-        stats = {
-            "success": 0,
-            "timeout": 0,
-            "error": 0,
-            "no_doi": 0,
-            "cache_hit": 0,
-            "cache_miss": 0,
-            "ss_used": 0,
-            "cr_used": 0,
-            "opencitations_used": 0,
-        }
-
-        result = fetch(
-            index=0,
-            doi="10.1234/test",
-            stats=stats,
-            checkpoint_interval=None,
-            checkpoint_path=None,
-            extras=extras,
-            nb_citeds=nb_citeds,
-            nb_citations=nb_citations,
-            cache_path="/tmp/test.db",
-            ss_citation_count=30,
-            ss_reference_count=10,
-            crossref_mailto=None,
-        )
-
-        assert result["status"] == "ss_used"
-        assert stats["ss_used"] == 1
-        assert stats["cr_used"] == 0
-        mock_cr.assert_not_called()  # CrossRef never reached
-        # SS values used
-        assert nb_citations[0] == 30
-        assert nb_citeds[0] == 10
-
-    @patch("scilex.aggregate_collect.cit_tools.getRefandCitFormatted")
-    @patch(
-        "scilex.aggregate_collect.cit_tools.getCrossRefCitation", return_value=(25, 12)
-    )
-    @patch("scilex.citations.cache.cache_citation")
-    @patch("scilex.citations.cache.get_cached_citation", return_value=None)
-    def test_crossref_mailto_passed_through(
-        self, mock_cache_get, mock_cache_set, mock_cr, mock_oc
-    ):
-        """CrossRef is called with the mailto parameter."""
-        fetch = _get_fetch_fn()
-        extras = [""] * 3
-        nb_citeds = [""] * 3
-        nb_citations = [""] * 3
-        stats = {
-            "success": 0,
-            "timeout": 0,
-            "error": 0,
-            "no_doi": 0,
-            "cache_hit": 0,
-            "cache_miss": 0,
-            "ss_used": 0,
-            "cr_used": 0,
-            "opencitations_used": 0,
-        }
-
-        fetch(
-            index=0,
-            doi="10.1234/test",
-            stats=stats,
-            checkpoint_interval=None,
-            checkpoint_path=None,
-            extras=extras,
-            nb_citeds=nb_citeds,
-            nb_citations=nb_citations,
-            cache_path="/tmp/test.db",
-            ss_citation_count=None,
-            ss_reference_count=None,
-            crossref_mailto="user@example.org",
-        )
-
-        mock_cr.assert_called_once_with("10.1234/test", mailto="user@example.org")
+        assert result["nb_citations"] == 1
+        assert result["nb_cited"] == 2
+        assert result["api_stats"]["source"] == "opencitations"
+        mock_oc.assert_called_once_with("10.1234/not-in-cr")
 
 
 # ============================================================================
@@ -509,25 +255,29 @@ class TestGetCachedCitationsBatch:
 
     def test_returns_cached_entries(self, cache_db):
         from scilex.citations.cache import (
-            cache_citation,
+            cache_citations_batch,
             get_cached_citations_batch,
         )
 
         # Populate cache
-        cache_citation(
-            "10.1/a",
-            '{"citing":[]}',
-            5,
-            10,
-            {"cit_status": "success", "ref_status": "success"},
-            cache_db,
-        )
-        cache_citation(
-            "10.1/b",
-            '{"citing":[]}',
-            3,
-            7,
-            {"cit_status": "success", "ref_status": "success"},
+        ok = {"cit_status": "success", "ref_status": "success"}
+        cache_citations_batch(
+            [
+                {
+                    "doi": "10.1/a",
+                    "citations_json": '{"citing":[]}',
+                    "nb_cited": 5,
+                    "nb_citations": 10,
+                    "api_stats": ok,
+                },
+                {
+                    "doi": "10.1/b",
+                    "citations_json": '{"citing":[]}',
+                    "nb_cited": 3,
+                    "nb_citations": 7,
+                    "api_stats": ok,
+                },
+            ],
             cache_db,
         )
 
@@ -599,7 +349,7 @@ class TestCacheCitationsBatch:
     def test_writes_multiple_entries(self, cache_db):
         from scilex.citations.cache import (
             cache_citations_batch,
-            get_cached_citation,
+            get_cached_citations_batch,
         )
 
         entries = [
@@ -620,9 +370,9 @@ class TestCacheCitationsBatch:
         ]
         cache_citations_batch(entries, cache_db)
 
-        # Verify via single lookups
-        x = get_cached_citation("10.1/x", cache_db)
-        y = get_cached_citation("10.1/y", cache_db)
+        found = get_cached_citations_batch(["10.1/x", "10.1/y"], cache_db)
+        x = found.get("10.1/x")
+        y = found.get("10.1/y")
         assert x is not None
         assert x["nb_cited"] == 2
         assert y is not None
@@ -631,18 +381,21 @@ class TestCacheCitationsBatch:
 
     def test_upsert_overwrites_existing(self, cache_db):
         from scilex.citations.cache import (
-            cache_citation,
             cache_citations_batch,
-            get_cached_citation,
+            get_cached_citations_batch,
         )
 
         # Insert initial value
-        cache_citation(
-            "10.1/z",
-            '{"old":true}',
-            1,
-            1,
-            {"cit_status": "success", "ref_status": "success"},
+        cache_citations_batch(
+            [
+                {
+                    "doi": "10.1/z",
+                    "citations_json": '{"old":true}',
+                    "nb_cited": 1,
+                    "nb_citations": 1,
+                    "api_stats": {"cit_status": "success", "ref_status": "success"},
+                }
+            ],
             cache_db,
         )
 
@@ -660,24 +413,24 @@ class TestCacheCitationsBatch:
             cache_db,
         )
 
-        z = get_cached_citation("10.1/z", cache_db)
+        z = get_cached_citations_batch(["10.1/z"], cache_db)["10.1/z"]
         assert z["nb_cited"] == 99
         assert z["citations"] == '{"new":true}'
 
 
 # ============================================================================
-# Phase-based _fetch_citations_parallel integration tests
+# Phase-based fetch_citations_for_dataframe integration tests
 # ============================================================================
 
 
 def _get_parallel_fn():
-    from scilex.aggregate_collect import _fetch_citations_parallel
+    from scilex.citations.fetcher import fetch_citations_for_dataframe
 
-    return _fetch_citations_parallel
+    return fetch_citations_for_dataframe
 
 
 class TestFetchCitationsParallelPhased:
-    """Test the phase-based _fetch_citations_parallel function."""
+    """Test the phase-based fetch_citations_for_dataframe function."""
 
     def _make_df(self, papers):
         """Create a test DataFrame from a list of paper dicts."""
@@ -801,7 +554,7 @@ class TestFetchCitationsParallelPhased:
         mock_cache_write.assert_called()
 
     @patch("scilex.citations.cache.cache_citations_batch")
-    @patch("scilex.aggregate_collect.cit_tools.getCrossRefCitationsBatch")
+    @patch("scilex.citations.fetcher.cit_tools.getCrossRefCitationsBatch")
     @patch("scilex.citations.cache.get_cached_citations_batch", return_value={})
     @patch("scilex.citations.cache.initialize_cache")
     @patch(
@@ -833,11 +586,10 @@ class TestFetchCitationsParallelPhased:
         assert nb_citeds[0] == 15
         mock_cr_batch.assert_called_once()
 
-    @patch("scilex.citations.cache.cache_citation")
-    @patch("scilex.citations.cache.get_cached_citation", return_value=None)
-    @patch("scilex.aggregate_collect.cit_tools.getRefandCitFormatted")
+    @patch("scilex.citations.cache.cache_citations_batch")
+    @patch("scilex.citations.fetcher.cit_tools.getRefandCitFormatted")
     @patch(
-        "scilex.aggregate_collect.cit_tools.getCrossRefCitationsBatch", return_value={}
+        "scilex.citations.fetcher.cit_tools.getCrossRefCitationsBatch", return_value={}
     )
     @patch("scilex.citations.cache.get_cached_citations_batch", return_value={})
     @patch("scilex.citations.cache.initialize_cache")
@@ -852,8 +604,7 @@ class TestFetchCitationsParallelPhased:
         mock_batch_cache,
         mock_cr_batch,
         mock_oc,
-        mock_cache_get,
-        mock_cache_set,
+        mock_cache_write,
     ):
         """Phase 4: OpenCitations used for papers not resolved by phases 1-3."""
         mock_init.return_value = Path("/tmp/test.db")
@@ -888,7 +639,7 @@ class TestFetchCitationsParallelPhased:
         assert stats["success"] == 0
 
     @patch("scilex.citations.cache.cache_citations_batch")
-    @patch("scilex.aggregate_collect.cit_tools.getCrossRefCitationsBatch")
+    @patch("scilex.citations.fetcher.cit_tools.getCrossRefCitationsBatch")
     @patch("scilex.citations.cache.get_cached_citations_batch")
     @patch("scilex.citations.cache.initialize_cache")
     @patch(

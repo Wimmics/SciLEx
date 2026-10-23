@@ -8,13 +8,14 @@ This module provides:
 4. Structured logging utilities
 
 Usage:
-    from scilex.logging_config import setup_logging, get_logger
+    import logging
+    from scilex.logging_config import setup_logging
 
-    # In main script
+    # In the CLI entry point only (never at import time)
     setup_logging()
 
     # In modules
-    logger = get_logger(__name__)
+    logger = logging.getLogger(__name__)
     logger.info("Message")
 """
 
@@ -28,7 +29,6 @@ class Colors:
     """ANSI color codes for terminal output"""
 
     RESET = "\033[0m"
-    BOLD = "\033[1m"
 
     # Levels
     DEBUG = "\033[36m"  # Cyan
@@ -39,9 +39,6 @@ class Colors:
 
     # Components
     API = "\033[94m"  # Light blue
-    PROGRESS = "\033[92m"  # Light green
-    SUCCESS = "\033[92m"  # Light green
-    FAIL = "\033[91m"  # Light red
 
 
 class ColoredFormatter(logging.Formatter):
@@ -69,7 +66,6 @@ class ColoredFormatter(logging.Formatter):
         return super().format(record)
 
 
-
 def setup_logging(
     level: str | None = None,
     use_colors: bool | None = None,
@@ -80,7 +76,8 @@ def setup_logging(
 
     Args:
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-               Defaults to LOG_LEVEL env var or WARNING
+               Defaults to LOG_LEVEL env var or INFO (an invalid value also
+               falls back to INFO)
         use_colors: Enable colored output. Defaults to LOG_COLOR env var or auto-detect
         log_file: Optional file path to write logs to
     """
@@ -88,7 +85,9 @@ def setup_logging(
     if level is None:
         level = os.environ.get("LOG_LEVEL", "INFO").upper()
 
-    log_level = getattr(logging, level, logging.WARNING)
+    log_level = getattr(logging, str(level).upper(), None)
+    if not isinstance(log_level, int):
+        log_level = logging.INFO
 
     # Determine if colors should be used
     if use_colors is None:
@@ -140,7 +139,9 @@ def setup_logging(
     )
 
 
-def add_file_log_handler(log_path: str, level: int = logging.WARNING) -> logging.FileHandler:
+def add_file_log_handler(
+    log_path: str, level: int = logging.WARNING
+) -> logging.FileHandler:
     """
     Attach a file handler to the root logger (appends; no color).
 
@@ -168,20 +169,6 @@ def add_file_log_handler(log_path: str, level: int = logging.WARNING) -> logging
     return handler
 
 
-def get_logger(name: str) -> logging.Logger:
-    """
-    Get a logger instance for a module.
-
-    Args:
-        name: Module name (use __name__)
-
-    Returns:
-        Logger instance
-    """
-    return logging.getLogger(name)
-
-
-
 def log_section(logger: logging.Logger, title: str, level: str = "INFO"):
     """
     Log a section header with visual separator.
@@ -196,5 +183,3 @@ def log_section(logger: logging.Logger, title: str, level: str = "INFO"):
     log_func(separator)
     log_func(title)
     log_func(separator)
-
-

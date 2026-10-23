@@ -15,8 +15,7 @@ class Istex_collector(API_collector):
         self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
-        """
-        Parses the results from a response for a specific page.
+        """Parses the results from a response for a specific page.
 
         Args:
             response (requests.Response): The API response object containing the results.
@@ -48,8 +47,7 @@ class Istex_collector(API_collector):
         return page_data
 
     def get_configurated_url(self):
-        """
-        Constructs the API URL with the search query and filters.
+        """Constructs the API URL with the search query and filters.
 
         Returns:
             str: The formatted API URL with {} placeholder for pagination offset.

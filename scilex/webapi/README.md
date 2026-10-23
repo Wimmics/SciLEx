@@ -326,6 +326,21 @@ curl http://localhost:8000/results/my_collection/stats
 
 ## Configuration
 
+### Configuration files
+
+The server does not need a `scilex.yml`. Each job:
+
+- receives `collection_config` in the request body, in the internal flat format (`collect_name`, `keywords`, `years`, `apis`,
+  `quality_filters`, ...; see the old-to-new table of the
+  [Configuration Reference](../../docs/reference/configuration.md#old-name-to-new-name));
+- writes it to `<output_dir>/_web_job_config.yml` and sets `SCILEX_CONFIG` to that file for the duration of the job, so
+  the pipeline steps resolve their configuration from it (the previous value is restored afterwards).
+
+API keys stored on the server (`/api-config` endpoints) follow `$SCILEX_KEYS` > `~/.config/scilex/keys.yml` >
+legacy `scilex/api.config.yml` (read only if it already exists). With no keys file at all, saving keys creates
+`~/.config/scilex/keys.yml`, never a file inside the package.
+If the request carries no `api_config`, the server-side keys file is used.
+
 ### Output Directory
 
 Configure where results are saved:
@@ -476,7 +491,7 @@ scilex/webapi/
 
 ## Security Notes
 
-- **API Keys**: Stored in `scilex/api.config.yml` (add to `.gitignore`)
+- **API Keys**: Stored in `$SCILEX_KEYS`, else `~/.config/scilex/keys.yml`, else the legacy `scilex/api.config.yml` (never commit it)
 - **Sensitive Data**: Masked in API responses
 - **CORS**: Enabled for all origins (configure in production)
 - **Input Validation**: All user inputs validated

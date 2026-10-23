@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from scilex.citations.citations_tools import (
     countCitations,
     getRefandCitFormatted,

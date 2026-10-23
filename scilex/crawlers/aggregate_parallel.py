@@ -2,20 +2,34 @@
 Parallel aggregation module for paper processing.
 
 Processing stages:
-1. Parallel file loading (threading): Load JSON files, I/O bound
-2. Parallel batch processing (multiprocessing): Convert formats, apply filters
+1. Parallel file loading (ThreadPoolExecutor): Load JSON files, I/O bound
+2. Parallel batch processing (ThreadPoolExecutor): Convert formats, apply filters
 3. Deduplication (serial): DOI-based and normalized title matching (O(n))
 """
 
+import itertools
 import json
 import logging
 import os
-import re
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import partial
 from multiprocessing import cpu_count
 
-_YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
+import pandas as pd
+from tqdm import tqdm
+
+from scilex.constants import (
+    MISSING_VALUE,
+    extract_year,
+    is_valid,
+    normalize_doi,
+    parse_archive_apis,
+    split_semicolon_field,
+)
+from scilex.crawlers.aggregate import FORMAT_CONVERTERS
+from scilex.pipeline.text_filter import record_passes_text_filter
 
 # Raw (pre-conversion) year fields tried in order, covering all supported APIs:
 #   SemanticScholar/DBLP → "year"
@@ -46,28 +60,11 @@ def _extract_raw_year(paper: dict) -> int | None:
     'keep the paper' so we never drop papers with missing dates.
     """
     for field in _RAW_YEAR_FIELDS:
-        val = paper.get(field)
-        if val is None:
-            continue
-        if isinstance(val, int) and 1000 <= val <= 9999:
-            return val
-        m = _YEAR_RE.search(str(val))
-        if m:
-            return int(m.group())
+        year = extract_year(paper.get(field))
+        if year is not None:
+            return year
     return None
 
-
-def _year_from_date(date_str: str) -> int | None:
-    """Extract a 4-digit year from a date string, or return None."""
-    if not date_str or date_str.strip() in ("", "NA", "MISSING"):
-        return None
-    m = _YEAR_RE.search(str(date_str))
-    return int(m.group()) if m else None
-
-import pandas as pd
-from tqdm import tqdm
-
-from scilex.constants import is_valid
 
 # ============================================================================
 # HELPER FUNCTIONS: FILESYSTEM DISCOVERY & QUERY RECONSTRUCTION
@@ -89,9 +86,14 @@ def discover_api_directories(dir_collect: str) -> dict[str, list[str]]:
         Dictionary mapping API names to sorted query index lists
         Example: {"SemanticScholar": ["0", "1", "2"], "OpenAlex": ["0", "1"]}
     """
-    _SKIP_NAMES = {"config_used.yml", "citation_cache.db", "abstract_cache.db",
-                   "abstract_cache.json", "abstract_cache.json.migrated",
-                   "chart_aggregated_papers"}
+    _SKIP_NAMES = {
+        "config_used.yml",
+        "citation_cache.db",
+        "abstract_cache.db",
+        "abstract_cache.json",
+        "abstract_cache.json.migrated",
+        "chart_aggregated_papers",
+    }
 
     api_to_queries = {}
 
@@ -160,67 +162,35 @@ def reconstruct_query_to_keywords_mapping(
             "OpenAlex": {...}
         }
     """
-    import itertools
-
     # Extract configuration
     keywords = config_used.get("keywords", [[]])
     years = config_used.get("years", [])
     apis = config_used.get("apis", [])
 
-    # Step 1: Generate keyword combinations (same logic as queryCompositor)
-    keyword_combinations = []
-    two_list_k = False
-
-    # Check for dual keyword group mode
+    # Step 1: Generate keyword combinations (same logic as queryCompositor).
+    # Each combination is the keyword list recorded for the query.
+    keyword_combinations: list[list[str]] = []
     if len(keywords) == 2 and len(keywords[0]) > 0 and len(keywords[1]) > 0:
         # Dual keyword mode: cartesian product of both groups
-        two_list_k = True
         keyword_combinations = [
             list(pair) for pair in itertools.product(keywords[0], keywords[1])
         ]
     elif (len(keywords) == 2 and len(keywords[0]) > 0 and len(keywords[1]) == 0) or (
         len(keywords) == 1 and len(keywords[0]) > 0
     ):
-        # Single keyword mode
-        keyword_combinations = keywords[0]
+        # Single keyword mode: each keyword is wrapped in its own list
+        keyword_combinations = [[keyword] for keyword in keywords[0]]
 
     logging.debug(f"Reconstructed {len(keyword_combinations)} keyword combinations")
 
-    # Step 2: Generate cartesian product (keywords × years × apis)
-    combinations = itertools.product(keyword_combinations, years, apis)
-
-    # Step 3: Group by API and create query lists
-    queries_by_api = {}
-
-    if two_list_k:
-        # Dual keyword mode: keyword_group is already a list [kw1, kw2]
-        for keyword_group, year, api in combinations:
-            if api not in queries_by_api:
-                queries_by_api[api] = []
-            queries_by_api[api].append(
-                {
-                    "keyword": keyword_group,  # Already a list
-                    "year": year,
-                }
-            )
-    else:
-        # Single keyword mode: wrap single keyword in list
-        for keyword_group, year, api in combinations:
-            if api not in queries_by_api:
-                queries_by_api[api] = []
-            queries_by_api[api].append(
-                {
-                    "keyword": [keyword_group],  # Wrap in list
-                    "year": year,
-                }
-            )
-
-    # Step 4: Create index → keywords mapping
-    mapping = {}
-    for api, queries in queries_by_api.items():
-        mapping[api] = {}
-        for idx, query in enumerate(queries):
-            mapping[api][str(idx)] = query["keyword"]
+    # Step 2: Cartesian product (keywords × years × apis), grouped by API.
+    # The per-API enumeration index is the query index used on disk.
+    mapping: dict[str, dict[str, list[str]]] = {}
+    for keyword_group, _year, api in itertools.product(
+        keyword_combinations, years, apis
+    ):
+        api_queries = mapping.setdefault(api, {})
+        api_queries[str(len(api_queries))] = keyword_group
 
     logging.debug(
         f"Reconstructed mapping for {len(mapping)} APIs with "
@@ -264,17 +234,15 @@ def _load_json_file(
 
         if year_range:
             papers = [
-                p for p in papers
+                p
+                for p in papers
                 if (y := _extract_raw_year(p)) is None or y in year_range
             ]
 
         return (papers, api_name, keywords, len(papers))
 
-    except json.JSONDecodeError as e:
-        logging.error(f"JSON decode error in {file_path}: {e}")
-        return ([], api_name, keywords, 0)
-
     except Exception as e:
+        # Covers json.JSONDecodeError (a ValueError) as well as I/O errors.
         logging.error(f"Error loading {file_path}: {e}")
         return ([], api_name, keywords, 0)
 
@@ -311,8 +279,6 @@ def parallel_load_all_files(
 
     # Collect all file paths and metadata
     file_tasks = []
-
-    logging.info("Using config_used.yml for keyword mapping")
 
     # Step 1: Discover API directories and query indices from filesystem
     api_to_queries = discover_api_directories(dir_collect)
@@ -377,22 +343,26 @@ def parallel_load_all_files(
     start_time = time.time()
     papers_by_api = []
     total_papers = 0
+    papers_per_api: dict[str, int] = {}
 
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        with tqdm(total=n_files, desc="Loading JSON files", unit="file") as pbar:
-            for chunk_start in range(0, n_files, _SUBMIT_CHUNK):
-                chunk = file_tasks[chunk_start : chunk_start + _SUBMIT_CHUNK]
-                futures = [
-                    executor.submit(_load_json_file, fp, api, kw, year_range)
-                    for fp, api, kw in chunk
-                ]
-                for future in as_completed(futures):
-                    papers_list, api_name, keywords, num_papers = future.result()
-                    total_papers += num_papers
-                    for paper in papers_list:
-                        papers_by_api.append((paper, api_name, keywords))
-                    pbar.update(1)
-                # futures list goes out of scope here → GC can reclaim completed Future objects
+    with (
+        ThreadPoolExecutor(max_workers=num_workers) as executor,
+        tqdm(total=n_files, desc="Loading JSON files", unit="file") as pbar,
+    ):
+        for chunk_start in range(0, n_files, _SUBMIT_CHUNK):
+            chunk = file_tasks[chunk_start : chunk_start + _SUBMIT_CHUNK]
+            futures = [
+                executor.submit(_load_json_file, fp, api, kw, year_range)
+                for fp, api, kw in chunk
+            ]
+            for future in as_completed(futures):
+                papers_list, api_name, keywords, num_papers = future.result()
+                total_papers += num_papers
+                papers_per_api[api_name] = papers_per_api.get(api_name, 0) + num_papers
+                for paper in papers_list:
+                    papers_by_api.append((paper, api_name, keywords))
+                pbar.update(1)
+            # futures list goes out of scope here → GC can reclaim completed Future objects
 
     elapsed = time.time() - start_time
 
@@ -400,6 +370,7 @@ def parallel_load_all_files(
     stats = {
         "files_loaded": n_files,
         "total_papers": total_papers,
+        "per_api": papers_per_api,
         "elapsed_seconds": elapsed,
         "files_per_second": n_files / elapsed if elapsed > 0 else 0,
         "papers_per_second": total_papers / elapsed if elapsed > 0 else 0,
@@ -420,16 +391,20 @@ def parallel_load_all_files(
 # ============================================================================
 
 
-def _process_batch_worker(
-    args: tuple[list[tuple], str, list, dict | None, dict | None],
-) -> list[dict]:
-    """
-    Worker function to process a batch of papers (spawn-safe, module-level).
+def _process_batch(
+    batch: list[tuple[dict, str, list[str]]],
+    keyword_groups: list[list[str]] | None = None,
+    bonus_keywords: list[str] | None = None,
+    cached_abstracts: dict[str, str] | None = None,
+    pre_filters: dict | None = None,
+    apply_text_filter: bool = True,
+) -> tuple[list[dict], Counter]:
+    """Convert and filter one batch, counting converter failures per API.
 
     Args:
-        args: Tuple of (batch, keyword_groups, bonus_keywords,
-                        cached_abstracts, pre_filters)
-
+        batch: (raw paper dict, API name, keywords used) triples.
+        keyword_groups: keyword groups for the text filter.
+        bonus_keywords: optional bonus keywords for the text filter.
         cached_abstracts: optional DOI → abstract dict (cache-only mode).
         pre_filters: optional dict with early rejection criteria applied right
                      after format conversion, before the more expensive text
@@ -439,53 +414,17 @@ def _process_batch_worker(
                                               kept (conservative).
                        "allowed_item_types" – set[str] of allowed itemType
                                               values; empty set = no filter.
+        apply_text_filter: when False, papers are only converted (and
+                     pre-filtered), never keyword-filtered. Defaults to True.
 
     Returns:
-        List of processed paper dictionaries
+        Tuple of (processed paper dicts, per-API converter error counts)
     """
-    batch, keyword_groups, bonus_keywords, cached_abstracts, pre_filters = args
-
     year_range: set[int] = (pre_filters or {}).get("year_range", set())
     allowed_item_types: set[str] = (pre_filters or {}).get("allowed_item_types", set())
 
-    # Import format converters (in worker to avoid pickling issues)
-    from scilex.crawlers.aggregate import (
-        ArxivtoZoteroFormat,
-        DBLPtoZoteroFormat,
-        ElseviertoZoteroFormat,
-        HALtoZoteroFormat,
-        IEEEtoZoteroFormat,
-        IstextoZoteroFormat,
-        OpenAIREtoZoteroFormat,
-        OpenAlextoZoteroFormat,
-        ORKGtoZoteroFormat,
-        PubMedCentraltoZoteroFormat,
-        PubMedtoZoteroFormat,
-        SemanticScholartoZoteroFormat,
-        SpringertoZoteroFormat,
-    )
-
-    FORMAT_CONVERTERS = {
-        "SemanticScholar": SemanticScholartoZoteroFormat,
-        "OpenAlex": OpenAlextoZoteroFormat,
-        "IEEE": IEEEtoZoteroFormat,
-        "Elsevier": ElseviertoZoteroFormat,
-        "Springer": SpringertoZoteroFormat,
-        "HAL": HALtoZoteroFormat,
-        "DBLP": DBLPtoZoteroFormat,
-        "Istex": IstextoZoteroFormat,
-        "Arxiv": ArxivtoZoteroFormat,
-        "PubMed": PubMedtoZoteroFormat,
-        "PubMedCentral": PubMedCentraltoZoteroFormat,
-        "OpenAIRE": OpenAIREtoZoteroFormat,
-        "ORKG": ORKGtoZoteroFormat,
-    }
-
-    # Import helpers
-    from scilex.aggregate_collect import _record_passes_text_filter
-    from scilex.constants import MISSING_VALUE, is_valid
-
     results = []
+    converter_errors: Counter = Counter()
 
     for paper, api_name, keywords in batch:
         if api_name not in FORMAT_CONVERTERS:
@@ -502,13 +441,7 @@ def _process_batch_worker(
             if cached_abstracts and not is_valid(converted.get("abstract")):
                 doi = converted.get("DOI")
                 if is_valid(doi):
-                    doi_key = (
-                        str(doi)
-                        .replace("https://doi.org/", "")
-                        .replace("http://doi.org/", "")
-                        .strip()
-                        .lower()
-                    )
+                    doi_key = normalize_doi(doi)
                     cached = cached_abstracts.get(doi_key)
                     if cached:
                         converted["abstract"] = cached
@@ -518,7 +451,7 @@ def _process_batch_worker(
             # Year range: skip papers outside allowed years.
             # Papers with unknown/missing dates are kept (conservative).
             if year_range:
-                year = _year_from_date(converted.get("date", ""))
+                year = extract_year(converted.get("date"))
                 if year is not None and year not in year_range:
                     continue
 
@@ -537,8 +470,7 @@ def _process_batch_worker(
             else:
                 converted["collect_keywords"] = ""
 
-            # Apply text filtering
-            if _record_passes_text_filter(
+            if not apply_text_filter or record_passes_text_filter(
                 converted,
                 keywords,
                 keyword_groups=keyword_groups,
@@ -547,10 +479,10 @@ def _process_batch_worker(
                 results.append(converted)
 
         except Exception as e:
+            converter_errors[api_name] += 1
             logging.debug(f"Error converting paper from {api_name}: {e}")
-            continue
 
-    return results
+    return results, converter_errors
 
 
 def parallel_process_papers(
@@ -561,6 +493,7 @@ def parallel_process_papers(
     bonus_keywords: list | None = None,
     cached_abstracts: dict | None = None,
     pre_filters: dict | None = None,
+    apply_text_filter: bool = True,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Process papers in parallel batches (convert format + text filtering).
@@ -575,11 +508,13 @@ def parallel_process_papers(
         pre_filters: Optional dict with early rejection criteria (year_range,
                      allowed_item_types).  Applied before text filtering to
                      reduce the number of papers that reach expensive stages.
+        apply_text_filter: When False, papers are converted but not keyword-filtered.
 
     Returns:
         Tuple of:
         - DataFrame with processed papers
-        - Statistics dictionary
+        - Statistics dictionary (includes ``converter_errors``: API → number
+          of papers whose format conversion raised)
     """
     if num_workers is None:
         num_workers = max(1, cpu_count() - 1)
@@ -596,9 +531,18 @@ def parallel_process_papers(
     batches = []
     for i in range(0, len(papers_by_api), batch_size):
         batch = papers_by_api[i : i + batch_size]
-        batches.append((batch, keyword_groups, bonus_keywords, cached_abstracts, pre_filters))
+        batches.append(batch)
 
     logging.info(f"Processing {len(papers_by_api):,} papers in {len(batches)} batches")
+
+    process_one_batch = partial(
+        _process_batch,
+        keyword_groups=keyword_groups,
+        bonus_keywords=bonus_keywords,
+        cached_abstracts=cached_abstracts,
+        pre_filters=pre_filters,
+        apply_text_filter=apply_text_filter,
+    )
 
     # Process batches in parallel
     start_time = time.time()
@@ -607,16 +551,24 @@ def parallel_process_papers(
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         results = list(
             tqdm(
-                executor.map(_process_batch_worker, batches),
+                executor.map(process_one_batch, batches),
                 total=len(batches),
                 desc="Processing papers",
                 unit="batch",
             )
         )
 
-    # Flatten results
-    for batch_results in results:
+    # Flatten results and merge per-API converter error counts
+    converter_errors: Counter = Counter()
+    for batch_results, batch_errors in results:
         all_results.extend(batch_results)
+        converter_errors.update(batch_errors)
+
+    for api_name, n_errors in sorted(converter_errors.items()):
+        logging.warning(
+            f"{api_name}: {n_errors:,} paper(s) dropped because format conversion "
+            f"raised an error (run with LOG_LEVEL=DEBUG for details)"
+        )
 
     elapsed = time.time() - start_time
 
@@ -633,6 +585,7 @@ def parallel_process_papers(
         else 0,
         "elapsed_seconds": elapsed,
         "papers_per_second": len(papers_by_api) / elapsed if elapsed > 0 else 0,
+        "converter_errors": dict(converter_errors),
     }
 
     logging.info(f"Processed {len(papers_by_api):,} papers in {elapsed:.1f}s")
@@ -662,10 +615,8 @@ def _merge_collect_keywords(kw_strings: list[str]) -> str:
     seen: dict[str, None] = {}
     for kw_str in kw_strings:
         if kw_str:
-            for tag in kw_str.split(";"):
-                tag = tag.strip()
-                if tag:
-                    seen[tag] = None
+            for tag in split_semicolon_field(kw_str):
+                seen[tag] = None
     return ";".join(seen.keys())
 
 
@@ -711,6 +662,78 @@ def _merge_archives_for_duplicates(archives: list[str], winner_archive: str) -> 
     return ";".join([a + "*" if a == winner_archive else a for a in unique_archives])
 
 
+_WINNER_COLUMN = "_winner_archive"
+
+
+def _dedup_by_key(
+    df: pd.DataFrame, key_col: str, is_valid_key=is_valid
+) -> tuple[pd.DataFrame, int]:
+    """Drop duplicates on `key_col`, keeping the best record and merging provenance.
+
+    Rows are expected to carry `_dedup_quality` (best record is kept) and
+    `_winner_archive` (the API the kept record originally came from, so the
+    winner star stays correct across successive dedup passes). Rows whose key
+    is not valid are passed through untouched.
+
+    For each group of duplicates:
+    - `archive` becomes the merged list with the winner starred ("A*;B");
+    - `collect_keywords` (if present) becomes the union of all query tags.
+
+    Args:
+        df: DataFrame to deduplicate.
+        key_col: Column holding the dedup key (e.g. "DOI", "title_normalized").
+        is_valid_key: Predicate telling whether a key value is usable.
+
+    Returns:
+        Tuple of (deduplicated DataFrame, number of rows removed).
+    """
+    if df.empty or key_col not in df.columns:
+        return df, 0
+
+    valid_mask = df[key_col].apply(is_valid_key).astype(bool)
+    keyed = df[valid_mask]
+    unkeyed = df[~valid_mask]
+    if keyed.empty:
+        return df, 0
+
+    groups = keyed.groupby(key_col, sort=False)
+    group_sizes = groups.size().to_dict()
+    key_to_archives = groups["archive"].apply(list).to_dict()
+    key_to_keywords = (
+        groups["collect_keywords"].apply(list).to_dict()
+        if "collect_keywords" in keyed.columns
+        else None
+    )
+
+    # Best record first so drop_duplicates(keep="first") keeps it
+    kept = keyed.sort_values("_dedup_quality", ascending=False).drop_duplicates(
+        subset=[key_col], keep="first"
+    )
+    removed = len(keyed) - len(kept)
+
+    merged_archives = []
+    for key, own_archive, winner in zip(
+        kept[key_col], kept["archive"], kept[_WINNER_COLUMN], strict=True
+    ):
+        names = [n for cell in key_to_archives[key] for n in parse_archive_apis(cell)]
+        names = list(dict.fromkeys(names))
+        if group_sizes[key] > 1 or len(names) > 1:
+            merged_archives.append(
+                _merge_archives_for_duplicates(names, winner) if names else own_archive
+            )
+        else:
+            merged_archives.append(own_archive)
+    kept = kept.copy()
+    kept["archive"] = merged_archives
+
+    if key_to_keywords is not None:
+        kept["collect_keywords"] = [
+            _merge_collect_keywords(key_to_keywords[key]) for key in kept[key_col]
+        ]
+
+    return pd.concat([kept, unkeyed], ignore_index=True), removed
+
+
 def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """
     Simple, fast deduplication using hash-based exact matching.
@@ -742,164 +765,42 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     initial_count = len(df)
     df_output = df.copy()
 
-    # Compute quality once — used to sort before drop_duplicates so "first" = best
+    # Temporary bookkeeping columns, dropped before returning:
+    # - quality: sort key so "first" duplicate = most complete record
+    # - winner: API of the record that survives, tracked explicitly so that the
+    #   archive star stays right when DOI and title merges stack up
     df_output["_dedup_quality"] = _compute_dedup_quality(df_output)
+    added_archive_column = "archive" not in df_output.columns
+    if added_archive_column:
+        df_output["archive"] = MISSING_VALUE
+    df_output[_WINNER_COLUMN] = df_output["archive"].apply(
+        lambda cell: (parse_archive_apis(cell) or [None])[0]
+    )
 
-    # ========================================================================
     # STEP 1: DOI-based deduplication
-    # ========================================================================
+    df_output, doi_removed = _dedup_by_key(df_output, "DOI")
+    logging.info(f"DOI deduplication: removed {doi_removed:,} duplicates")
 
-    # Separate papers with valid vs missing DOIs
-    has_valid_doi = df_output["DOI"].apply(is_valid)
-    papers_with_doi = df_output[has_valid_doi].copy()
-    papers_without_doi = df_output[~has_valid_doi].copy()
-
-    valid_dois = len(papers_with_doi)
-
-    # Create DOI → archives/keywords mappings BEFORE dedup
-    doi_to_archives = papers_with_doi.groupby("DOI")["archive"].apply(list).to_dict()
-    has_kw_col = "collect_keywords" in papers_with_doi.columns
-    if has_kw_col:
-        doi_to_keywords = (
-            papers_with_doi.groupby("DOI")["collect_keywords"].apply(list).to_dict()
-        )
-
-    # Sort by quality descending so drop_duplicates(keep="first") keeps the best record
-    papers_with_doi = papers_with_doi.sort_values("_dedup_quality", ascending=False)
-    logging.info(
-        f"DOI dedup: sorted {len(papers_with_doi):,} papers by metadata quality "
-        f"(range {papers_with_doi['_dedup_quality'].min()}-{papers_with_doi['_dedup_quality'].max()})"
-    )
-
-    # Drop duplicates ONLY among papers with valid DOIs
-    doi_before = len(papers_with_doi)
-    papers_with_doi = papers_with_doi.drop_duplicates(subset=["DOI"], keep="first")
-    doi_removed = doi_before - len(papers_with_doi)
-
-    # Merge archives for DOI duplicates (preserves info about which APIs found the paper)
-    def merge_doi_archives(row):
-        doi = row["DOI"]
-        if doi in doi_to_archives:
-            archives = doi_to_archives[doi]
-            if len(archives) > 1:
-                return _merge_archives_for_duplicates(archives, row["archive"])
-        return row["archive"]
-
-    papers_with_doi["archive"] = papers_with_doi.apply(merge_doi_archives, axis=1)
-
-    # Merge collect_keywords across DOI duplicates so no query tag is lost
-    if has_kw_col:
-        def merge_doi_keywords(row):
-            doi = row["DOI"]
-            return _merge_collect_keywords(doi_to_keywords.get(doi, [row["collect_keywords"]]))
-
-        papers_with_doi["collect_keywords"] = papers_with_doi.apply(
-            merge_doi_keywords, axis=1
-        )
-
-    # Recombine: deduplicated papers with DOI + all papers without DOI
-    df_output = pd.concat([papers_with_doi, papers_without_doi], ignore_index=True)
-
-    logging.info(
-        f"DOI deduplication: {valid_dois:,} valid DOIs, removed {doi_removed:,} duplicates"
-    )
-
-    # ========================================================================
     # STEP 2: Normalized title deduplication
-    # ========================================================================
-
-    # Create normalized title column (lowercase, stripped, no punctuation)
-    df_output["title_normalized"] = (
-        df_output["title"]
-        .fillna("")
-        .str.lower()
-        .str.strip()
-        .str.replace(r"[^\w\s]", "", regex=True)  # Remove punctuation
-        .str.replace(r"\s+", " ", regex=True)  # Normalize whitespace
-    )
-
-    # Separate papers with valid vs missing titles
-    has_valid_title = df_output["title_normalized"] != ""
-    papers_with_title = df_output[has_valid_title].copy()
-    papers_without_title = df_output[~has_valid_title].copy()
-
-    valid_titles = len(papers_with_title)
-
-    # Create title → archives/keywords mappings BEFORE dedup
-    title_to_archives = (
-        papers_with_title.groupby("title_normalized")["archive"].apply(list).to_dict()
-    )
-    has_kw_col_title = "collect_keywords" in papers_with_title.columns
-    if has_kw_col_title:
-        title_to_keywords = (
-            papers_with_title.groupby("title_normalized")["collect_keywords"]
-            .apply(list)
-            .to_dict()
+    if "title" in df_output.columns:
+        df_output["title_normalized"] = (
+            df_output["title"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+            .str.strip()
+            .str.replace(r"[^\w\s]", "", regex=True)  # Remove punctuation
+            .str.replace(r"\s+", " ", regex=True)  # Normalize whitespace
         )
-
-    # Sort by quality descending so drop_duplicates(keep="first") keeps the best record
-    papers_with_title = papers_with_title.sort_values("_dedup_quality", ascending=False)
-    logging.info(
-        f"Title dedup: sorted {len(papers_with_title):,} papers by metadata quality "
-        f"(range {papers_with_title['_dedup_quality'].min()}-{papers_with_title['_dedup_quality'].max()})"
-    )
-
-    # Drop duplicates ONLY among papers with valid titles
-    title_before = len(papers_with_title)
-    papers_with_title = papers_with_title.drop_duplicates(
-        subset=["title_normalized"], keep="first"
-    )
-    title_removed = title_before - len(papers_with_title)
-
-    # Merge archives for title duplicates (combines with existing DOI-merged archives)
-    def merge_title_archives(row):
-        title = row["title_normalized"]
-        if title in title_to_archives:
-            archives_from_title = title_to_archives[title]
-            # Parse existing archive field (may already be merged from DOI dedup)
-            existing = row["archive"].split(";")
-            existing = [
-                a.replace("*", "") for a in existing
-            ]  # Remove existing asterisks
-            # Combine: existing + new archives not already present
-            all_archives = existing + [
-                a for a in archives_from_title if a not in existing
-            ]
-            if len(all_archives) > 1:
-                # Re-mark the winner (first in existing list, i.e., the kept record)
-                winner = existing[0] if existing else archives_from_title[0]
-                return _merge_archives_for_duplicates(all_archives, winner)
-        return row["archive"]
-
-    papers_with_title["archive"] = papers_with_title.apply(merge_title_archives, axis=1)
-
-    # Merge collect_keywords across title duplicates so no query tag is lost
-    if has_kw_col_title:
-        def merge_title_keywords(row):
-            title = row["title_normalized"]
-            return _merge_collect_keywords(
-                title_to_keywords.get(title, [row["collect_keywords"]])
-            )
-
-        papers_with_title["collect_keywords"] = papers_with_title.apply(
-            merge_title_keywords, axis=1
+        df_output, title_removed = _dedup_by_key(
+            df_output, "title_normalized", is_valid_key=lambda title: title != ""
         )
+        df_output = df_output.drop(columns=["title_normalized"])
+    else:
+        title_removed = 0
+    logging.info(f"Title deduplication: removed {title_removed:,} duplicates")
 
-    # Recombine: deduplicated papers with title + all papers without title
-    # Drop the temporary normalized column before concat
-    papers_with_title = papers_with_title.drop(columns=["title_normalized"])
-    if "title_normalized" in papers_without_title.columns:
-        papers_without_title = papers_without_title.drop(columns=["title_normalized"])
-    df_output = pd.concat([papers_with_title, papers_without_title], ignore_index=True)
-
-    logging.info(
-        f"Title deduplication: {valid_titles:,} valid titles, removed {title_removed:,} duplicates"
-    )
-
-    # ========================================================================
     # Final statistics
-    # ========================================================================
-
     elapsed = time.time() - start_time
     final_count = len(df_output)
     total_removed = initial_count - final_count
@@ -922,13 +823,10 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         f"Deduplication took {elapsed:.2f}s ({stats['papers_per_second']:.1f} papers/sec)"
     )
 
-    # Drop temporary quality column
-    if "_dedup_quality" in df_output.columns:
-        df_output = df_output.drop(columns=["_dedup_quality"])
-
-    # Reset index
-    df_output = df_output.reset_index(drop=True)
-
+    temporary_columns = ["_dedup_quality", _WINNER_COLUMN]
+    if added_archive_column:
+        temporary_columns.append("archive")
+    df_output = df_output.drop(columns=temporary_columns)
     return df_output, stats
 
 
@@ -948,6 +846,7 @@ def parallel_aggregate(
     bonus_keywords: list | None = None,
     cached_abstracts: dict | None = None,
     pre_filters: dict | None = None,
+    since_collect_dirs: list[str] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Main parallel aggregation function (orchestrates all phases).
@@ -955,12 +854,15 @@ def parallel_aggregate(
     Args:
         dir_collect: Base collection directory
         config_used: Configuration dictionary from config_used.yml
-        txt_filters: Enable text filtering
+        txt_filters: Enable keyword text filtering; when False papers are only
+            converted (early pre_filters still apply)
         num_workers: Number of parallel workers for batch processing
         batch_size: Papers per batch
         keyword_groups: Optional list of keyword groups from config (for dual-group mode)
         load_workers: Number of parallel workers for file loading (default: 4)
         bonus_keywords: Optional list of bonus keywords used as flexible Group 2 fallback
+        since_collect_dirs: Optional ``<collect>_since_<date>`` directories merged into
+            the collection (date post-filtered; overlaps removed by deduplication)
 
     Returns:
         Tuple of:
@@ -993,6 +895,17 @@ def parallel_aggregate(
     )
     combined_stats["loading"] = load_stats
 
+    if since_collect_dirs:
+        from scilex.since_utils import load_since_collection_papers
+
+        for since_dir in since_collect_dirs:
+            since_papers = load_since_collection_papers(since_dir)
+            papers_by_api.extend(since_papers)
+            load_stats["total_papers"] += len(since_papers)
+            per_api = load_stats.setdefault("per_api", {})
+            for _paper, api_name, _kw in since_papers:
+                per_api[api_name] = per_api.get(api_name, 0) + 1
+
     if not papers_by_api:
         logging.error("No papers loaded. Check collection directory and state file.")
         return pd.DataFrame(), combined_stats
@@ -1001,25 +914,21 @@ def parallel_aggregate(
     # PHASE 2: PARALLEL BATCH PROCESSING
     # ========================================================================
 
-    if txt_filters:
-        logging.info(
-            "\n--- Phase 2: Parallel Batch Processing (with text filtering) ---"
-        )
-        df, process_stats = parallel_process_papers(
-            papers_by_api,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            keyword_groups=keyword_groups,
-            bonus_keywords=bonus_keywords,
-            cached_abstracts=cached_abstracts,
-            pre_filters=pre_filters,
-        )
-        combined_stats["processing"] = process_stats
-    else:
-        # No filtering - just convert formats
-        logging.info("\n--- Phase 2: Format Conversion (no filtering) ---")
-        # TODO: Implement format-only conversion without filtering (currently unsupported - use filter_enabled=True)
-        df = pd.DataFrame()
+    logging.info(
+        "\n--- Phase 2: Parallel Batch Processing "
+        + ("(with text filtering) ---" if txt_filters else "(no text filtering) ---")
+    )
+    df, process_stats = parallel_process_papers(
+        papers_by_api,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        keyword_groups=keyword_groups,
+        bonus_keywords=bonus_keywords,
+        cached_abstracts=cached_abstracts,
+        pre_filters=pre_filters,
+        apply_text_filter=txt_filters,
+    )
+    combined_stats["processing"] = process_stats
 
     if df.empty:
         logging.warning("No papers after processing. Check filtering criteria.")

@@ -1,7 +1,6 @@
 """Tests for generate_keyword_validation_report in scilex/keyword_validation.py"""
 
 import pandas as pd
-import pytest
 
 from scilex.keyword_validation import generate_keyword_validation_report
 
