@@ -52,7 +52,13 @@ class JobPanel:
             else None
         )
         self._tail: list[str] = []
-        self._watched_active: str | None = None
+        # Jobs already finished when the page opened are not reported again;
+        # any other job is reported once it ends, even if it ended between two
+        # ticks (a fast export can start and finish within 0.5 s).
+        existing = self.job
+        self._reported: set[str] = (
+            {existing.id} if existing is not None and not existing.is_active else set()
+        )
         self.refresh()
         ui.timer(0.5, self.refresh)
 
@@ -81,10 +87,8 @@ class JobPanel:
         self.progress.value = job.progress / 100
         self.message.text = job.message
         self._append_new_logs(job)
-        if job.is_active:
-            self._watched_active = job.id
-        elif self._watched_active == job.id:
-            self._watched_active = None
+        if not job.is_active and job.id not in self._reported:
+            self._reported.add(job.id)
             if self.on_finished is not None:
                 self.on_finished(job)
 
