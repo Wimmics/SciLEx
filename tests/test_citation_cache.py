@@ -35,16 +35,32 @@ def test_normalize_doi(raw, expected):
 
 
 def _store(doi, path, cit="success", ref="success"):
-    cache.cache_citation(
-        doi, "{}", 1, 2, {"cit_status": cit, "ref_status": ref}, cache_path=path
+    cache.cache_citations_batch(
+        [
+            {
+                "doi": doi,
+                "citations_json": "{}",
+                "nb_cited": 1,
+                "nb_citations": 2,
+                "api_stats": {"cit_status": cit, "ref_status": ref},
+            }
+        ],
+        path,
     )
 
 
-def test_single_lookup_hits_across_doi_spellings(tmp_path):
+def test_lookup_hits_across_doi_spellings(tmp_path):
     path = cache.initialize_cache(tmp_path / "c.db")
     _store("10.1/ABC", path)
-    assert cache.get_cached_citation("https://doi.org/10.1/abc", path) is not None
-    assert cache.get_cached_citation("doi:10.1/Abc", path)["nb_cited"] == 1
+    assert "https://doi.org/10.1/abc" in cache.get_cached_citations_batch(
+        ["https://doi.org/10.1/abc"], path
+    )
+    assert (
+        cache.get_cached_citations_batch(["doi:10.1/Abc"], path)["doi:10.1/Abc"][
+            "nb_cited"
+        ]
+        == 1
+    )
 
 
 def test_batch_roundtrip_with_mixed_spellings(tmp_path):
@@ -64,16 +80,15 @@ def test_batch_roundtrip_with_mixed_spellings(tmp_path):
     found = cache.get_cached_citations_batch(["10.1/x", "10.9/none"], path)
     assert list(found) == ["10.1/x"]
     assert found["10.1/x"]["nb_cited"] == 3
-    # Single lookup sees the batch-written entry too
-    assert cache.get_cached_citation("10.1/X", path)["nb_citations"] == 4
+    assert found["10.1/x"]["nb_citations"] == 4
 
 
 def test_different_paths_get_different_connections(tmp_path):
     path_a = cache.initialize_cache(tmp_path / "a.db")
     path_b = cache.initialize_cache(tmp_path / "b.db")
     _store("10.1/a", path_a)
-    assert cache.get_cached_citation("10.1/a", path_b) is None
-    assert cache.get_cached_citation("10.1/a", path_a) is not None
+    assert cache.get_cached_citations_batch(["10.1/a"], path_b) == {}
+    assert "10.1/a" in cache.get_cached_citations_batch(["10.1/a"], path_a)
 
 
 def test_close_connections_closes_other_threads(tmp_path):

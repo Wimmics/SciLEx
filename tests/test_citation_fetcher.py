@@ -125,9 +125,7 @@ class TestCacheDisabled:
     def test_no_cache_call_when_disabled(self, _cr, _oc):
         with (
             patch("scilex.citations.cache.initialize_cache") as init,
-            patch("scilex.citations.cache.get_cached_citation") as get_one,
             patch("scilex.citations.cache.get_cached_citations_batch") as get_batch,
-            patch("scilex.citations.cache.cache_citation") as put_one,
             patch("scilex.citations.cache.cache_citations_batch") as put_batch,
         ):
             _, _, _, stats = _run(
@@ -135,7 +133,7 @@ class TestCacheDisabled:
                 use_cache=False,
             )
 
-        for mocked in (init, get_one, get_batch, put_one, put_batch):
+        for mocked in (init, get_batch, put_batch):
             mocked.assert_not_called()
         assert stats["opencitations_used"] == 1
         assert stats["cache_miss"] == 0
@@ -151,12 +149,10 @@ class TestCacheGating:
         with (
             patch(f"{CIT}.getRefandCitFormatted", return_value=OC_TIMEOUT),
             patch("scilex.citations.cache.cache_citations_batch") as put_batch,
-            patch("scilex.citations.cache.cache_citation") as put_one,
         ):
             _, _, _, stats = _run(_df(["10.1/a"]), use_cache=True)
 
         put_batch.assert_not_called()
-        put_one.assert_not_called()
         assert stats["timeout"] == 1
         assert stats["success"] == 0
 

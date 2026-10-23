@@ -307,25 +307,29 @@ class TestGetCachedCitationsBatch:
 
     def test_returns_cached_entries(self, cache_db):
         from scilex.citations.cache import (
-            cache_citation,
+            cache_citations_batch,
             get_cached_citations_batch,
         )
 
         # Populate cache
-        cache_citation(
-            "10.1/a",
-            '{"citing":[]}',
-            5,
-            10,
-            {"cit_status": "success", "ref_status": "success"},
-            cache_db,
-        )
-        cache_citation(
-            "10.1/b",
-            '{"citing":[]}',
-            3,
-            7,
-            {"cit_status": "success", "ref_status": "success"},
+        ok = {"cit_status": "success", "ref_status": "success"}
+        cache_citations_batch(
+            [
+                {
+                    "doi": "10.1/a",
+                    "citations_json": '{"citing":[]}',
+                    "nb_cited": 5,
+                    "nb_citations": 10,
+                    "api_stats": ok,
+                },
+                {
+                    "doi": "10.1/b",
+                    "citations_json": '{"citing":[]}',
+                    "nb_cited": 3,
+                    "nb_citations": 7,
+                    "api_stats": ok,
+                },
+            ],
             cache_db,
         )
 
@@ -397,7 +401,7 @@ class TestCacheCitationsBatch:
     def test_writes_multiple_entries(self, cache_db):
         from scilex.citations.cache import (
             cache_citations_batch,
-            get_cached_citation,
+            get_cached_citations_batch,
         )
 
         entries = [
@@ -418,9 +422,9 @@ class TestCacheCitationsBatch:
         ]
         cache_citations_batch(entries, cache_db)
 
-        # Verify via single lookups
-        x = get_cached_citation("10.1/x", cache_db)
-        y = get_cached_citation("10.1/y", cache_db)
+        found = get_cached_citations_batch(["10.1/x", "10.1/y"], cache_db)
+        x = found.get("10.1/x")
+        y = found.get("10.1/y")
         assert x is not None
         assert x["nb_cited"] == 2
         assert y is not None
@@ -429,18 +433,21 @@ class TestCacheCitationsBatch:
 
     def test_upsert_overwrites_existing(self, cache_db):
         from scilex.citations.cache import (
-            cache_citation,
             cache_citations_batch,
-            get_cached_citation,
+            get_cached_citations_batch,
         )
 
         # Insert initial value
-        cache_citation(
-            "10.1/z",
-            '{"old":true}',
-            1,
-            1,
-            {"cit_status": "success", "ref_status": "success"},
+        cache_citations_batch(
+            [
+                {
+                    "doi": "10.1/z",
+                    "citations_json": '{"old":true}',
+                    "nb_cited": 1,
+                    "nb_citations": 1,
+                    "api_stats": {"cit_status": "success", "ref_status": "success"},
+                }
+            ],
             cache_db,
         )
 
@@ -458,7 +465,7 @@ class TestCacheCitationsBatch:
             cache_db,
         )
 
-        z = get_cached_citation("10.1/z", cache_db)
+        z = get_cached_citations_batch(["10.1/z"], cache_db)["10.1/z"]
         assert z["nb_cited"] == 99
         assert z["citations"] == '{"new":true}'
 
