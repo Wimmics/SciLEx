@@ -1,5 +1,6 @@
 """Simulated UI tests of the desktop GUI (no browser, no window)."""
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -70,7 +71,15 @@ async def test_run_pipeline_enables_screening(ctx, tmp_path):
         await user.should_see("Completed", retries=50)
         assert ctx.workspace.get(review.id).has_results
 
-        await user.open(f"/review/{review.id}/screen")
+        # The sidebar unlocks ③ Screen by itself, without reloading the page.
+        screen_button = user.find(marker="step-screen").elements.pop()
+        for _ in range(30):
+            if screen_button.enabled:
+                break
+            await asyncio.sleep(0.1)
+        assert screen_button.enabled
+
+        user.find(marker="step-screen").click()
         await user.should_see("Coming in lot 3")
 
 

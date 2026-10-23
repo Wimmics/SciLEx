@@ -27,6 +27,7 @@ PIPELINE_STEPS = (
 EXTRA_STEPS = (Step("keys", "API keys", "key"),)
 STEPS = {step.key: step for step in (*PIPELINE_STEPS, *EXTRA_STEPS)}
 DEFAULT_STEP = "collect"
+RESULTS_POLL_SECONDS = 1.0
 NEEDS_RESULTS_HINT = "Available once a collection has been aggregated (step ②)."
 
 
@@ -36,19 +37,43 @@ def is_enabled(step: Step, review: Review) -> bool:
 
 
 def render_sidebar(review: Review, active: str) -> None:
-    """Draw the steps of ``review``, highlighting ``active``."""
+    """Draw the steps of ``review``, highlighting ``active``.
+
+    Steps that need results unlock by themselves as soon as the aggregation
+    writes its results file (checked every second), without a page reload.
+    """
+    locked: list[ui.button] = []
     with ui.column().classes("w-52 gap-1 shrink-0"):
         for step in PIPELINE_STEPS:
-            _step_button(review, step, active)
+            _step_button(review, step, active, locked)
         ui.separator()
         for step in EXTRA_STEPS:
-            _step_button(review, step, active)
+            _step_button(review, step, active, locked)
         ui.button(
             "My reviews", icon="folder_open", on_click=lambda: ui.navigate.to("/")
         ).props("flat align=left no-caps").classes("w-full")
 
+    if not locked:
+        return
 
-def _step_button(review: Review, step: Step, active: str) -> None:
+    def unlock_when_results_exist() -> None:
+        if not review.has_results:
+            return
+        for button in locked:
+            button.enable()
+            for tooltip in [
+                c for c in button.default_slot.children if isinstance(c, ui.tooltip)
+            ]:
+                tooltip.delete()
+        locked.clear()
+        timer.cancel()
+
+    timer = ui.timer(RESULTS_POLL_SECONDS, unlock_when_results_exist)
+
+
+def _step_button(
+    review: Review, step: Step, active: str, locked: list[ui.button]
+) -> None:
     button = ui.button(
         step.label,
         icon=step.icon,
@@ -58,3 +83,4 @@ def _step_button(review: Review, step: Step, active: str) -> None:
     if not is_enabled(step, review):
         button.disable()
         button.tooltip(NEEDS_RESULTS_HINT)
+        locked.append(button)
