@@ -24,6 +24,85 @@ def _label_of(name: str) -> str:
     return name.replace("_", " ").capitalize()
 
 
+def _raw_editor(review: Review, expanded: bool) -> None:
+    """Expansion with the raw text of ``scilex.yml``, to repair what the form cannot."""
+    original = editor.read_text(review)
+    with (
+        ui.expansion("Edit scilex.yml directly", icon="code", value=expanded)
+        .classes("w-full")
+        .props("popup")
+        .mark("raw-editor")
+    ):
+        ui.label(
+            "Edit the file as text. It is written exactly as typed, comments "
+            "included, and only when it is valid."
+        ).classes("text-sm text-gray-500")
+        text_area = (
+            ui.codemirror(original, language="yaml", line_wrapping=True)
+            .classes("w-full")
+            .mark("raw-text")
+        )
+        result = ui.column().classes("gap-0")
+        save_file = ui.button("Save file", icon="save").mark("raw-save")
+        save_file.set_enabled(False)
+
+        def check() -> None:
+            outcome = editor.check_text(text_area.value or "")
+            save_file.set_enabled(outcome.valid)
+            result.clear()
+            with result:
+                if outcome.valid:
+                    ui.label("No problem found.").classes("text-positive").mark(
+                        "raw-valid"
+                    )
+                for message in outcome.problems:
+                    ui.label(message).classes("text-negative text-sm").mark("raw-error")
+
+        def save_text() -> None:
+            try:
+                editor.write_text(review, text_area.value or "")
+            except SettingsError as exc:
+                show_error("Cannot save scilex.yml", exc, expected=True)
+                return
+            except OSError as exc:
+                show_error("Cannot save scilex.yml", exc)
+                return
+            ui.notify(f"Saved {review.config_path.name}", type="positive")
+            ui.navigate.to(f"/review/{review.id}/configure")
+
+        text_area.on_value_change(lambda _event: save_file.set_enabled(False))
+        with ui.row().classes("items-center gap-3"):
+            ui.button("Check", icon="rule", on_click=check).props("outline").mark(
+                "raw-check"
+            )
+        save_file.on_click(save_text)
+
+
+def _unknown_keys_banner(review: Review, unknown: list[tuple[str, str | None]]) -> None:
+    """Explain unknown keys and offer to remove them."""
+    with ui.card().classes("w-full gap-1 bg-red-50").mark("unknown-keys"):
+        ui.label(
+            "scilex.yml contains keys that SciLEx does not know. Remove them (or fix "
+            "their spelling in the editor at the bottom) to be able to save."
+        ).classes("text-negative")
+        for dotted, suggestion in unknown:
+            hint = f" (did you mean {suggestion}?)" if suggestion else ""
+            ui.label(f"{dotted}{hint}").classes("text-sm font-mono")
+
+        def remove() -> None:
+            try:
+                editor.remove_unknown_keys(review)
+            except (SettingsError, OSError) as exc:
+                show_error("Cannot remove the unknown keys", exc, expected=True)
+                return
+            ui.notify("Unknown keys removed", type="positive")
+            ui.navigate.to(f"/review/{review.id}/configure")
+
+        ui.button("Remove unknown keys", icon="delete", on_click=remove).props(
+            "outline color=negative"
+        ).mark("remove-unknown")
+
+
 def render(ctx: AppContext, review: Review) -> None:
     """Draw the Configure screen of ``review``."""
     ui.label("Configure").classes("text-2xl font-bold")
@@ -32,8 +111,16 @@ def render(ctx: AppContext, review: Review) -> None:
         known_origins = editor.origins(review)
     except (SettingsError, FileNotFoundError) as exc:
         show_error("Cannot read scilex.yml", exc, expected=True)
-        ui.label(str(exc)).classes("text-negative whitespace-pre-wrap")
+        ui.label(
+            "The form cannot be shown because scilex.yml cannot be read. Fix the "
+            "file in the editor below."
+        ).classes("text-negative")
+        ui.label(str(exc)).classes("text-negative whitespace-pre-wrap text-sm")
+        _raw_editor(review, expanded=True)
         return
+    unknown = editor.check_text(editor.read_text(review)).unknown_keys
+    if unknown:
+        _unknown_keys_banner(review, unknown)
     ui.label(
         "Edit the settings of this review. Saving rewrites scilex.yml: only the "
         "values that differ from the defaults are written, and comments in the "
@@ -521,3 +608,4 @@ def render(ctx: AppContext, review: Review) -> None:
 
     save_button.on_click(save)
     revalidate()
+    _raw_editor(review, expanded=bool(unknown))

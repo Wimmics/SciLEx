@@ -66,3 +66,77 @@ async def test_invalid_value_disables_save_and_shows_message(ctx, tmp_path):
         await user.should_see(marker="config-error")
         save_button = user.find(marker="config-save").elements.pop()
         assert not save_button.enabled
+
+
+def _raw_editor_set(user, text):
+    user.find(marker="raw-text").elements.pop().set_value(text)
+
+
+async def test_unknown_key_removed_then_save_works(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    raw = written(review)
+    raw["search"]["yearz"] = [2024]
+    review.config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/configure")
+        await user.should_see("search.yearz")
+        await user.should_see("did you mean search.years")
+        user.find(marker="remove-unknown").click()
+        await user.should_see("Unknown keys removed")
+        await user.open(f"/review/{review.id}/configure")
+        await user.should_not_see(marker="remove-unknown")
+        user.find(marker="config-save").click()
+        await user.should_see("Saved scilex.yml")
+    assert "yearz" not in written(review)["search"]
+
+
+async def test_invalid_yaml_shows_only_raw_editor_and_can_be_fixed(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    review.config_path.write_text(
+        "name: x\nsearch:\n  keywords: [[a]\n", encoding="utf-8"
+    )
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/configure")
+        await user.should_see(marker="raw-text")
+        await user.should_not_see(marker="config-save")
+        good = "name: x\nsearch:\n  keywords: [[a]]\n  years: [2024]\n  apis: [Arxiv]\n"
+        _raw_editor_set(user, "name: x\nsearch:\n  keywords: [[a]\n")
+        user.find(marker="raw-check").click()
+        await user.should_see(marker="raw-error")
+        assert not user.find(marker="raw-save").elements.pop().enabled
+        _raw_editor_set(user, good)
+        user.find(marker="raw-check").click()
+        await user.should_see(marker="raw-valid")
+        user.find(marker="raw-save").click()
+        await user.should_see("Saved scilex.yml")
+    assert review.config_path.read_text(encoding="utf-8") == good
+
+
+async def test_raw_save_keeps_comments(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    commented = "# my note\n" + review.config_path.read_text(encoding="utf-8")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/configure")
+        _raw_editor_set(user, commented)
+        user.find(marker="raw-check").click()
+        await user.should_see(marker="raw-valid")
+        user.find(marker="raw-save").click()
+        await user.should_see("Saved scilex.yml")
+    assert review.config_path.read_text(encoding="utf-8") == commented
+
+
+async def test_bad_value_still_fixable_in_form(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    raw = written(review)
+    raw["search"]["years"] = ["abc"]
+    review.config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/configure")
+        await user.should_see(marker="config-error")
+        await user.should_not_see(marker="remove-unknown")
+        user.find(marker="years-mode").elements.pop().set_value("range")
+        user.find(marker="years-start").elements.pop().set_value(2023)
+        user.find(marker="years-end").elements.pop().set_value(2024)
+        user.find(marker="config-save").click()
+        await user.should_see("Saved scilex.yml")
+    assert written(review)["search"]["years"] in ([2023, 2024], "2023-2024")

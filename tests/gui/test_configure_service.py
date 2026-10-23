@@ -147,3 +147,28 @@ def test_origins(review):
     assert config_editor.origin_of("filters.require", known) == "preset"
     assert config_editor.origin_of("report.prisma", known) == "default"
     assert config_editor.origin_of("citations", known) == "file"
+
+
+def test_check_text_reports_yaml_line_and_unknown_keys():
+    bad = config_editor.check_text("name: x\nsearch:\n  keywords: [[a]\n")
+    assert not bad.valid and "line" in bad.problems[0]
+    unknown = config_editor.check_text(
+        "name: x\nsearch:\n  keywords: [[a]]\n  yearz: [2024]\n  apis: [Arxiv]\n"
+    )
+    assert ("search.yearz", "search.years") in unknown.unknown_keys
+
+
+def test_failed_write_leaves_no_tmp_and_original_intact(review, monkeypatch):
+    original = review.config_path.read_text(encoding="utf-8")
+    new_text = original + "# comment\n"
+
+    def boom(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config_editor.os, "replace", boom)
+    with pytest.raises(OSError):
+        config_editor.write_text(review, new_text)
+    with pytest.raises(OSError):
+        config_editor.save(review, config_editor.load_editable(review))
+    assert review.config_path.read_text(encoding="utf-8") == original
+    assert not list(review.config_path.parent.glob("*.tmp"))
