@@ -31,16 +31,6 @@ def test_expired_entry_returns_none(cache):
     assert cache.get_models("q") is None
 
 
-def test_cleanup_expired(cache):
-    cache.cache_models("old", [], ttl_days=-1)
-    cache.cache_models("new", [])
-    cache.cleanup_expired()
-    conn = sqlite3.connect(cache.cache_path)
-    rows = conn.execute("SELECT paper_title FROM hf_models").fetchall()
-    conn.close()
-    assert rows == [("new",)]
-
-
 def test_expiry_is_in_future(cache):
     cache.cache_papers("q", [])
     conn = sqlite3.connect(cache.cache_path)

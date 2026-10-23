@@ -128,26 +128,6 @@ class HFCache:
         """Cache papers with configurable TTL (default: 30 days)."""
         self._set("hf_papers", query, papers, ttl_days)
 
-    def cleanup_expired(self):
-        """Remove expired cache entries."""
-        now = datetime.now().isoformat()
-        deleted_counts = {}
-        conn = self._connect()
-        try:
-            for table in self.TABLES:
-                cursor = conn.execute(
-                    f"DELETE FROM {table} WHERE expires_at < ?", (now,)
-                )
-                deleted_counts[table] = cursor.rowcount
-            conn.commit()
-        finally:
-            conn.close()
-
-        if sum(deleted_counts.values()) > 0:
-            logging.info(
-                f"Cleaned {deleted_counts['hf_models']} model + "
-                f"{deleted_counts['hf_papers']} paper cache entries"
-            )
 
 
 @sleep_and_retry
