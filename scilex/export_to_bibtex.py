@@ -13,9 +13,10 @@ import sys
 
 import pandas as pd
 
-from scilex.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
+from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid, normalize_path_component
 from scilex.crawlers.utils import load_all_configs
+from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -83,42 +84,6 @@ def load_config(collect_name: str | None = None, output_dir: str | None = None) 
         config["output_dir"] = output_dir
 
     return config
-
-
-def load_aggregated_data(config: dict) -> pd.DataFrame:
-    """
-    Load aggregated paper data from CSV file.
-
-    Args:
-        config: Configuration dictionary with output_dir and collect_name
-
-    Returns:
-        DataFrame containing aggregated paper data
-    """
-    output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
-    aggregate_file = config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
-    dir_collect = os.path.join(
-        output_dir, normalize_path_component(config["collect_name"])
-    )
-    file_path = os.path.join(dir_collect, normalize_path_component(aggregate_file))
-
-    logger.info(f"Loading data from: {file_path}")
-
-    # Try different delimiters
-    for delimiter in [";", "\t", ","]:
-        try:
-            data = pd.read_csv(file_path, delimiter=delimiter)
-            if "itemType" in data.columns and "title" in data.columns:
-                logger.info(f"Loaded {len(data)} papers (delimiter: '{delimiter}')")
-                return data
-        except Exception as e:
-            logger.debug(f"Failed to load with delimiter '{delimiter}': {e}")
-            continue
-
-    raise ValueError(
-        f"Could not load CSV file with any delimiter (tried: ';', '\\t', ','). "
-        f"File: {file_path}"
-    )
 
 
 def parse_tags(tags_str: str) -> list[str]:

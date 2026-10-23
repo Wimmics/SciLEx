@@ -14,57 +14,15 @@ from datetime import datetime
 import pandas as pd
 from tqdm import tqdm
 
-from scilex.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
-from scilex.constants import is_valid, normalize_path_component
+from scilex.config_defaults import DEFAULT_OUTPUT_DIR
+from scilex.constants import is_valid
 from scilex.crawlers.utils import load_all_configs
+from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
 from scilex.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
 
 # Set up logging with centralized configuration
 setup_logging()
-
-
-def load_aggregated_data(config: dict, collect_dir: str | None = None) -> pd.DataFrame:
-    """
-    Load aggregated paper data from CSV file.
-
-    Args:
-        config: Main configuration dictionary with output_dir, collect_name, aggregate_file
-                (uses defaults from config_defaults.py if not specified)
-        collect_dir: Direct path to collect directory (overrides config derivation)
-
-    Returns:
-        DataFrame containing aggregated paper data
-    """
-    aggregate_file = config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
-    if collect_dir:
-        dir_collect = collect_dir
-    else:
-        output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
-        dir_collect = os.path.join(
-            output_dir, normalize_path_component(config["collect_name"])
-        )
-    file_path = os.path.join(dir_collect, normalize_path_component(aggregate_file))
-
-    logging.info(f"Loading data from: {file_path}")
-
-    # Try different delimiters - aggregated files can use either ; or \t
-    for delimiter in [";", "\t", ","]:
-        try:
-            data = pd.read_csv(file_path, delimiter=delimiter)
-            # Verify we got valid data by checking for expected columns
-            if "itemType" in data.columns and "title" in data.columns:
-                logging.info(f"Loaded {len(data)} papers (delimiter: '{delimiter}')")
-                return data
-        except Exception as e:
-            logging.debug(f"Failed to load with delimiter '{delimiter}': {e}")
-            continue
-
-    # If all delimiters fail, raise an error
-    raise ValueError(
-        f"Could not load CSV file with any delimiter (tried: ';', '\\t', ','). "
-        f"File: {file_path}"
-    )
 
 
 def prefetch_templates(data: pd.DataFrame) -> dict[str, dict]:

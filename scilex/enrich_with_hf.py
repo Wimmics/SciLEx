@@ -26,51 +26,27 @@ Examples:
 
 import argparse
 import logging
-import os
 import sys
 
 import pandas as pd
 from tqdm import tqdm
 
-from scilex.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_DIR
-from scilex.constants import MISSING_VALUE, is_valid, normalize_path_component
+from scilex.constants import MISSING_VALUE, is_valid
 from scilex.crawlers.utils import load_all_configs
 from scilex.HuggingFace.hf_client import HFClient
 from scilex.HuggingFace.metadata_extractor import MetadataExtractor
 from scilex.HuggingFace.tag_formatter import TagFormatter
 from scilex.HuggingFace.title_matcher import TitleMatcher
+from scilex.io_utils import (
+    load_aggregated_data,
+    resolve_aggregate_path,
+    write_aggregated_csv,
+)
 from scilex.logging_config import setup_logging
 
 # Set up logging with centralized configuration
 setup_logging()
 logger = logging.getLogger(__name__)
-
-
-def load_csv_with_auto_delimiter(csv_path: str) -> pd.DataFrame:
-    """Load CSV with automatic delimiter detection.
-
-    Tries semicolon, tab, and comma delimiters in order.
-
-    Args:
-        csv_path: Path to CSV file
-
-    Returns:
-        Loaded DataFrame
-
-    Raises:
-        ValueError: If CSV cannot be loaded with any delimiter
-    """
-    for delimiter in [";", "\t", ","]:
-        try:
-            data = pd.read_csv(csv_path, delimiter=delimiter)
-            if "itemType" in data.columns and "title" in data.columns:
-                logger.info(f"Loaded CSV with delimiter: '{delimiter}'")
-                return data
-        except Exception as e:
-            logger.debug(f"Failed with delimiter '{delimiter}': {e}")
-            continue
-
-    raise ValueError(f"Could not load CSV with any delimiter: {csv_path}")
 
 
 def process_paper_for_csv(
@@ -285,18 +261,12 @@ def main(progress_callback=None):
         formatter = TagFormatter()
 
         # Load CSV
-        aggregate_file = main_config.get("aggregate_file", DEFAULT_AGGREGATED_FILENAME)
-        if args.collect_dir:
-            collect_dir = args.collect_dir
-        else:
-            output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
-            collect_dir = os.path.join(
-                output_dir, normalize_path_component(main_config["collect_name"])
-            )
-        csv_path = os.path.join(collect_dir, normalize_path_component(aggregate_file))
+        csv_path = resolve_aggregate_path(main_config, args.collect_dir)
 
         logging.info(f"Loading CSV: {csv_path}")
-        data = load_csv_with_auto_delimiter(csv_path)
+        data = load_aggregated_data(
+            main_config, args.collect_dir, preserve_missing_marker=True
+        )
         logging.info(f"Loaded {len(data)} papers")
 
         # Add new columns if they don't exist
@@ -368,7 +338,7 @@ def main(progress_callback=None):
 
         # Write updated CSV
         if not args.dry_run:
-            data.to_csv(csv_path, sep=";", index=False)
+            write_aggregated_csv(data, csv_path)
             logging.info(f"✓ Updated CSV written: {csv_path}")
 
         # Print summary
