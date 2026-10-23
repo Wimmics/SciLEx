@@ -156,6 +156,28 @@ DEFAULT_APPLY_RELEVANCE_RANKING = True
 """Apply composite relevance scoring to rank papers by importance.
 Papers sorted by relevance_score (higher = more relevant)."""
 
+DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD = 0.5
+"""Relative gap between citation sources above which a discrepancy is logged
+(canonical_citation_count, issue #47)."""
+
+DEFAULT_RECOVER_MISSING_DOIS = False
+"""Opt-in: look up missing DOIs through CrossRef title+author search (#36)."""
+
+DEFAULT_DOI_RECOVERY_MIN_SIMILARITY = 0.90
+"""Minimum title similarity (0-1) to accept a CrossRef DOI candidate (#36)."""
+
+DEFAULT_ENRICH_UNPAYWALL = False
+"""Opt-in: add the oa_type column from Unpaywall (#44). Needs an email."""
+
+DEFAULT_UNPAYWALL_EMAIL = ""
+"""Contact email required by the Unpaywall API (falls back to api_config Unpaywall.email)."""
+
+DEFAULT_ENRICH_AUTHOR_HINDEX = False
+"""Opt-in: add first/last author h-index from Semantic Scholar (#45)."""
+
+DEFAULT_USE_VENUE_RANKING = False
+"""Opt-in: add venue_rank (CORE / SCImago) and blend it into the venue score (#3)."""
+
 DEFAULT_MAX_PAPERS = 1000
 """Maximum number of papers to keep after all filtering.
 Set to None to keep all papers that pass filters.
@@ -237,6 +259,13 @@ QUALITY_FILTER_SCHEMA = {
     "itemtype_relevance_weights": dict,
     "max_papers": (int, type(None)),
     "track_duplicate_sources": bool,
+    "canonical_citation_discrepancy_threshold": float,
+    "recover_missing_dois": bool,
+    "doi_recovery_min_similarity": float,
+    "enrich_unpaywall": bool,
+    "unpaywall_email": str,
+    "enrich_author_hindex": bool,
+    "use_venue_ranking": bool,
 }
 """Schema documenting all available quality filter options."""
 
@@ -268,6 +297,13 @@ def get_default_quality_filters():
             "itemtype_relevance_weights": DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
             "max_papers": DEFAULT_MAX_PAPERS,
             "track_duplicate_sources": DEFAULT_TRACK_DUPLICATE_SOURCES,
+            "canonical_citation_discrepancy_threshold": DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
+            "recover_missing_dois": DEFAULT_RECOVER_MISSING_DOIS,
+            "doi_recovery_min_similarity": DEFAULT_DOI_RECOVERY_MIN_SIMILARITY,
+            "enrich_unpaywall": DEFAULT_ENRICH_UNPAYWALL,
+            "unpaywall_email": DEFAULT_UNPAYWALL_EMAIL,
+            "enrich_author_hindex": DEFAULT_ENRICH_AUTHOR_HINDEX,
+            "use_venue_ranking": DEFAULT_USE_VENUE_RANKING,
         }
     )
 
