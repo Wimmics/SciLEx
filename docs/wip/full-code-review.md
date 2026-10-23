@@ -39,4 +39,6 @@ chaque brief commence par `git reset --hard dev`.
 - [x] Vague 1 : BibTeX, citations (cache/tools), HuggingFace, API web — 1151 tests
 - [x] Vague 2 : convertisseurs, dédup, collecteurs, citations/fetcher, pipeline/config, Zotero/io — 1329 tests, ruff propre
 - [x] Config C1 (`scilex/settings/`) fusionné
-- [ ] Config C2 (câblage) lancé (agent Sonnet, worktree) sur dev 0fb55844 ; lots scilex-d8 fusionnés. scilex-86 fait /simplify en parallèle (zones séparées, voir message). Puis lot docs/README.
+- [x] Config C2 fusionné (b910a1a7, 1737 tests) : resolve.py point unique, --config/--keys sur 14 CLI, scilex init/config, VPN, webapi
+- [ ] Lot docs/README/CLAUDE.md en cours (agent Sonnet)
+- [ ] Puis : découpe run_aggregation, run_enrichment (coordonner avec scilex-86 : S5, getquality, HF parallèle)
