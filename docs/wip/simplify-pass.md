@@ -10,7 +10,7 @@ simplification, efficacité, altitude) sur `dev` @ f759b795.
 - [x] `quality_scores` vectorisé dans `crawlers/aggregate.py` (51aa4910) ; branchement dans orchestrator fait par scilex-90 (lot run_aggregation).
 - [x] Sans objet : chargeur YAML unique (fait par C2, `settings/resolve.py`) ; rate-limit déjà injecté (vague 2).
 - [x] HF en pool de threads (afc6ca08) : `EnrichmentOptions.workers` (défaut 4), ordre et stats sur le thread principal ; ×4 sur latence simulée.
-- [ ] À décider par l'utilisateur : `FilterConfig`/`filter_config` (forme de l'API) ; fonctions seulement testées.
+- [x] Décisions utilisateur (oui/oui) : champ `PipelineRequest.filter_config` retiré (classe `FilterConfig` gardée, utilisée par `/filter`) ; fonctions seulement testées supprimées (cache par DOI, `getCrossRefCitation`, `filter_by_abstract_quality`, `get_all_stats`/`reset_all`, `cleanup_expired`). Chantier terminé.
 - Volontairement gardés (changeraient les sorties) : `export_to_bibtex.extract_year` (4 chiffres quelconques),
   split auteurs Zotero (garde les vides), `report_charts.load_data`, année webapi en float,
   `_MISSING_MARKERS` d'abstract_enrichment ("N/A", "MISSING"), alternance de regex d'abstract_validation.
