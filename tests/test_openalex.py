@@ -83,7 +83,7 @@ class TestOpenAlexParsePageResults:
         }
 
     def test_returns_next_cursor(self):
-        """parsePageResults should return (page_data, next_cursor) tuple."""
+        """ParsePageResults should return (page_data, next_cursor) tuple."""
         collector = OpenAlex_collector(self.data_query, "/tmp/test", None)
 
         mock_response = MagicMock()
@@ -99,7 +99,7 @@ class TestOpenAlexParsePageResults:
         assert next_cursor == "abc123"
 
     def test_returns_none_cursor_on_last_page(self):
-        """parsePageResults should return None cursor when no more pages."""
+        """ParsePageResults should return None cursor when no more pages."""
         collector = OpenAlex_collector(self.data_query, "/tmp/test", None)
 
         mock_response = MagicMock()

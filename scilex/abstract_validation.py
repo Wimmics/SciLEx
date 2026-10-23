@@ -1,5 +1,4 @@
-"""
-Advanced abstract quality validation for SciLEx.
+"""Advanced abstract quality validation for SciLEx.
 
 This module provides sophisticated abstract quality checks beyond basic length validation:
 - Truncation detection (incomplete abstracts)
@@ -117,8 +116,7 @@ def normalize_abstract(abstract) -> str:
 
 
 def detect_truncation(abstract: str) -> AbstractQualityIssue | None:
-    """
-    Detect if abstract appears truncated.
+    """Detect if abstract appears truncated.
 
     Returns:
         AbstractQualityIssue if truncation detected, None otherwise
@@ -150,8 +148,7 @@ def detect_truncation(abstract: str) -> AbstractQualityIssue | None:
 
 
 def detect_boilerplate(abstract: str) -> AbstractQualityIssue | None:
-    """
-    Detect generic publisher boilerplate text.
+    """Detect generic publisher boilerplate text.
 
     Returns:
         AbstractQualityIssue if boilerplate detected, None otherwise
@@ -175,8 +172,7 @@ def detect_boilerplate(abstract: str) -> AbstractQualityIssue | None:
 def detect_length_issues(
     abstract: str, min_words: int = 30, max_words: int = 1000
 ) -> AbstractQualityIssue | None:
-    """
-    Detect length-related quality issues.
+    """Detect length-related quality issues.
 
     Args:
         abstract: Abstract text
@@ -217,8 +213,7 @@ def detect_length_issues(
 def detect_language_issues(
     abstract: str, expected_language: str = "english"
 ) -> AbstractQualityIssue | None:
-    """
-    Detect if abstract appears to be in wrong language.
+    """Detect if abstract appears to be in wrong language.
 
     Uses simple heuristic based on common English words.
 
@@ -305,8 +300,7 @@ def detect_language_issues(
 
 
 def detect_formatting_issues(abstract: str) -> AbstractQualityIssue | None:
-    """
-    Detect formatting problems that indicate data quality issues.
+    """Detect formatting problems that indicate data quality issues.
 
     Returns:
         AbstractQualityIssue if formatting issue detected, None otherwise
@@ -351,8 +345,7 @@ def validate_abstract_quality(
     check_language: bool = True,
     expected_language: str = "english",
 ) -> AbstractQualityScore:
-    """
-    Perform comprehensive quality validation on an abstract.
+    """Perform comprehensive quality validation on an abstract.
 
     Args:
         abstract: Abstract text to validate
@@ -393,8 +386,7 @@ def validate_dataframe_abstracts(
     min_words: int = 30,
     max_words: int = 1000,
 ) -> tuple[pd.DataFrame, dict]:
-    """
-    Validate abstract quality for all records in DataFrame.
+    """Validate abstract quality for all records in DataFrame.
 
     Each abstract is scored once. A paper is "acceptable" when
     ``AbstractQualityScore.is_acceptable(min_quality_score)`` holds (score at
@@ -520,8 +512,7 @@ def filter_by_abstract_quality(
     min_words: int = 30,
     max_words: int = 1000,
 ) -> pd.DataFrame:
-    """
-    Filter DataFrame to keep only papers with acceptable abstract quality.
+    """Filter DataFrame to keep only papers with acceptable abstract quality.
 
     Args:
         df: DataFrame with paper records

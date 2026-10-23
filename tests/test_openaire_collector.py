@@ -58,7 +58,7 @@ class TestOpenAIRECollector:
         assert "biomedical" in url_template
 
     def test_url_year_filter(self):
-        """fromDateAccepted and toDateAccepted use the configured year."""
+        """FromDateAccepted and toDateAccepted use the configured year."""
         data_query = _make_data_query([["nlp"]], year=2024)
         collector = OpenAIRE_collector(data_query, "/tmp", None)
         url_template = collector.get_configurated_url()

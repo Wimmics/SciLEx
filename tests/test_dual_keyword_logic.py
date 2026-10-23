@@ -1,5 +1,4 @@
-"""
-Unit tests for dual keyword logic in collectors.
+"""Unit tests for dual keyword logic in collectors.
 
 These tests verify that each collector properly implements AND logic
 between dual keyword groups, ensuring papers match keywords from BOTH groups.
