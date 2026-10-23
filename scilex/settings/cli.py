@@ -8,6 +8,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from scilex.config_defaults import COLLECTOR_API_NAMES
 from scilex.settings.loader import _flatten, _read_yaml, find_config_file, load_settings
 from scilex.settings.migrate import migrate_files
 from scilex.settings.resolve import (
@@ -150,8 +151,6 @@ def config_migrate(
 
 def config_check() -> int:
     """Validate the configuration without running anything (0 valid, 1 invalid)."""
-    from scilex.crawlers.aggregate import FORMAT_CONVERTERS
-
     try:
         found, raw = _read_main_file()
         if found is not None and is_legacy_format(raw):
@@ -167,18 +166,15 @@ def config_check() -> int:
             loaded = load_settings()
             problems = []
             apis = loaded.settings.search.apis
-            screening = loaded.settings.llm_screening
-            if screening.enabled and not screening.topic.strip():
-                problems.append("llm_screening.topic: required when enabled")
             print(f"{loaded.config_path}: scilex.yml format")
             print(f"keys: {loaded.keys_path or '(none found)'}")
     except (FileNotFoundError, SettingsError) as error:
         print(f"Invalid configuration:\n{error}", file=sys.stderr)
         return 1
-    unknown = sorted(set(apis) - set(FORMAT_CONVERTERS))
+    unknown = sorted(set(apis) - set(COLLECTOR_API_NAMES))
     if unknown:
         problems.append(
-            f"search.apis: unknown API(s) {unknown}; available: {sorted(FORMAT_CONVERTERS)}"
+            f"search.apis: unknown API(s) {unknown}; available: {sorted(COLLECTOR_API_NAMES)}"
         )
     if problems:
         print("Invalid configuration:\n" + "\n".join(problems), file=sys.stderr)

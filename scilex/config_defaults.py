@@ -12,6 +12,30 @@ import copy
 import os
 
 # ============================================================================
+# COLLECTOR REGISTRY
+# ============================================================================
+
+COLLECTOR_API_NAMES = (
+    "DBLP",
+    "Arxiv",
+    "BioRxiv",
+    "Elsevier",
+    "IEEE",
+    "Springer",
+    "SemanticScholar",
+    "OpenAlex",
+    "HAL",
+    "Istex",
+    "PubMed",
+    "PubMedCentral",
+    "OpenAIRE",
+    "ORKG",
+)
+"""Names accepted in ``search.apis``. Kept here (a light module) so the settings
+schema can validate them without importing the collectors; a test checks it
+matches ``api_collectors`` and ``FORMAT_CONVERTERS``."""
+
+# ============================================================================
 # OUTPUT AND FILE SETTINGS
 # ============================================================================
 

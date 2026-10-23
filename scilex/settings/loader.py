@@ -6,6 +6,7 @@ and are overridden by ``SCILEX_<API>_<FIELD>`` environment variables.
 """
 
 import copy
+import difflib
 import logging
 import os
 from dataclasses import dataclass, field
@@ -16,9 +17,9 @@ import yaml
 from pydantic import ValidationError
 
 from scilex.config_defaults import (
+    COLLECTOR_API_NAMES,
     DEFAULT_ALLOWED_ITEM_TYPES,
     DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
-    DEFAULT_RATE_LIMITS,
     DEFAULT_RELEVANCE_WEIGHTS,
     MIN_ABSTRACT_QUALITY_SCORE,
 )
@@ -37,7 +38,20 @@ logger = logging.getLogger(__name__)
 CONFIG_FILENAME = "scilex.yml"
 USER_KEYS_PATH = Path("~/.config/scilex/keys.yml")
 LEGACY_KEYS_PATH = Path(__file__).resolve().parent.parent / "api.config.yml"
-EXTRA_API_NAMES = ("Zotero", "HuggingFace", "ORCID")
+# Block names of keys.yml, spelled as the consumers read them (api_config.get(...)).
+KEY_BLOCK_NAMES = (
+    *COLLECTOR_API_NAMES,
+    "CrossRef",
+    "Unpaywall",
+    "openrouter",
+    "Zotero",
+    "HuggingFace",
+    "ORCID",
+)
+# SCILEX_* variables that are not API key overrides.
+RESERVED_ENV_VARIABLES = frozenset(
+    {"SCILEX_CONFIG", "SCILEX_KEYS", "SCILEX_CORS_ORIGINS", "SCILEX_PROFILES_DIR"}
+)
 
 
 @dataclass
@@ -120,9 +134,13 @@ def find_keys_file(cli_path: str | Path | None = None) -> Path | None:
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """Recursively merge ``override`` into ``base`` (mutates ``base``)."""
+    """Recursively merge ``override`` into ``base`` (mutates ``base``).
+
+    An empty mapping in ``override`` changes nothing; only ``None`` replaces a
+    section.
+    """
     for key, value in override.items():
-        if isinstance(value, dict) and isinstance(base.get(key), dict) and value:
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
             _deep_merge(base[key], value)
         else:
             base[key] = copy.deepcopy(value)
@@ -177,23 +195,46 @@ def _read_yaml(path: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _known_api_names(file_keys: dict) -> list[str]:
-    names = list(DEFAULT_RATE_LIMITS) + list(EXTRA_API_NAMES)
-    names.extend(
-        name for name in file_keys if name not in names and name != "rate_limits"
-    )
-    return names
+def _suggestion(name: str, candidates) -> str:
+    """Return `` Did you mean 'X'?`` for the closest candidate (case-insensitive)."""
+    by_lower = {candidate.lower(): candidate for candidate in candidates}
+    close = difflib.get_close_matches(name.lower(), list(by_lower), n=1, cutoff=0.6)
+    return f" Did you mean {by_lower[close[0]]!r}?" if close else ""
+
+
+def _warn_unknown_key_blocks(keys_raw: dict, keys_path: Path | None) -> None:
+    """Warn about ``keys.yml`` blocks no consumer reads (typos such as ``Crossref``)."""
+    accepted = set(KEY_BLOCK_NAMES) | {"rate_limits", "zotero", "vpn"}
+    for name in keys_raw:
+        if name not in accepted:
+            logger.warning(
+                "%s: unknown block %r is ignored.%s",
+                keys_path or "keys",
+                name,
+                _suggestion(name, KEY_BLOCK_NAMES),
+            )
 
 
 def _apply_env_keys(keys_raw: dict, provenance: dict[str, str]) -> None:
-    """Apply ``SCILEX_<API>_<FIELD>`` environment overrides to ``keys_raw``."""
-    api_by_upper = {name.upper(): name for name in _known_api_names(keys_raw)}
+    """Apply ``SCILEX_<API>_<FIELD>`` environment overrides to ``keys_raw``.
+
+    The block is created when the file does not have it. The block name is the
+    canonical spelling read by the consumers (``CrossRef``, ``Unpaywall``,
+    ``openrouter``...). An unknown API name is reported, not ignored.
+    """
+    api_by_upper = {name.upper(): name for name in KEY_BLOCK_NAMES}
     for variable, value in os.environ.items():
-        if not variable.startswith("SCILEX_"):
+        if not variable.startswith("SCILEX_") or variable in RESERVED_ENV_VARIABLES:
             continue
         api_part, _, field_part = variable[len("SCILEX_") :].partition("_")
         api_name = api_by_upper.get(api_part.upper())
         if api_name is None or not field_part:
+            logger.warning(
+                "%s is not a valid override (expected SCILEX_<API>_<FIELD>) "
+                "and is ignored.%s",
+                variable,
+                _suggestion(api_part, KEY_BLOCK_NAMES) if api_name is None else "",
+            )
             continue
         block = keys_raw.get(api_name)
         if not isinstance(block, dict):
@@ -206,6 +247,7 @@ def _load_keys(keys_path: Path | None, provenance: dict[str, str]) -> KeysSettin
     keys_raw = _read_yaml(keys_path) if keys_path else {}
     for dotted in _flatten(keys_raw):
         provenance[f"keys.{dotted}"] = "file"
+    _warn_unknown_key_blocks(keys_raw, keys_path)
     _apply_env_keys(keys_raw, provenance)
     try:
         return KeysSettings.model_validate(keys_raw)
@@ -303,7 +345,14 @@ def _add_non_default_keys(
     them yields exactly the historical legacy dictionary.
     """
     defaults = ScilexSettings.model_validate(
-        {"name": "_", "search": {"keywords": [["_"]], "years": [2000], "apis": ["_"]}}
+        {
+            "name": "_",
+            "search": {
+                "keywords": [["_"]],
+                "years": [2000],
+                "apis": [COLLECTOR_API_NAMES[0]],
+            },
+        }
     )
     enrichment, default_enrichment = settings.enrichment, defaults.enrichment
     quality_pairs = (

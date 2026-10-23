@@ -8,10 +8,11 @@ import copy
 import difflib
 import re
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     ValidationError,
@@ -20,6 +21,7 @@ from pydantic import (
 )
 
 from scilex.config_defaults import (
+    COLLECTOR_API_NAMES,
     DEFAULT_APPLY_CITATION_FILTER,
     DEFAULT_APPLY_RELEVANCE_RANKING,
     DEFAULT_BYPASS_ITEM_TYPES,
@@ -44,6 +46,18 @@ from scilex.config_defaults import (
 REQUIRE_CHOICES = ("abstract", "doi", "year", "open_access")
 _YEAR_RANGE = re.compile(r"^\s*(\d{4})\s*-\s*(\d{4})\s*$")
 _STRICT = ConfigDict(extra="forbid")
+MIN_YEAR, MAX_YEAR = 1000, 3000
+
+
+def _reject_bool(value: Any) -> Any:
+    """Refuse ``true``/``false`` where an integer is expected (``False`` is 0)."""
+    if isinstance(value, bool):
+        raise ValueError("expected an integer, not a boolean (true/false)")
+    return value
+
+
+Integer = Annotated[int, BeforeValidator(_reject_bool)]
+Year = Annotated[int, BeforeValidator(_reject_bool), Field(ge=MIN_YEAR, le=MAX_YEAR)]
 
 
 class SettingsError(ValueError):
@@ -61,9 +75,9 @@ class SearchSettings(BaseModel):
 
     keywords: list[list[str]]
     bonus_keywords: list[str] = Field(default_factory=list)
-    years: list[int]
+    years: list[Year]
     apis: list[str]
-    max_articles_per_query: int | None = None
+    max_articles_per_query: Integer | None = None
     semantic_scholar_mode: Literal["regular", "bulk"] = "regular"
     since: str | None = None
 
@@ -119,17 +133,24 @@ class SearchSettings(BaseModel):
     @field_validator("years")
     @classmethod
     def _check_years(cls, value: list[int]) -> list[int]:
-        """Require at least one year."""
+        """Require at least one year; drop duplicates and sort."""
         if not value:
             raise ValueError("at least one year is required")
-        return value
+        return sorted(set(value))
 
     @field_validator("apis")
     @classmethod
     def _check_apis(cls, value: list[str]) -> list[str]:
-        """Require at least one API."""
+        """Require at least one API, each one a known collector."""
         if not value:
             raise ValueError("at least one API is required")
+        for name in value:
+            if name not in COLLECTOR_API_NAMES:
+                close = difflib.get_close_matches(str(name), COLLECTOR_API_NAMES, n=1)
+                hint = f" Did you mean {close[0]!r}?" if close else ""
+                raise ValueError(
+                    f"unknown API {name!r}.{hint} Available: {', '.join(COLLECTOR_API_NAMES)}"
+                )
         return value
 
 
@@ -145,13 +166,24 @@ class FiltersSettings(BaseModel):
     require: list[Literal["abstract", "doi", "year", "open_access"]] = Field(
         default_factory=lambda: ["abstract", "year"]
     )
-    min_authors: int = Field(default=MIN_AUTHOR_COUNT, ge=0)
-    abstract_words: list[int] = Field(
+    min_authors: Integer = Field(default=MIN_AUTHOR_COUNT, ge=0)
+    abstract_words: list[Integer] = Field(
         default_factory=lambda: [MIN_ABSTRACT_WORDS, MAX_ABSTRACT_WORDS]
     )
-    abstract_quality: int | None = Field(default=None, ge=0, le=100)
+    abstract_quality: Integer | None = Field(default=None, ge=0, le=100)
     check_year_range: bool = DEFAULT_VALIDATE_YEAR_RANGE
     citations: bool = DEFAULT_APPLY_CITATION_FILTER
+
+    @field_validator("item_types")
+    @classmethod
+    def _check_item_types(cls, value: list[str] | None) -> list[str] | None:
+        """Refuse an empty list, which would keep nothing."""
+        if value is not None and not value:
+            raise ValueError(
+                "an empty list would reject every paper; "
+                "use null (or omit the key) to accept all item types"
+            )
+        return value
 
     @field_validator("abstract_words")
     @classmethod
@@ -184,7 +216,7 @@ class RankingSettings(BaseModel):
     model_config = _STRICT
 
     enabled: bool = DEFAULT_APPLY_RELEVANCE_RANKING
-    max_papers: int | None = Field(default=DEFAULT_MAX_PAPERS, ge=1)
+    max_papers: Integer | None = Field(default=DEFAULT_MAX_PAPERS, ge=1)
     weights: dict[str, float] = Field(
         default_factory=lambda: dict(DEFAULT_RELEVANCE_WEIGHTS)
     )
@@ -212,9 +244,9 @@ class HuggingFaceSettings(BaseModel):
 
     enabled: bool = False
     use_papers_api: bool = True
-    fuzzy_match_threshold: int = Field(default=85, ge=0, le=100)
+    fuzzy_match_threshold: Integer = Field(default=85, ge=0, le=100)
     cache_path: str = "output/hf_cache.db"
-    cache_ttl_days: int = Field(default=30, ge=0)
+    cache_ttl_days: Integer = Field(default=30, ge=0)
 
     @model_validator(mode="before")
     @classmethod
@@ -267,10 +299,19 @@ class LLMScreeningSettings(BaseModel):
     topic: str = ""
     model: str = "openai/gpt-4o-mini"
     threshold: float | None = None
-    max_papers: int = Field(default=500, ge=1)
-    workers: int = Field(default=4, ge=1)
+    max_papers: Integer = Field(default=500, ge=1)
+    workers: Integer = Field(default=4, ge=1)
     price_input_per_m: float = Field(default=0.15, ge=0)
     price_output_per_m: float = Field(default=0.60, ge=0)
+
+    @model_validator(mode="after")
+    def _require_topic_when_enabled(self) -> "LLMScreeningSettings":
+        """Screening without a topic cannot work: fail at load time."""
+        if self.enabled and not self.topic.strip():
+            raise ValueError(
+                "llm_screening.topic is required when llm_screening.enabled is true"
+            )
+        return self
 
 
 class ScilexSettings(BaseModel):
@@ -323,7 +364,11 @@ def default_settings_dict() -> dict:
     probe = ScilexSettings.model_validate(
         {
             "name": "_",
-            "search": {"keywords": [["_"]], "years": [2000], "apis": ["_"]},
+            "search": {
+                "keywords": [["_"]],
+                "years": [2000],
+                "apis": [COLLECTOR_API_NAMES[0]],
+            },
         }
     ).model_dump(mode="python")
     probe.pop("name")
