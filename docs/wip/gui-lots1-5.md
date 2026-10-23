@@ -45,3 +45,4 @@ Mandat utilisateur (2026-10-23) : enchaîner les lots 1 à 5 sans redemander ; a
 - Full suite: 1996 passed. `dist/SciLEx.app` rebuilt, self-test ok.
 - Open: layout fixes C/F only checked by class assertions (no browser re-test yet); reword the older French lot 0 commits before any push (ask the user); push + CI.
 - Tester briefs must forbid any external write (Zotero push, etc.).
+- 2026-10-23 later: lot 0 commit messages reworded to English (contents unchanged). Headless browser check: Collect log full width (1104px), Analyses tabs fit at 1024px; Screen grid was blank (autoSizeStrategy vs flex columns) → fixed in ea49a432, re-checked OK. App rebuilt, dev pushed; next: watch gui-build CI.
