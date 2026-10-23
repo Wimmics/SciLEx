@@ -204,6 +204,38 @@ output_dir = DEFAULT_OUTPUT_DIR
 
 
 ACTIVE_JOB_STATUSES = ("pending", "running", "cancelling")
+TERMINAL_JOB_STATUSES = ("completed", "failed", "cancelled")
+_status_lock = threading.Lock()
+
+
+def _set_status(job: dict[str, Any], new_status: str) -> bool:
+    """Atomically move ``job`` to ``new_status`` if the transition is allowed.
+
+    Terminal states (completed/failed/cancelled) are never left, and a job
+    that is cancelling never goes back to running.
+
+    Returns:
+        True if the status was changed, False if the transition was refused.
+    """
+    with _status_lock:
+        current = job.get("status")
+        if current in TERMINAL_JOB_STATUSES:
+            return False
+        if current == "cancelling" and new_status in ("pending", "running"):
+            return False
+        job["status"] = new_status
+        return True
+
+
+def _cancel_if_requested(
+    job: dict[str, Any], cancel_event: threading.Event | None, message: str
+) -> bool:
+    """Mark the job cancelled and return True if cancellation was requested."""
+    if cancel_event is None or not cancel_event.is_set():
+        return False
+    _set_status(job, "cancelled")
+    job["message"] = message
+    return True
 
 
 def _check_collection_name(name: str) -> None:
@@ -316,10 +348,13 @@ async def run_collection_task(
     root_logger.addHandler(log_handler)
 
     try:
-        job["status"] = "running"
+        _set_status(job, "running")  # refused if cancelled before start
         job["phase"] = "initializing"
         job["progress"] = 10
         job["message"] = "Starting collection..."
+
+        if _cancel_if_requested(job, cancel_event, "Pipeline cancelled before start."):
+            return
 
         # Ensure output directory exists
         os_output_dir = main_config.get("output_dir", output_dir)
@@ -352,15 +387,15 @@ async def run_collection_task(
             cancel_event=cancel_event,
         )
         # Offload blocking call to thread pool so event loop stays responsive
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None, _run_in_job_thread, job, collector.create_collects_jobs
         )
 
         # Check if cancelled during collection
-        if cancel_event and cancel_event.is_set():
-            job["status"] = "cancelled"
-            job["message"] = "Pipeline cancelled during collection."
+        if _cancel_if_requested(
+            job, cancel_event, "Pipeline cancelled during collection."
+        ):
             return
 
         job["progress"] = 75
@@ -393,9 +428,9 @@ async def run_collection_task(
         )
 
         # Check if cancelled during aggregation
-        if cancel_event and cancel_event.is_set():
-            job["status"] = "cancelled"
-            job["message"] = "Pipeline cancelled after aggregation."
+        if _cancel_if_requested(
+            job, cancel_event, "Pipeline cancelled after aggregation."
+        ):
             return
 
         # Load filtering summary if available
@@ -411,6 +446,10 @@ async def run_collection_task(
 
         # Optional: HuggingFace enrichment
         if main_config.get("enable_enrichment", False):
+            if _cancel_if_requested(
+                job, cancel_event, "Pipeline cancelled before enrichment."
+            ):
+                return
             job["progress"] = 88
             job["phase"] = "enriching"
             job["message"] = "Running HuggingFace enrichment..."
@@ -432,6 +471,11 @@ async def run_collection_task(
                 job,
                 lambda: enrich_main(progress_callback=on_enrichment_progress),
             )
+
+        if _cancel_if_requested(
+            job, cancel_event, "Pipeline cancelled before finalizing."
+        ):
+            return
 
         job["progress"] = 95
         job["phase"] = "completed"
@@ -471,15 +515,15 @@ async def run_collection_task(
                 ),
             }
 
-        job["progress"] = 100
-        job["status"] = "completed"
-        job["message"] = "Pipeline completed successfully!"
+        if _set_status(job, "completed"):
+            job["progress"] = 100
+            job["message"] = "Pipeline completed successfully!"
 
     except Exception as e:
         logger.error(f"Pipeline job {job_id} failed: {str(e)}", exc_info=True)
-        job["status"] = "failed"
-        job["error"] = str(e)
-        job["message"] = f"Error: {str(e)}"
+        if _set_status(job, "failed"):
+            job["error"] = str(e)
+            job["message"] = f"Error: {str(e)}"
     finally:
         root_logger.removeHandler(log_handler)
 
@@ -775,7 +819,7 @@ async def cancel_pipeline(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found")
 
     job = pipeline_jobs[job_id]
-    if job["status"] in ("completed", "failed", "cancelled"):
+    if job["status"] in TERMINAL_JOB_STATUSES:
         return {"message": f"Job already finished ({job['status']})", "job_id": job_id}
     if job["status"] not in ("pending", "running"):
         raise HTTPException(
@@ -786,7 +830,8 @@ async def cancel_pipeline(job_id: str):
     if cancel_event:
         cancel_event.set()
 
-    job["status"] = "cancelling"
+    if not _set_status(job, "cancelling"):
+        return {"message": f"Job already finished ({job['status']})", "job_id": job_id}
     job["message"] = "Cancellation requested, finishing current queries..."
     return {"message": "Cancellation requested", "job_id": job_id}
 

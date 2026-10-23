@@ -403,3 +403,107 @@ def test_concurrent_job_logs_are_not_mixed(client, monkeypatch, mocked_pipeline)
     logs = client.get(f"/pipelines/{job_id}/status").json()["logs"]
     assert any("job log line" in line for line in logs)
     assert not any("foreign line" in line for line in logs)
+
+
+# ----------------------------------------------------- status transitions
+
+
+@pytest.mark.parametrize("terminal", ["completed", "failed", "cancelled"])
+@pytest.mark.parametrize("new", ["running", "cancelling", "completed", "failed"])
+def test_set_status_never_leaves_terminal(terminal, new):
+    job = {"status": terminal}
+    assert scilex_api._set_status(job, new) is False
+    assert job["status"] == terminal
+
+
+def test_set_status_cancelling_never_returns_to_running():
+    job = {"status": "cancelling"}
+    assert scilex_api._set_status(job, "running") is False
+    assert job["status"] == "cancelling"
+    assert scilex_api._set_status(job, "cancelled") is True
+    assert job["status"] == "cancelled"
+
+
+def test_set_status_normal_flow():
+    job = {"status": "pending"}
+    assert scilex_api._set_status(job, "running")
+    assert scilex_api._set_status(job, "cancelling")
+    assert scilex_api._set_status(job, "cancelled")
+
+
+def _run_task_with_cancel_at(monkeypatch, output_root, cancel_phase):
+    """Run the task directly, requesting cancellation when ``cancel_phase`` starts."""
+    import asyncio
+
+    job_id = "job_cancel"
+    cancel_event = threading.Event()
+    job = _insert_job(job_id, "pending")
+    job["cancel_event"] = cancel_event
+    calls = {"collect": 0, "aggregate": 0, "enrich": 0}
+
+    def request_cancel():
+        cancel_event.set()
+        scilex_api._set_status(job, "cancelling")
+
+    class Collector(FakeCollector):
+        def create_collects_jobs(self):
+            calls["collect"] += 1
+            if cancel_phase == "collect":
+                request_cancel()
+
+    def fake_aggregation(config, options=None, progress_callback=None):
+        calls["aggregate"] += 1
+        _write_csv(output_root)
+        if cancel_phase == "aggregate":
+            request_cancel()
+
+    def fake_enrich(progress_callback=None):
+        calls["enrich"] += 1
+
+    monkeypatch.setattr(scilex_api, "CollectCollection", Collector)
+    monkeypatch.setattr(
+        "scilex.pipeline.orchestrator.run_aggregation", fake_aggregation
+    )
+    monkeypatch.setattr("scilex.enrich_with_hf.main", fake_enrich)
+    if cancel_phase == "start":
+        request_cancel()
+
+    main_config = {
+        "keywords": [["kg"]],
+        "years": [2021],
+        "apis": ["OpenAlex"],
+        "collect_name": COLLECTION,
+        "output_dir": str(output_root),
+        "enable_enrichment": True,
+    }
+    asyncio.run(scilex_api.run_collection_task(job_id, main_config, {}, cancel_event))
+    return job, calls
+
+
+@pytest.mark.parametrize(
+    ("phase", "expected_calls"),
+    [
+        ("start", {"collect": 0, "aggregate": 0, "enrich": 0}),
+        ("collect", {"collect": 1, "aggregate": 0, "enrich": 0}),
+        ("aggregate", {"collect": 1, "aggregate": 1, "enrich": 0}),
+    ],
+)
+def test_cancellation_checked_between_phases(
+    monkeypatch, output_root, phase, expected_calls
+):
+    job, calls = _run_task_with_cancel_at(monkeypatch, output_root, phase)
+    assert job["status"] == "cancelled"
+    assert calls == expected_calls
+
+
+def test_task_without_cancel_completes(monkeypatch, output_root):
+    job, calls = _run_task_with_cancel_at(monkeypatch, output_root, None)
+    assert job["status"] == "completed"
+    assert calls == {"collect": 1, "aggregate": 1, "enrich": 1}
+
+
+def test_cancel_endpoint_on_cancelling_job_is_refused(client):
+    job = _insert_job("job_c", "cancelling")
+    response = client.post("/pipelines/job_c/cancel")
+    assert response.status_code == 400
+    assert job["status"] == "cancelling"
