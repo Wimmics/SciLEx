@@ -60,8 +60,13 @@ def export_path(review: Review, name: str, scope: str, extension: str) -> Path:
     """Output path of a new export (the folder is created)."""
     folder = exports_dir(review)
     folder.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M")
-    return folder / f"{name}-{scope}-{stamp}.{extension}"
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    path = folder / f"{name}-{scope}-{stamp}.{extension}"
+    counter = 2
+    while path.exists():
+        path = folder / f"{name}-{scope}-{stamp}-{counter}.{extension}"
+        counter += 1
+    return path
 
 
 def list_exports(review: Review) -> list[Path]:

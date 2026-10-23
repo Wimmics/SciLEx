@@ -182,3 +182,15 @@ async def test_page_zotero_disabled_without_settings(ctx, review):
         button = user.find(marker="export-zotero").elements.pop()
         assert not button.enabled
         await user.should_see(marker="export-zotero-keys")
+
+
+def test_export_path_never_overwrites_an_existing_export(ctx, tmp_path):
+    from scilex.gui.services import exports
+
+    review = ctx.workspace.create_review(tmp_path / "rag2", name="rag_kg")
+    first = exports.export_path(review, "papers", "all", "csv")
+    first.write_text("a")
+    second = exports.export_path(review, "papers", "all", "csv")
+    assert second != first
+    second.write_text("b")
+    assert exports.export_path(review, "papers", "all", "csv") not in (first, second)
