@@ -72,3 +72,31 @@ def test_session_rows_counts_filters_and_navigation(tmp_path):
     assert screening.load_decisions(review)[keys[0]].note == "changed"
     session.decide(keys[0], None)
     assert session.counts()["undecided"] == 2
+
+
+def test_unknown_rows_are_kept_when_rewriting(tmp_path):
+    review = make_review(tmp_path)
+    first, _ = screening.load_results(review)["paper_key"]
+    screening.screening_path(review).write_text(
+        "paper_key,decision,note,updated_at\n"
+        "doi:x,later,keep me,2024\n"
+        ",include,no key,2024\n"
+    )
+    screening.set_decision(review, first, screening.INCLUDE)
+    text = screening.screening_path(review).read_text()
+    assert "doi:x,later,keep me,2024" in text
+    assert ",include,no key,2024" in text
+    assert list(screening.load_decisions(review)) == [first]
+
+
+def test_two_sessions_do_not_overwrite_each_other(tmp_path):
+    review = make_review(tmp_path)
+    first, second = screening.load_results(review)["paper_key"]
+    window_a = screening.ScreeningSession(review)
+    window_b = screening.ScreeningSession(review)
+    window_a.decide(first, screening.INCLUDE)
+    window_b.decide(second, screening.EXCLUDE)
+    saved = screening.load_decisions(review)
+    assert set(saved) == {first, second}
+    assert window_b.decision_of(first).decision == screening.INCLUDE
+    assert window_b.row(first)["decision"] == "Include"
