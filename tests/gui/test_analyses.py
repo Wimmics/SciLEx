@@ -166,7 +166,7 @@ def _fake_fetchers(monkeypatch, calls, on_batch=None):
         if on_batch:
             on_batch()
         Path(cache_path).write_text("{}")
-        return {doi: [] for doi in dois}
+        return {doi: ["10.9/ref"] for doi in dois}
 
     monkeypatch.setattr(reference_fetcher, "fetch_references_batch", fake)
     monkeypatch.setattr(reference_fetcher, "fetch_citers_batch", fake)
@@ -305,3 +305,87 @@ def test_run_enrich_cache_path_is_inside_review(ctx, tmp_path, monkeypatch):
     cache = Path(seen["cache_path"])
     assert cache.is_absolute()
     assert cache.is_relative_to(tmp_path / "rag")
+
+
+def _stub_fetchers(monkeypatch, result_of):
+    from scilex.citations import reference_fetcher
+
+    def fake(dois, api_key=None, cache_path=None, **kwargs):
+        return {doi: result_of(doi) for doi in dois}
+
+    monkeypatch.setattr(reference_fetcher, "fetch_references_batch", fake)
+    monkeypatch.setattr(reference_fetcher, "fetch_citers_batch", fake)
+
+
+def test_run_citations_fails_when_nothing_fetched(ctx, tmp_path, monkeypatch):
+    _stub_fetchers(monkeypatch, lambda doi: [])
+    config = ctx.workspace.load_config(_review_with_dois(ctx, tmp_path))
+    with pytest.raises(
+        service.AnalysisError, match="No citation data could be fetched"
+    ):
+        service.run_citations(config, lambda p, m: None)
+
+
+def test_run_citations_warns_on_partial_failure(ctx, tmp_path, monkeypatch):
+    _stub_fetchers(monkeypatch, lambda doi: ["10.9/x"] if doi == "10.1/0" else [])
+    config = ctx.workspace.load_config(_review_with_dois(ctx, tmp_path))
+    result = service.run_citations(config, lambda p, m: None)
+    assert "1 of 3 papers" in result.message
+
+
+def test_run_keywords_flattens_keyword_groups(ctx, tmp_path, monkeypatch):
+    from scilex.keyword_suggestions import extractor
+
+    review = _review_with_results(ctx, tmp_path)
+    _prepare_outputs(review.collection_dir)
+    config = ctx.workspace.load_config(review)
+    config.main["keywords"] = [["knowledge graph"], ["metabolomics", ["lipidomics"]]]
+    seen = {}
+
+    def fake(df, existing, **kwargs):
+        seen["existing"] = existing
+        return []
+
+    monkeypatch.setattr(extractor, "extract_suggestions", fake)
+    service.run_keywords(config, lambda p, m: None)
+    assert seen["existing"] == ["knowledge graph", "metabolomics", "lipidomics"]
+
+
+def test_tabs_follow_prerequisites():
+    assert NAMES == [
+        "report",
+        "citations",
+        "snowball",
+        "graph",
+        "keywords",
+        "summaries",
+        "enrich",
+    ]
+
+
+async def test_busy_reason_is_visible_and_chart_caption_is_file_name(
+    ctx, tmp_path, monkeypatch
+):
+    import threading
+
+    review = _review_with_results(ctx, tmp_path)
+    charts = review.collection_dir / service.CHARTS_DIRNAME
+    charts.mkdir()
+    (charts / "years.png").write_bytes(b"x")
+    release = threading.Event()
+
+    def slow_runner(config, progress, cancel_event=None, **kwargs):
+        release.wait(10)
+        return service.AnalysisResult("ok")
+
+    monkeypatch.setitem(service.RUNNERS, "enrich", slow_runner)
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/analyses")
+        await user.should_see("years.png")
+        user.find(marker="analysis-tab-enrich").click()
+        user.find(marker="analysis-run-enrich").click()
+        await user.should_see("Running", retries=50)
+        user.find(marker="analysis-tab-report").click()
+        await user.should_see("Another job is running (HuggingFace)", retries=50)
+        release.set()
+        await user.should_see("Completed", retries=50)

@@ -77,19 +77,6 @@ ANALYSES = (
         "Stops between charts; the chart being drawn finishes first.",
     ),
     AnalysisInfo(
-        "keywords",
-        "Keywords",
-        "Suggest new search keywords from frequent terms in the paper clusters (run Graph first).",
-        "clusters",
-    ),
-    AnalysisInfo(
-        "enrich",
-        "HuggingFace",
-        "Add HuggingFace tags, model links and GitHub repositories to the aggregated papers.",
-        "results",
-        "Stops between papers; nothing is written when cancelled.",
-    ),
-    AnalysisInfo(
         "citations",
         "Citations",
         "Fetch the references and citing papers of the corpus (like scilex-enrich-citations). "
@@ -112,10 +99,23 @@ ANALYSES = (
         "Stops between graphs; the graph being built finishes first.",
     ),
     AnalysisInfo(
+        "keywords",
+        "Keywords",
+        "Suggest new search keywords from frequent terms in the paper clusters (run Graph first).",
+        "clusters",
+    ),
+    AnalysisInfo(
         "summaries",
         "Summaries",
         "Write a statistical report of each community found by Graph (run Graph first).",
         "clusters",
+    ),
+    AnalysisInfo(
+        "enrich",
+        "HuggingFace",
+        "Add HuggingFace tags, model links and GitHub repositories to the aggregated papers.",
+        "results",
+        "Stops between papers; nothing is written when cancelled.",
     ),
 )
 
@@ -211,11 +211,20 @@ def _read_clusters(csv_path: str) -> pd.DataFrame:
     return df
 
 
+def _flatten_keywords(value) -> list[str]:
+    """Flatten keyword groups (lists nested at any depth) into a flat list of strings."""
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, (list, tuple, set)):
+        return [item for element in value for item in _flatten_keywords(element)]
+    return []
+
+
 def _existing_keywords(config: SciLExConfig) -> list[str]:
     keywords = config.main.get("keywords", [])
     if isinstance(keywords, str):
-        keywords = [k.strip() for k in keywords.split(",")]
-    return list(keywords)
+        keywords = keywords.split(",")
+    return _flatten_keywords(keywords)
 
 
 def run_keywords(
@@ -381,6 +390,7 @@ def run_citations(
     total_steps = len(stages) * len(batches)
     step = 0
     started = time.time()
+    found: dict[str, bool] = dict.fromkeys(dois, False)
     for label, cache, fetch in stages:
         for batch in batches:
             if _cancelled(cancel_event):
@@ -389,13 +399,28 @@ def run_citations(
                 int(100 * step / total_steps),
                 f"Fetching {label}: batch {step % len(batches) + 1}/{len(batches)}",
             )
-            fetch(batch, cache)
+            fetched = fetch(batch, cache) or {}
+            for doi in batch:
+                if fetched.get(doi):
+                    found[doi] = True
             step += 1
     files = [cache for _, cache, _ in stages if cache.is_file()]
-    return AnalysisResult(
-        f"Citation data fetched for {len(dois)} papers in {time.time() - started:.0f}s.",
-        files,
-    )
+    with_data = sum(found.values())
+    if not with_data:
+        raise AnalysisError(
+            "No citation data could be fetched: check your Semantic Scholar key "
+            "in API keys or your connection."
+        )
+    elapsed = time.time() - started
+    if with_data < len(dois):
+        message = (
+            f"Warning: citation data fetched for {with_data} of {len(dois)} papers "
+            f"in {elapsed:.0f}s (the others returned nothing: failed requests "
+            "or no known citations)."
+        )
+    else:
+        message = f"Citation data fetched for {len(dois)} papers in {elapsed:.0f}s."
+    return AnalysisResult(message, files)
 
 
 def run_snowball(

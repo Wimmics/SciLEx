@@ -31,6 +31,16 @@ def kind_of(name: str) -> str:
     return f"analysis-{name}"
 
 
+def _job_label(job: Job) -> str:
+    """Human name of a job: the analysis title, or the pipeline."""
+    prefix = "analysis-"
+    if job.kind.startswith(prefix):
+        for info in service.ANALYSES:
+            if info.name == job.kind[len(prefix) :]:
+                return info.title
+    return "Collect"
+
+
 def render(ctx: AppContext, review: Review) -> None:
     """Draw the Analyses screen of ``review``."""
     ui.label("Analyses").classes("text-2xl font-bold")
@@ -67,6 +77,10 @@ def _render_analysis(
     problem_refreshers.append(show_problem.refresh)
 
     options = _render_options(name)
+    reason_label = (
+        ui.label("").classes("text-orange-700").mark(f"analysis-reason-{name}")
+    )
+    reason_label.set_visibility(False)
 
     with ui.row().classes("items-center gap-2"):
         run_button = ui.button("Run", icon="play_arrow").mark(f"analysis-run-{name}")
@@ -108,10 +122,16 @@ def _render_analysis(
         ):
             shown_job.append(job.id)
             show_result(job.result.message, job.result.files)
-        busy_elsewhere = not running and ctx.runner.active_job() is not None
-        run_button.set_enabled(not running and not busy_elsewhere)
+        active = ctx.runner.active_job()
+        busy_elsewhere = not running and active is not None
+        missing = service.missing_prerequisite(collect_dir, info.needs)
+        run_button.set_enabled(not running and not busy_elsewhere and not missing)
         # One tooltip, shown or hidden: calling .tooltip() here would add one per tick.
         busy_tooltip.set_visibility(busy_elsewhere)
+        # A missing input is already explained by the line above the options.
+        if busy_elsewhere:
+            reason_label.set_text(f"Another job is running ({_job_label(active)})")
+        reason_label.set_visibility(busy_elsewhere)
         cancel_button.set_visibility(running)
 
     def on_finished(job: Job) -> None:
@@ -223,7 +243,7 @@ def _render_options(name: str) -> dict:
 
 def _render_file(path: Path) -> None:
     """Show one output file according to its type."""
-    ui.label(str(path)).classes("text-xs text-gray-500")
+    ui.label(path.name).classes("text-xs text-gray-500").tooltip(str(path))
     suffix = path.suffix.lower()
     try:
         if suffix == ".png":
