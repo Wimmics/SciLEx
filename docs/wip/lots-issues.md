@@ -22,5 +22,6 @@ Les nouvelles clés ne vont PAS dans `get_default_quality_filters()` / `QUALITY_
 (invariant legacy ↔ scilex/settings testé par scilex-90) : constante `DEFAULT_*` + `.get(clé, défaut)`.
 
 ## Prochaine étape
-Tous les lots sont dans dev (1682 tests verts), worktrees supprimés. scilex-90 (C2) et scilex-86 (/simplify) prévenus.
-Reste : push / PR / fermeture des issues, à confirmer avec l'utilisateur.
+dev poussé (02d761ab, 1845 tests verts) ; PR #55 dev → main mise à jour avec « Closes » pour les 21 issues
+(toutes reliées par GitHub, fusionnable). Reste : fusion de #55 par l'utilisateur ; les issues se ferment
+automatiquement à ce moment-là. Branches locales lot-* supprimables une fois #55 fusionnée.
