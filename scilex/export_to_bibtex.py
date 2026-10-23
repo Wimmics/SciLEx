@@ -14,7 +14,12 @@ import sys
 import pandas as pd
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
-from scilex.constants import is_valid, normalize_doi, normalize_path_component
+from scilex.constants import (
+    is_valid,
+    normalize_doi,
+    normalize_path_component,
+    split_semicolon_field,
+)
 from scilex.crawlers.utils import load_all_configs
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
@@ -99,11 +104,7 @@ def parse_tags(tags_str: str) -> list[str]:
     Returns:
         List of tag strings
     """
-    if not is_valid(tags_str):
-        return []
-
-    tags = [tag.strip() for tag in str(tags_str).split(";")]
-    return [t for t in tags if t]  # Remove empty strings
+    return split_semicolon_field(tags_str)
 
 
 # HuggingFace tag prefixes -> dedicated BibTeX fields (read by the RDF exporter).
@@ -199,13 +200,7 @@ def format_authors(authors_str: str) -> str:
     if not is_valid(authors_str):
         return ""
 
-    authors = [author.strip() for author in authors_str.split(";")]
-    authors = [a for a in authors if a]  # Remove empty strings
-
-    if not authors:
-        return ""
-
-    return " and ".join(authors)
+    return " and ".join(split_semicolon_field(authors_str))
 
 
 def format_pages(pages_str: str) -> str:
