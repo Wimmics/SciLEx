@@ -1,5 +1,6 @@
 """Home screen: the reviews known to the app."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 from nicegui import app, ui
@@ -29,7 +30,6 @@ async def pick_folder(ctx: AppContext) -> str | None:
 
 def render(ctx: AppContext) -> None:
     """Draw the home screen."""
-    reviews = ctx.workspace.list_reviews()
     with ui.column().classes("w-full max-w-5xl mx-auto p-6 gap-4"):
         with ui.row().classes("w-full items-center"):
             ui.label("My reviews").classes("text-2xl font-bold")
@@ -42,17 +42,25 @@ def render(ctx: AppContext) -> None:
                 icon="folder_open",
                 on_click=lambda: open_review_dialog(ctx),
             ).props("outline").mark("open-review")
-        if not reviews:
-            ui.label(
-                "No review yet. Create one, or open a folder that already "
-                "contains a scilex.yml."
-            ).classes("text-gray-500")
-        with ui.row().classes("w-full gap-4"):
-            for review in reviews:
-                _review_card(ctx, review)
+
+        @ui.refreshable
+        def cards() -> None:
+            reviews = ctx.workspace.list_reviews()
+            if not reviews:
+                ui.label(
+                    "No review yet. Create one, or open a folder that already "
+                    "contains a scilex.yml."
+                ).classes("text-gray-500")
+            with ui.row().classes("w-full gap-4"):
+                for review in reviews:
+                    _review_card(ctx, review, cards.refresh)
+
+        cards()
 
 
-def _review_card(ctx: AppContext, review: Review) -> None:
+def _review_card(
+    ctx: AppContext, review: Review, on_forget: Callable[[], None]
+) -> None:
     job = ctx.runner.latest_for(review.id)
     with (
         ui.card()
@@ -64,7 +72,7 @@ def _review_card(ctx: AppContext, review: Review) -> None:
             ui.label(review.name).classes(
                 "text-lg font-bold grow min-w-0 break-words"
             ).style("overflow-wrap: anywhere").tooltip(review.name)
-            _card_menu(ctx, review)
+            _card_menu(ctx, review, on_forget)
         ui.label(str(review.folder)).classes("text-xs text-gray-500 break-all")
         if review.error:
             ui.label("scilex.yml is invalid: open to fix it").classes(
@@ -78,13 +86,15 @@ def _review_card(ctx: AppContext, review: Review) -> None:
             ui.label("Not collected yet").classes("text-sm text-gray-500")
 
 
-def _card_menu(ctx: AppContext, review: Review) -> None:
+def _card_menu(
+    ctx: AppContext, review: Review, on_forget: Callable[[], None]
+) -> None:
     """Small menu (⋮) of a card: forget the review or copy its folder path."""
 
     def forget() -> None:
         ctx.workspace.forget_review(review.folder)
         confirm.close()
-        ui.navigate.to("/")
+        on_forget()
 
     with ui.dialog() as confirm, ui.card():
         ui.label(f"Remove '{review.name}' from the list?").classes("font-bold")

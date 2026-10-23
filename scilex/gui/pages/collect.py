@@ -54,7 +54,9 @@ def render(ctx: AppContext, review: Review) -> None:
     # Pre-flight: validate scilex.yml before offering to run.
     with ui.column().classes("gap-1"):
         try:
-            preflight_text = preflight_line(Workspace.load_config(review))
+            preflight_text = preflight_line(
+                Workspace.load_config(review), review.config_path
+            )
             ui.label(preflight_text).classes("text-sm").mark("preflight")
             placeholders = placeholder_keywords(Workspace.load_config(review))
             if placeholders:

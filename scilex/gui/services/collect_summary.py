@@ -99,13 +99,36 @@ def phase_steps(current_phase: str | None, finished: bool) -> list[tuple[str, st
     return steps
 
 
-def preflight_line(config: SciLExConfig) -> str:
+def _years_text(years: list[int], config_path: Path | None) -> str:
+    """Years as written in scilex.yml: a ``"YYYY-YYYY"`` range or the explicit list."""
+    if config_path is not None:
+        try:
+            raw = (yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}).get(
+                "search", {}
+            ).get("years")
+        except (OSError, yaml.YAMLError, AttributeError):
+            raw = None
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+        if isinstance(raw, list) and raw:
+            return ", ".join(str(year) for year in raw)
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            return str(raw)
+    if not years:
+        return "no year"
+    years = sorted(years)
+    if years == list(range(years[0], years[-1] + 1)) and len(years) > 1:
+        return f"{years[0]}-{years[-1]}"
+    return ", ".join(str(year) for year in years)
+
+
+def preflight_line(config: SciLExConfig, config_path: Path | None = None) -> str:
     """One-line description of what the run will do."""
     main = config.main
     apis = main.get("apis", [])
     years = main.get("years", [])
     groups = [group for group in main.get("keywords", []) if group]
-    year_text = f"{min(years)}-{max(years)}" if years else "no year"
+    year_text = _years_text(years, config_path)
     group_text = " + ".join(str(len(group)) for group in groups) or "no"
     return (
         f"Will query {len(apis)} API(s) ({', '.join(apis) or 'none'}) for {year_text}, "

@@ -59,7 +59,7 @@ def render(ctx: AppContext, review_id: str, step: str = DEFAULT_STEP) -> None:
                 "text-xs text-gray-500 px-2 pb-2 break-all w-52"
             )
             render_sidebar(review, step)
-        with ui.column().classes("grow gap-3 min-w-0"):
+        with ui.column().classes("grow flex-1 w-0 gap-3 min-w-0"):
             module = step_module(step)
             if review.error:
                 _invalid_config_banner(review)

@@ -96,7 +96,8 @@ def _unknown_keys_banner(review: Review, unknown: list[tuple[str, str | None]]) 
                 show_error("Cannot remove the unknown keys", exc, expected=True)
                 return
             ui.notify("Unknown keys removed", type="positive")
-            ui.navigate.to(f"/review/{review.id}/configure")
+            # Same-route navigation does not re-render a sub page: reload it.
+            ui.navigate.reload()
 
         ui.button("Remove unknown keys", icon="delete", on_click=remove).props(
             "outline color=negative"

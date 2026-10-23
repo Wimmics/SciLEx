@@ -26,7 +26,7 @@ def build_root(ctx) -> Callable[[], None]:
                 "/review/{review_id}/{step}": review.render,
             },
             data={"ctx": ctx},
-        )
+        ).classes("w-full")  # flex column with align-items:flex-start would shrink-wrap
 
     return root
 
