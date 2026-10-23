@@ -124,3 +124,25 @@ def test_invalid_config_keeps_review_listed_with_error(tmp_path):
     assert [r.id for r in listed] == [review.id]
     assert listed[0].error
     assert workspace.get(review.id).name == "rag"
+
+
+def test_corrupt_registry_is_kept_and_does_not_crash(workspace):
+    workspace.registry_path.parent.mkdir(parents=True)
+    workspace.registry_path.write_text("reviews: [unclosed\n  - a: b: c\n")
+    assert workspace.list_reviews() == []
+    corrupt = workspace.registry_path.with_name("gui_reviews.yml.corrupt")
+    assert "unclosed" in corrupt.read_text()
+
+
+def test_registry_write_is_atomic(workspace, tmp_path, monkeypatch):
+    workspace.create_review(tmp_path / "rag", name="rag_kg")
+    before = workspace.registry_path.read_text()
+
+    def boom(*_args):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("scilex.gui.services.workspace.os.replace", boom)
+    with pytest.raises(OSError):
+        workspace._save_folders([])
+    assert workspace.registry_path.read_text() == before
+    assert not list(workspace.registry_path.parent.glob("*.tmp"))

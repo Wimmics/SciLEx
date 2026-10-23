@@ -82,3 +82,11 @@ def test_unchanged_springer_mapping_keeps_its_shape():
     data = {"Springer": {"api_key": dict(mapping)}}
     keys_editor.set_keys_list(data, "Springer", ["META", "OA"])
     assert data["Springer"]["api_key"] == mapping
+
+
+def test_save_keeps_a_private_backup_of_the_previous_file(isolated_scilex_env):
+    isolated_scilex_env.write_text("OpenAlex:\n  api_key: old\n")
+    editor.save_keys({"OpenAlex": {"api_key": "new"}})
+    backup = isolated_scilex_env.with_name(isolated_scilex_env.name + ".bak")
+    assert "old" in backup.read_text()
+    assert stat.S_IMODE(os.stat(backup).st_mode) == 0o600

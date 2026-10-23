@@ -61,25 +61,41 @@ def load_results(review: Review) -> pd.DataFrame:
         {"collect_name": review.name}, collect_dir=str(review.collection_dir)
     )
     data = data.loc[:, [c for c in data.columns if not str(c).startswith("Unnamed")]]
-    data["paper_key"] = [paper_key(row) for _, row in data.iterrows()]
+    data["paper_key"] = [paper_key(record) for record in data.to_dict("records")]
     return data
+
+
+def _read_file(review: Review) -> tuple[dict[str, Decision], list[dict]]:
+    """Read the screening file: (valid decisions, rows kept untouched).
+
+    Rows with an unknown decision or without a paper key are not decisions the
+    GUI understands, but they are never dropped: they come back as raw rows so
+    the next write puts them back.
+    """
+    path = screening_path(review)
+    if not path.is_file():
+        return {}, []
+    decisions: dict[str, Decision] = {}
+    untouched: list[dict] = []
+    with path.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("paper_key") and row.get("decision") in DECISIONS:
+                decisions[row["paper_key"]] = Decision(
+                    **{f: row.get(f, "") or "" for f in FIELDS}
+                )
+            else:
+                untouched.append({f: row.get(f) or "" for f in FIELDS})
+    return decisions, untouched
 
 
 def load_decisions(review: Review) -> dict[str, Decision]:
     """Read the screening file; returns an empty dict if there is none."""
-    path = screening_path(review)
-    if not path.is_file():
-        return {}
-    with path.open(encoding="utf-8", newline="") as handle:
-        return {
-            row["paper_key"]: Decision(**{f: row.get(f, "") or "" for f in FIELDS})
-            for row in csv.DictReader(handle)
-            if row.get("decision") in DECISIONS
-        }
+    return _read_file(review)[0]
 
 
-def save_decisions(review: Review, decisions: dict[str, Decision]) -> None:
-    """Write all decisions atomically (temporary file then rename)."""
+def _write_file(
+    review: Review, decisions: dict[str, Decision], untouched: list[dict]
+) -> None:
     path = screening_path(review)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".csv.tmp")
@@ -88,23 +104,37 @@ def save_decisions(review: Review, decisions: dict[str, Decision]) -> None:
         writer.writeheader()
         for decision in decisions.values():
             writer.writerow(decision.__dict__)
+        writer.writerows(untouched)
     tmp.replace(path)
+
+
+def save_decisions(review: Review, decisions: dict[str, Decision]) -> None:
+    """Write all decisions atomically; rows the GUI does not understand stay."""
+    _write_file(review, decisions, _read_file(review)[1])
+
+
+def _apply_decision(
+    review: Review, key: str, decision: str | None, note: str = ""
+) -> dict[str, Decision]:
+    """Re-read the file, change only ``key``, write atomically; return the result."""
+    if decision is not None and decision not in DECISIONS:
+        raise ValueError(f"Unknown decision {decision!r}")
+    decisions, untouched = _read_file(review)
+    if decision is None:
+        decisions.pop(key, None)
+    else:
+        decisions[key] = Decision(
+            key, decision, note, datetime.now().isoformat(timespec="seconds")
+        )
+    _write_file(review, decisions, untouched)
+    return decisions
 
 
 def set_decision(
     review: Review, key: str, decision: str | None, note: str = ""
 ) -> None:
     """Record (or clear, with ``decision=None``) the decision on one paper."""
-    decisions = load_decisions(review)
-    if decision is None:
-        decisions.pop(key, None)
-    else:
-        if decision not in DECISIONS:
-            raise ValueError(f"Unknown decision {decision!r}")
-        decisions[key] = Decision(
-            key, decision, note, datetime.now().isoformat(timespec="seconds")
-        )
-    save_decisions(review, decisions)
+    _apply_decision(review, key, decision, note)
 
 
 def orphan_keys(review: Review, results: pd.DataFrame) -> list[str]:
@@ -140,8 +170,9 @@ def _number(value) -> float | None:
 class ScreeningSession:
     """Results and decisions of a review, kept in memory while screening.
 
-    The results are loaded once; each decision updates the in-memory state and
-    rewrites ``screening.csv`` (atomic), without re-reading any file.
+    The results are loaded once. Each decision re-reads ``screening.csv``,
+    changes only that paper's row and writes it back atomically, so two
+    windows on the same review do not overwrite each other.
     """
 
     def __init__(self, review: Review, results: pd.DataFrame | None = None):
@@ -151,6 +182,7 @@ class ScreeningSession:
         results = results.drop_duplicates("paper_key")
         self.decisions = load_decisions(review)
         present = set(results["paper_key"])
+        self._present = present
         self.orphans = [k for k in self.decisions if k not in present]
         self._details: dict[str, dict] = {}
         self._search: dict[str, str] = {}
@@ -212,18 +244,15 @@ class ScreeningSession:
 
     def decide(self, key: str, decision: str | None, note: str = "") -> dict:
         """Record or clear (``None``) a decision, save it, return the updated row."""
-        if decision is None:
-            self.decisions.pop(key, None)
-        elif decision not in DECISIONS:
-            raise ValueError(f"Unknown decision {decision!r}")
-        else:
-            self.decisions[key] = Decision(
-                key, decision, note, datetime.now().isoformat(timespec="seconds")
-            )
-        save_decisions(self.review, self.decisions)
-        row = self._row_by_key[key]
-        row["decision"] = self._label(key)
-        return row
+        self._refresh(_apply_decision(self.review, key, decision, note))
+        return self._row_by_key[key]
+
+    def _refresh(self, decisions: dict[str, Decision]) -> None:
+        """Adopt the decisions just read from disk (they include other windows')."""
+        self.decisions = decisions
+        for row_key, row in self._row_by_key.items():
+            row["decision"] = self._label(row_key)
+        self.orphans = [k for k in decisions if k not in self._present]
 
     def update_note(self, key: str, note: str) -> bool:
         """Change the note of an already decided paper; False if undecided/unchanged."""
@@ -276,7 +305,4 @@ class ScreeningSession:
 
     def forget(self, key: str) -> None:
         """Drop the decision of an orphan paper."""
-        self.decisions.pop(key, None)
-        if key in self.orphans:
-            self.orphans.remove(key)
-        save_decisions(self.review, self.decisions)
+        self._refresh(_apply_decision(self.review, key, None))

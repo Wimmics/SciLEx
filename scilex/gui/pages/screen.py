@@ -3,7 +3,7 @@
 import contextlib
 import json
 
-from nicegui import events, ui
+from nicegui import events, run, ui
 
 from scilex.constants import doi_to_url
 from scilex.gui.components.errors import show_error
@@ -80,13 +80,26 @@ GRID_CSS = """
 def render(ctx: AppContext, review: Review) -> None:
     """Draw the Screen step of ``review``."""
     ui.label("Screen").classes("text-2xl font-bold")
-    try:
-        session = ScreeningSession(review)
-    except Exception as exc:
-        show_error("Cannot load the results", exc)
-        return
-    ui.add_css(GRID_CSS)
-    ScreenPage(session).build()
+    container = ui.column().classes("w-full gap-3")
+    with container, ui.row().classes("items-center gap-2") as loading:
+        ui.spinner()
+        ui.label("Loading papers…")
+
+    async def load_and_build() -> None:
+        # Reading the CSV and computing the paper keys must not block the loop.
+        try:
+            session = await run.io_bound(ScreeningSession, review)
+        except Exception as exc:
+            loading.delete()
+            with container:
+                show_error("Cannot load the results", exc)
+            return
+        loading.delete()
+        with container:
+            ui.add_css(GRID_CSS)
+            ScreenPage(session).build()
+
+    ui.timer(0, load_and_build, once=True)
 
 
 class ScreenPage:

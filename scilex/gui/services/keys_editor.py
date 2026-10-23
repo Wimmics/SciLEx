@@ -130,6 +130,15 @@ def validate(data: dict) -> None:
     KeysSettings.model_validate(data)
 
 
+def _backup_previous(path: Path) -> None:
+    """Copy the current keys file to ``keys.yml.bak`` (mode 0600)."""
+    backup = path.with_name(path.name + ".bak")
+    fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(path.read_bytes())
+    os.chmod(backup, 0o600)
+
+
 def save_keys(data: dict) -> Path:
     """Validate then write ``data`` atomically with mode 0600.
 
@@ -140,6 +149,8 @@ def save_keys(data: dict) -> Path:
     path = keys_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+    if path.is_file():
+        _backup_previous(path)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".keys-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:

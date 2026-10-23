@@ -220,3 +220,24 @@ async def test_page_failed_job_has_copy_log(ctx, tmp_path):
         await user.should_see("Failed", retries=50)
         await user.should_see(marker="copy-log", retries=20)
         await user.should_see("boom")
+
+
+@pytest.mark.anyio
+async def test_page_does_not_scan_disk_on_every_tick(ctx, tmp_path, monkeypatch):
+    from scilex.gui.pages import collect as collect_page
+
+    calls = []
+    real = collect_page.detect_resume
+    monkeypatch.setattr(
+        collect_page, "detect_resume", lambda path: calls.append(path) or real(path)
+    )
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/collect")
+        await user.should_see("Collect")
+        count_after_render = len(calls)
+        await user.should_see("Not run in this session", retries=10)
+        time.sleep(1.3)
+        await user.should_see("Collect")
+    assert count_after_render == 1
+    assert len(calls) == 1

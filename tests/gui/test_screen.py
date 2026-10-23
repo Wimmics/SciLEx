@@ -59,6 +59,7 @@ async def test_decision_filter_and_search(ctx, review):
     screening.set_decision(review, first, screening.EXCLUDE)
     async with user_simulation(build_root(ctx)) as user:
         await user.open(f"/review/{review.id}/screen")
+        await user.should_see(marker="screen-grid", retries=20)  # loaded off-loop
         grid = user.find(marker="screen-grid").elements.pop()
         assert len(grid.options["rowData"]) == 3
 

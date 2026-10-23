@@ -7,10 +7,13 @@ stored in the per-OS user configuration directory.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
+import os
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -113,13 +116,32 @@ class Workspace:
     def _load_folders(self) -> list[Path]:
         if not self.registry_path.is_file():
             return []
-        data = yaml.safe_load(self.registry_path.read_text(encoding="utf-8")) or {}
-        return [Path(folder) for folder in data.get("reviews", [])]
+        try:
+            data = yaml.safe_load(self.registry_path.read_text(encoding="utf-8")) or {}
+            return [Path(folder) for folder in data.get("reviews", [])]
+        except (yaml.YAMLError, AttributeError, TypeError, UnicodeDecodeError) as exc:
+            corrupt = self.registry_path.with_name(self.registry_path.name + ".corrupt")
+            logger.warning(
+                "Review registry %s is unreadable (%s); kept a copy as %s",
+                self.registry_path,
+                exc,
+                corrupt,
+            )
+            with contextlib.suppress(OSError):
+                shutil.copyfile(self.registry_path, corrupt)
+            return []
 
     def _save_folders(self, folders: list[Path]) -> None:
         self.registry_path.parent.mkdir(parents=True, exist_ok=True)
         data = {"reviews": [str(folder) for folder in folders]}
-        self.registry_path.write_text(yaml.safe_dump(data), encoding="utf-8")
+        tmp = self.registry_path.with_name(self.registry_path.name + ".tmp")
+        try:
+            tmp.write_text(yaml.safe_dump(data), encoding="utf-8")
+            os.replace(tmp, self.registry_path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                tmp.unlink()
+            raise
 
     def list_reviews(self) -> list[Review]:
         """Return the known reviews.

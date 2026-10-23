@@ -233,4 +233,7 @@ def render(ctx: AppContext, review: Review) -> None:
         data.update(updated)
         ui.notify(f"Keys saved to {path}", type="positive")
 
-    ui.button("Save", icon="save", on_click=save).mark("keys-save")
+    save_button = ui.button("Save", icon="save", on_click=save).mark("keys-save")
+    if load_error is not None:
+        # Saving would replace the unreadable file with a near-empty one.
+        save_button.disable()
