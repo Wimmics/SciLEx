@@ -914,7 +914,8 @@ def parallel_aggregate(
     Args:
         dir_collect: Base collection directory
         config_used: Configuration dictionary from config_used.yml
-        txt_filters: Enable text filtering
+        txt_filters: Enable keyword text filtering; when False papers are only
+            converted (early pre_filters still apply)
         num_workers: Number of parallel workers for batch processing
         batch_size: Papers per batch
         keyword_groups: Optional list of keyword groups from config (for dual-group mode)
@@ -960,25 +961,21 @@ def parallel_aggregate(
     # PHASE 2: PARALLEL BATCH PROCESSING
     # ========================================================================
 
-    if txt_filters:
-        logging.info(
-            "\n--- Phase 2: Parallel Batch Processing (with text filtering) ---"
-        )
-        df, process_stats = parallel_process_papers(
-            papers_by_api,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            keyword_groups=keyword_groups,
-            bonus_keywords=bonus_keywords,
-            cached_abstracts=cached_abstracts,
-            pre_filters=pre_filters,
-        )
-        combined_stats["processing"] = process_stats
-    else:
-        # No filtering - just convert formats
-        logging.info("\n--- Phase 2: Format Conversion (no filtering) ---")
-        # TODO: Implement format-only conversion without filtering (currently unsupported - use filter_enabled=True)
-        df = pd.DataFrame()
+    logging.info(
+        "\n--- Phase 2: Parallel Batch Processing "
+        + ("(with text filtering) ---" if txt_filters else "(no text filtering) ---")
+    )
+    df, process_stats = parallel_process_papers(
+        papers_by_api,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        keyword_groups=keyword_groups,
+        bonus_keywords=bonus_keywords,
+        cached_abstracts=cached_abstracts,
+        pre_filters=pre_filters,
+        apply_text_filter=txt_filters,
+    )
+    combined_stats["processing"] = process_stats
 
     if df.empty:
         logging.warning("No papers after processing. Check filtering criteria.")
