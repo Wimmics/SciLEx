@@ -1,0 +1,20 @@
+# Clés de configuration du Lot C
+
+## api.config.yml (fichier local, non versionné)
+```yaml
+openrouter:
+  api_key: "sk-or-..."   # ou variable d'env OPENROUTER_API_KEY
+```
+
+## scilex.config.yml : bloc `llm_screening` (#42, opt-in)
+| Clé | Défaut | Rôle |
+|-----|--------|------|
+| enabled | false | active l'étape (après filtres qualité, avant citations) |
+| topic | "" | description du sujet de recherche (obligatoire si enabled) |
+| model | openai/gpt-4o-mini | modèle OpenRouter |
+| threshold | null | exclut les papiers dont llm_relevance_score < seuil |
+| max_papers | 500 | plafond de papiers (non cachés) envoyés au LLM |
+| workers | 4 | concurrence |
+| price_input_per_m / price_output_per_m | 0.15 / 0.60 | USD par million de tokens, pour l'estimation |
+
+Cache : `output/<collect>/llm_relevance_cache.json`.

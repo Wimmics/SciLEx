@@ -35,6 +35,11 @@ from scilex.duplicate_tracking import (
     generate_itemtype_distribution_report,
 )
 from scilex.keyword_validation import generate_keyword_validation_report
+from scilex.llm_relevance import (
+    CACHE_FILENAME,
+    LLMScreeningConfig,
+    apply_llm_screening,
+)
 from scilex.logging_config import add_file_log_handler
 from scilex.pipeline.bonus_keywords import (
     generate_bonus_keyword_stats,
@@ -475,6 +480,25 @@ def run_aggregation(
             len(df_clean),
             f"Abstracts meeting quality threshold (min score: {min_quality_score})",
         )
+
+    # =========================================================================
+    # STEP 2b: Optional LLM abstract screening (after keyword/quality filters)
+    # =========================================================================
+    screening_config = LLMScreeningConfig.from_dict(main_config.get("llm_screening"))
+    if screening_config.enabled and len(df_clean) > 0:
+        logging.info("\n=== LLM Abstract Screening ===")
+        df_clean = apply_llm_screening(
+            df_clean,
+            screening_config,
+            api_config=api_config,
+            cache_path=os.path.join(dir_collect, CACHE_FILENAME),
+        )
+        if screening_config.threshold is not None:
+            filtering_tracker.add_stage(
+                "LLM Screening",
+                len(df_clean),
+                f"Papers with llm_relevance_score >= {screening_config.threshold}",
+            )
 
     if progress_callback:
         progress_callback("citations", 55, "Fetching citations...")
