@@ -1,15 +1,15 @@
-"""Tests for functions in scilex.aggregate_collect module.
+"""Tests for the citation and text filters (scilex.pipeline.*)."""
 
-After Phase 2 refactoring, this module no longer has module-level side effects,
-so no mocking is needed to import it.
-"""
-
-from scilex.aggregate_collect import (
-    _apply_time_aware_citation_filter,
-    _calculate_required_citations,
-    _record_passes_text_filter,
-)
 from scilex.constants import CitationFilterConfig
+from scilex.pipeline.citation_filter import (
+    apply_time_aware_citation_filter as _apply_time_aware_citation_filter,
+)
+from scilex.pipeline.citation_filter import (
+    calculate_required_citations as _calculate_required_citations,
+)
+from scilex.pipeline.text_filter import (
+    record_passes_text_filter as _record_passes_text_filter,
+)
 from scilex.pipeline.tracker import FilteringTracker
 
 

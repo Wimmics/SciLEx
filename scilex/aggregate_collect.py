@@ -2,62 +2,8 @@ import argparse
 import logging
 import sys
 
-from scilex.config import SciLExConfig  # noqa: F811
-from scilex.logging_config import log_section, setup_logging  # noqa: F811
-from scilex.pipeline.bonus_keywords import (  # noqa: F811
-    generate_bonus_keyword_stats,
-    tag_papers_with_bonus_keywords,
-)
-from scilex.pipeline.citation_filter import (  # noqa: F811
-    apply_time_aware_citation_filter,
-    calculate_paper_age_months,
-    calculate_required_citations,
-)
-from scilex.pipeline.enrichment import (  # noqa: F811
-    fill_missing_urls_from_doi,
-    use_openalex_citations_fallback,
-    use_semantic_scholar_citations_fallback,
-)
-from scilex.pipeline.itemtype_filter import (  # noqa: F811
-    apply_itemtype_bypass,
-    apply_itemtype_filter,
-)
-from scilex.pipeline.ranking import (  # noqa: F811
-    apply_relevance_ranking,
-    calculate_relevance_score,
-    count_keyword_matches,
-)
-from scilex.pipeline.report import write_aggregation_report  # noqa: F811
-from scilex.pipeline.text_filter import (  # noqa: F811
-    check_keywords_flexible,
-    check_keywords_in_text,
-    keyword_matches_in_abstract,
-    record_passes_text_filter,
-)
-
-# Backward-compatible aliases (old names with leading _)
-_keyword_matches_in_abstract = keyword_matches_in_abstract
-_check_keywords_in_text = check_keywords_in_text
-_check_keywords_flexible = check_keywords_flexible
-_record_passes_text_filter = record_passes_text_filter
-_tag_papers_with_bonus_keywords = tag_papers_with_bonus_keywords
-_generate_bonus_keyword_stats = generate_bonus_keyword_stats
-_write_aggregation_report = write_aggregation_report
-_calculate_paper_age_months = calculate_paper_age_months
-_calculate_required_citations = calculate_required_citations
-_apply_time_aware_citation_filter = apply_time_aware_citation_filter
-_count_keyword_matches = count_keyword_matches
-_calculate_relevance_score = calculate_relevance_score
-_apply_relevance_ranking = apply_relevance_ranking
-_apply_itemtype_bypass = apply_itemtype_bypass
-_apply_itemtype_filter = apply_itemtype_filter
-_fill_missing_urls_from_doi = fill_missing_urls_from_doi
-_use_semantic_scholar_citations_fallback = use_semantic_scholar_citations_fallback
-_use_openalex_citations_fallback = use_openalex_citations_fallback
-from scilex.citations.fetcher import (  # noqa: E402,F401
-    _fetch_citation_for_paper,
-    _fetch_citations_parallel,
-)
+from scilex.config import SciLExConfig
+from scilex.logging_config import log_section, setup_logging
 
 
 def main():

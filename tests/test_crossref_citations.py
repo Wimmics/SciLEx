@@ -253,7 +253,7 @@ class TestCrossRefBatchSize:
 # ============================================================================
 
 
-# No module-level config mocking needed — aggregate_collect has no import side effects
+# No module-level config mocking needed — the fetcher has no import side effects
 
 
 def _get_fetch_fn():
