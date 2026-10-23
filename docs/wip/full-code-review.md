@@ -43,5 +43,6 @@ chaque brief commence par `git reset --hard dev`.
 - [x] Lot docs/README fusionné (ce84d309, fb6b78ea) ; CLAUDE.md local mis à jour (gitignoré)
 - [x] run_enrichment (17094a5d) ; scilex-86 parallélise _enrich_rows
 - [x] Découpe run_aggregation (eabf1772) + correctifs bypass/rapport vide (888fa63f, 80eea6d6) ; HF parallèle par scilex-86
-- [ ] Revue finale en cours (agent Sonnet, lecture seule)
+- [x] Revue finale : 10 défauts vérifiés (traces brutes sur config invalide, bool→int, --threshold ignoré, env CrossRef/Unpaywall/openrouter, dict vide efface preset, migrate invalide, validations tardives, advanced fusionné sur snapshot, VPN figé, env ignorée côté web)
+- [ ] Lot de corrections des 10 défauts en cours (agent Sonnet)
 - Ouvert (choix) : webapi crée encore scilex/api.config.yml si ~/.config/scilex/keys.yml absent ; seuils CitationFilterConfig non configurables
