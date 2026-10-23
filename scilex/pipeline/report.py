@@ -249,11 +249,13 @@ def write_aggregation_report(
     md.append(f"| Total papers output | {n:,} |")
     if "DOI" in df_clean.columns:
         doi_count = int(df_clean["DOI"].apply(is_valid).sum())
-        md.append(f"| Papers with DOI | {doi_count:,} ({doi_count / n * 100:.1f}%) |")
+        md.append(
+            f"| Papers with DOI | {doi_count:,} ({(doi_count / n * 100) if n else 0.0:.1f}%) |"
+        )
     if "abstract" in df_clean.columns:
         abs_count = int(df_clean["abstract"].apply(is_valid).sum())
         md.append(
-            f"| Papers with abstract | {abs_count:,} ({abs_count / n * 100:.1f}%) |"
+            f"| Papers with abstract | {abs_count:,} ({(abs_count / n * 100) if n else 0.0:.1f}%) |"
         )
     if "relevance_score" in df_clean.columns:
         md.append(
