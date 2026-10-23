@@ -23,6 +23,7 @@ from scilex.config_defaults import (
     DEFAULT_SNOWBALL_MIN_FREQUENCY,
     DEFAULT_SNOWBALL_TOP_K,
 )
+from scilex.crawlers.key_pool import first_key
 from scilex.graph_analysis.loader import load_citation_caches
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
@@ -106,7 +107,7 @@ def main():
             return
 
         # Fetch metadata from Semantic Scholar
-        ss_api_key = api_config.get("SemanticScholar", {}).get("api_key")
+        ss_api_key = first_key(api_config.get("SemanticScholar", {}).get("api_key"))
         candidate_dois = [doi for doi, _freq in candidates]
 
         logger.info(f"Fetching metadata for {len(candidate_dois)} candidates...")

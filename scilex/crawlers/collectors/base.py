@@ -14,6 +14,12 @@ from scilex.crawlers.circuit_breaker import (
     CircuitBreakerOpenError,
     CircuitBreakerRegistry,
 )
+from scilex.crawlers.key_pool import (
+    AUTH_COOLDOWN_SECONDS,
+    THROTTLE_COOLDOWN_SECONDS,
+    get_shared_pool,
+    normalize_keys,
+)
 from scilex.crawlers.utils import sanitize_secrets
 from scilex.since_utils import parse_since, query_start_date
 
@@ -54,6 +60,13 @@ class API_collector:
     # Default rate limits (fallback if config not available)
 
     def __init__(self, data_query, data_path, api_key):
+        # api.config.yml accepts one key or a list: a list becomes a rotating pool
+        self._key_pool = None
+        if isinstance(api_key, (list, tuple)):
+            keys = normalize_keys(api_key)
+            if len(keys) > 1:
+                self._key_pool = get_shared_pool(keys)
+            api_key = keys[0] if keys else None
         self.api_key = api_key
         self.api_name = "None"
         self.filter_param = Filter_param(
@@ -273,6 +286,32 @@ class API_collector:
     def get_apikey(self):
         return self.api_key
 
+    def _rotate_api_key(self, url, headers):
+        """Switch to the pool's next key; rewrite the key inside ``url``/``headers``.
+
+        No-op without a key pool (single key).
+        """
+        if self._key_pool is None:
+            return url, headers
+        new_key = self._key_pool.next_key()
+        self.api_key = new_key
+        url = self._key_pool.replace_keys(url, new_key)
+        if headers:
+            headers = {
+                name: self._key_pool.replace_keys(value, new_key)
+                if isinstance(value, str)
+                else value
+                for name, value in headers.items()
+            }
+        return url, headers
+
+    def _failover_to_next_key(self, cooldown):
+        """Blacklist the current key; return True if another key can be tried."""
+        if self._key_pool is None:
+            return False
+        self._key_pool.mark_failed(self.api_key, cooldown)
+        return self._key_pool.has_other_available(self.api_key)
+
     def get_max_by_page(self):
         return self.max_by_page
 
@@ -339,6 +378,7 @@ class API_collector:
     # HTTP statuses that are retried (409 is treated as a throttle: OpenAIRE
     # answers 409 for parallel scroll contexts).
     THROTTLE_STATUS = frozenset({409, 429})
+    _key_pool = None  # set per instance when api.config.yml gives a list of keys
     RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
     MAX_RETRY_AFTER_SECONDS = 120
 
@@ -414,7 +454,12 @@ class API_collector:
             last_error = None
             try:
                 self._rate_limit_wait()
-                resp = self.session.get(configurated_url, headers=headers, timeout=30)
+                request_url, request_headers = self._rotate_api_key(
+                    configurated_url, headers
+                )
+                resp = self.session.get(
+                    request_url, headers=request_headers, timeout=30
+                )
                 resp.raise_for_status()
                 logging.debug(
                     f"{self.api_name} API: Request successful (attempt {attempt + 1}/{max_retries})"
@@ -429,6 +474,14 @@ class API_collector:
                 status_code = getattr(response, "status_code", None)
 
                 if status_code in (401, 403):
+                    if not is_last_attempt and self._failover_to_next_key(
+                        AUTH_COOLDOWN_SECONDS
+                    ):
+                        logging.warning(
+                            f"{self.api_name} API key rejected ({status_code}); "
+                            f"switching to the next key"
+                        )
+                        continue
                     # Permanent configuration failure (bad/expired key): do NOT
                     # trip the breaker, it would cascade to every remaining query.
                     logging.error(
@@ -447,6 +500,16 @@ class API_collector:
                     raise
 
                 error_label = f"HTTP {status_code}"
+                if (
+                    status_code == 429
+                    and not is_last_attempt
+                    and self._failover_to_next_key(THROTTLE_COOLDOWN_SECONDS)
+                ):
+                    logging.warning(
+                        f"{self.api_name} API key throttled (429); "
+                        f"switching to the next key"
+                    )
+                    continue
 
             except requests.exceptions.RequestException as e:
                 # Timeouts, connection errors and other transport failures

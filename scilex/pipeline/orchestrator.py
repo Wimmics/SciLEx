@@ -32,6 +32,7 @@ from scilex.config_defaults import (
 )
 from scilex.constants import normalize_path_component
 from scilex.crawlers.collector_collection import CollectCollection
+from scilex.crawlers.key_pool import first_key
 from scilex.duplicate_tracking import (
     analyze_and_report_duplicates,
     generate_itemtype_distribution_report,
@@ -246,7 +247,7 @@ def run_aggregation(
     if not options.no_abstract_enrichment:
         from scilex.abstract_enrichment import enrich_collection_abstracts
 
-        ss_key = (api_config or {}).get("SemanticScholar", {}).get("api_key")
+        ss_key = first_key((api_config or {}).get("SemanticScholar", {}).get("api_key"))
         enrich_stats = enrich_collection_abstracts(
             dir_collect,
             ss_api_key=ss_key,

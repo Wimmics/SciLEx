@@ -25,6 +25,7 @@ from scilex.citations.reference_fetcher import (
 )
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid, normalize_path_component
+from scilex.crawlers.key_pool import first_key
 from scilex.crawlers.utils import load_all_configs
 from scilex.export_to_bibtex import (
     BIBTEX_CITATIONS_FILENAME,
@@ -101,7 +102,7 @@ def main():
         logger.info(f"DOIs: {len(dois_valid)} valid, {skipped_no_doi} missing")
 
         # Get SS API key
-        ss_api_key = api_config.get("SemanticScholar", {}).get("api_key")
+        ss_api_key = first_key(api_config.get("SemanticScholar", {}).get("api_key"))
         if ss_api_key:
             logger.info("SemanticScholar API key found — using 10 req/sec")
         else:
