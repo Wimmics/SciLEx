@@ -111,7 +111,8 @@ def apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="d
     citations = (
         pd.to_numeric(result[citation_col], errors="coerce").fillna(0).astype(int)
     )
-    result[citation_col] = citations.where(has_valid_doi, 0)
+    # No-DOI papers bypass the filter but keep any fallback count (SS/OpenAlex).
+    result[citation_col] = citations
 
     keep_mask = ~has_valid_doi | (result[citation_col] >= result["citation_threshold"])
     removed_count = int((~keep_mask).sum())
