@@ -319,3 +319,10 @@ DEFAULT_SNOWBALL_TOP_K = 200
 
 DEFAULT_SNOWBALL_MIN_FREQUENCY = 2
 """A candidate must be cited by (or cite) at least this many corpus papers."""
+
+
+# ---------------------------------------------------------------------------
+# Lot B keys (read with config.get(key, DEFAULT_*); not part of the quality schema)
+# ---------------------------------------------------------------------------
+DEFAULT_GENERATE_PRISMA_REPORT = True
+DEFAULT_SINCE = None

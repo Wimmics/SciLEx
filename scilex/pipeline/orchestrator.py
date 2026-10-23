@@ -23,6 +23,7 @@ from scilex.abstract_validation import (
 from scilex.config import SciLExConfig
 from scilex.config_defaults import (
     DEFAULT_AGGREGATED_FILENAME,
+    DEFAULT_GENERATE_PRISMA_REPORT,
     DEFAULT_OUTPUT_DIR,
     MAX_ABSTRACT_WORDS,
     MIN_ABSTRACT_QUALITY_SCORE,
@@ -614,7 +615,7 @@ def run_aggregation(
     )
 
     # PRISMA 2020 flow report (reuses the tracker and parallel stats numbers)
-    if main_config.get("generate_prisma_report", True):
+    if main_config.get("generate_prisma_report", DEFAULT_GENERATE_PRISMA_REPORT):
         try:
             write_prisma_report(
                 dir_collect=dir_collect,
