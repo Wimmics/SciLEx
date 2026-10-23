@@ -58,7 +58,7 @@ Zotero:
 
 Section names are case-sensitive and match the API names (`SemanticScholar`, `OpenAlex`, ...).
 A key can also come from an environment variable such as `SCILEX_SEMANTICSCHOLAR_API_KEY`.
-See the [Configuration Reference](../reference/configuration.md#keysyml) for every field.
+See the [Configuration Reference](../reference/configuration.md) for every field.
 
 Get API keys from:
 - [Semantic Scholar](https://www.semanticscholar.org/product/api)

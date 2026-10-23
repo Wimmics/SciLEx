@@ -332,7 +332,7 @@ The server does not need a `scilex.yml`. Each job:
 
 - receives `collection_config` in the request body, in the internal flat format (`collect_name`, `keywords`, `years`, `apis`,
   `quality_filters`, ...; see the old-to-new table of the
-  [Configuration Reference](../reference/configuration.md#old-name-to-new-name));
+  [Configuration Reference](../reference/configuration.md));
 - writes it to `<output_dir>/_web_job_config.yml` and sets `SCILEX_CONFIG` to that file for the duration of the job, so
   the pipeline steps resolve their configuration from it (the previous value is restored afterwards).
 
@@ -511,7 +511,7 @@ Same as SciLEx main project - See `LICENSE` in project root
 
 ## Support
 
-- **Documentation**: See [docs/](../../docs/) directory
+- **Documentation**: See the [documentation index](../index.md)
 - **Issues**: Report on GitHub
 - **Questions**: Create GitHub discussion
 

@@ -26,7 +26,7 @@ main_config, api_config = config.main_config, config.api_config
 
 `main_config` and `api_config` are the internal dictionaries used by the pipeline (a flat form of `scilex.yml`,
 with `collect_name` for `name` and a `quality_filters` block). See the
-[Configuration Reference](../reference/configuration.md#old-name-to-new-name) for the correspondence.
+[Configuration Reference](../reference/configuration.md) for the correspondence.
 
 Or build the internal dictionaries entirely in Python (no YAML files needed, as the web API does with `SciLExConfig.from_dicts`):
 

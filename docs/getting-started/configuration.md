@@ -168,7 +168,7 @@ export SCILEX_KEYS=/path/to/keys.yml               # same as --keys
 Older versions used `scilex/scilex.config.yml`, `scilex/scilex.advanced.yml` and `scilex/api.config.yml`.
 They are still read, with a warning. Convert them with `scilex config migrate --write`
 (`--from DIR` to read them from another folder), then move your keys to `~/.config/scilex/keys.yml`.
-The old-to-new name table is in the [reference](../reference/configuration.md#old-name-to-new-name).
+The old-to-new name table is in the [reference](../reference/configuration.md).
 
 ## Tips
 

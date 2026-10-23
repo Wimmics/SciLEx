@@ -36,6 +36,7 @@ developer-guides/adding-collectors
 
 reference/configuration
 reference/api-comparison
+reference/bibtex-export
 ```
 
 ## Supported APIs
