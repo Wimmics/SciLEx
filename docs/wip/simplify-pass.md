@@ -5,10 +5,16 @@ simplification, efficacité, altitude) sur `dev` @ f759b795.
 
 ## État
 - [x] Revue (4 agents), constats dédupliqués ci-dessous
-- [ ] Application — **en attente** : ordre convenu avec les autres sessions :
-  1) scilex-90 finit la vague 2 (`docs/wip/full-code-review.md`),
-  2) scilex-d8 fusionne `feat/bibtex2rdf` + lots A–D (ADR 0002),
-  3) puis ce chantier, en worktree, constats revérifiés sur le nouveau `dev` (numéros de ligne périmés).
+- [x] S1 helpers (`94db50d8`) + lots crawlers / pipeline / sorties-webapi appliqués et fusionnés dans dev
+  (1688 tests, ruff propre). Couvre S1, S3 (hors rate-limit), S4 (hors HF, getquality), S5 (hors config, code mort testé).
+- [ ] Reste, après C2 de scilex-90 : chargeur YAML unique (S5) ; `getquality` vectorisé (orchestrator) ;
+  HF en pool de threads (`enrich_with_hf`) ; rate-limit lu une fois (`load_rate_limit_from_config`).
+- [ ] À décider par l'utilisateur : `FilterConfig`/`filter_config` (forme de l'API) ; fonctions seulement testées.
+- Volontairement gardés (changeraient les sorties) : `export_to_bibtex.extract_year` (4 chiffres quelconques),
+  split auteurs Zotero (garde les vides), `report_charts.load_data`, année webapi en float,
+  `_MISSING_MARKERS` d'abstract_enrichment ("N/A", "MISSING"), alternance de regex d'abstract_validation.
+- Changements de bord assumés : préfixes `doi:`/`dx.doi.org` désormais retirés partout ; années 18xx acceptées
+  et entiers hors 1800–2099 rejetés par le pré-filtre d'année ; `\b` autour de l'année dans doi_recovery.
 
 Hors périmètre ici (déjà suivi dans full-code-review.md) : gabarits 18 clés d'`aggregate.py`,
 pagination ×3, PubMed/PMC, dédup legacy, `run_aggregation`, `run_enrichment`, chargeur CSV agrégé.
