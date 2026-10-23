@@ -16,7 +16,7 @@ Public : chercheurs non développeurs. Plateformes : macOS, Windows, Linux.
 | Pile | NiceGUI en mode natif (fenêtre pywebview), packagée avec PyInstaller |
 | Distribution | Installeurs macOS (`.app`/`.dmg`), Windows (`.exe`), Linux (AppImage), construits par GitHub Actions (une machine par OS, PyInstaller ne cross-compile pas) |
 | Signature | Aucune en v1 ; instructions d'ouverture documentées (clic droit → Ouvrir sur macOS, « Informations complémentaires » sur SmartScreen) |
-| Enrichissement HuggingFace | Exclu de l'installeur (`transformers`/`torch` trop lourds) ; affiché comme disponible dans l'installation développeur |
+| Enrichissement HuggingFace | Inclus : il passe par `huggingface-hub` (client HTTP léger), sans `torch` ni `transformers` (vérifié dans `pyproject.toml` et les imports) |
 | Navigation | Accueil « Mes revues », puis barre latérale des étapes du pipeline dans une revue |
 | Interface Streamlit existante | Conservée jusqu'à parité fonctionnelle, retirée ensuite (décision séparée) |
 | Fichiers | Les mêmes que la CLI : `scilex.yml` par revue, `~/.config/scilex/keys.yml` ; on passe librement de la CLI à l'app |
@@ -88,7 +88,7 @@ Chaque lot a son propre cycle spec → plan → implémentation.
 | 2. Lancer | Collecte, agrégation et citations avec suivi complet |
 | 3. Trier | Tableau, décisions, notes, `screening.csv` |
 | 4. Exporter | BibTeX, CSV, Turtle, Zotero |
-| 5. Analyses | Rapport, snowball, graphes, résumés, suggestions de mots-clés ; HF hors installeur |
+| 5. Analyses | Rapport, snowball, graphes, résumés, suggestions de mots-clés, enrichissement HF |
 
 v1 = lots 0 à 4. Le lot 5 se livre analyse par analyse.
 
@@ -96,4 +96,4 @@ Le packaging est dans le lot 0 volontairement : les pièges de PyInstaller (fich
 
 ## Hors périmètre v1
 
-Signature et notarisation des installeurs, mise à jour automatique, enrichissement HuggingFace dans l'installeur, usage multi-utilisateur ou serveur.
+Signature et notarisation des installeurs, mise à jour automatique, usage multi-utilisateur ou serveur.
