@@ -81,18 +81,22 @@ def use_semantic_scholar_citations_fallback(df):
     initial_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
 
     df["nb_citation"] = df.apply(
-        lambda row: row["ss_citation_count"]
-        if (pd.isna(row["nb_citation"]) or row["nb_citation"] == 0)
-        and pd.notna(row["ss_citation_count"])
-        else row["nb_citation"],
+        lambda row: (
+            row["ss_citation_count"]
+            if (pd.isna(row["nb_citation"]) or row["nb_citation"] == 0)
+            and pd.notna(row["ss_citation_count"])
+            else row["nb_citation"]
+        ),
         axis=1,
     )
 
     df["nb_cited"] = df.apply(
-        lambda row: row["ss_reference_count"]
-        if (pd.isna(row["nb_cited"]) or row["nb_cited"] == 0)
-        and pd.notna(row["ss_reference_count"])
-        else row["nb_cited"],
+        lambda row: (
+            row["ss_reference_count"]
+            if (pd.isna(row["nb_cited"]) or row["nb_cited"] == 0)
+            and pd.notna(row["ss_reference_count"])
+            else row["nb_cited"]
+        ),
         axis=1,
     )
 
@@ -134,10 +138,12 @@ def use_openalex_citations_fallback(df):
     initial_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
 
     df["nb_citation"] = df.apply(
-        lambda row: row["oa_citation_count"]
-        if (pd.isna(row["nb_citation"]) or row["nb_citation"] == 0)
-        and pd.notna(row["oa_citation_count"])
-        else row["nb_citation"],
+        lambda row: (
+            row["oa_citation_count"]
+            if (pd.isna(row["nb_citation"]) or row["nb_citation"] == 0)
+            and pd.notna(row["oa_citation_count"])
+            else row["nb_citation"]
+        ),
         axis=1,
     )
 

@@ -31,10 +31,12 @@ class RateLimitBackoffConfig:
     # API-specific configurations
     # Format: {api_name: (base_wait_seconds, use_exponential_backoff)}
     API_SPECIFIC = {
-        "DBLP": (30, False),  # DBLP: Fixed 30s wait (no exponential)
-        "Springer": (15, True),  # Springer: 15s, 30s, 60s
-        "IEEE": (10, True),  # IEEE: 10s, 20s, 40s
-        "Elsevier": (20, True),  # Elsevier: 20s, 40s, 80s
+        "DBLP": (30, False),      # DBLP: Fixed 30s wait (no exponential)
+        "Springer": (15, True),   # Springer: 15s, 30s, 60s
+        "IEEE": (10, True),       # IEEE: 10s, 20s, 40s
+        "Elsevier": (20, True),   # Elsevier: 20s, 40s, 80s
+        "Arxiv": (30, False),     # Arxiv: fixed 30s — strict rate limits in parallel runs
+        "OpenAIRE": (15, False),  # OpenAIRE: fixed 15s — 409 Conflict from parallel scroll contexts
         # Others use default (2s exponential)
     }
 

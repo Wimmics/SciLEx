@@ -7,6 +7,7 @@ handling authentication, collection management, and item creation.
 
 import json
 import logging
+import math
 import random
 import string
 from typing import Any
@@ -425,6 +426,17 @@ class ZoteroAPI:
         return results
 
 
+def _log10_bucket(value) -> int | None:
+    """Return 10^floor(log10(value)), e.g. 47 → 10, 5 → 1, 200 → 100. None if <= 0."""
+    try:
+        n = float(value)
+        if n <= 0 or (isinstance(value, float) and math.isnan(n)):
+            return None
+        return int(10 ** math.floor(math.log10(n)))
+    except (ValueError, TypeError):
+        return None
+
+
 def prepare_zotero_item(
     row: pd.Series,
     collection_key: str,
@@ -442,12 +454,10 @@ def prepare_zotero_item(
         Prepared item dictionary, or None if item_type is invalid
     """
 
-    # Helper to get value from either Series or named tuple
     def get_value(row, field: str, default=MISSING_VALUE):
         if hasattr(row, "get"):  # pd.Series
             return row.get(field, default)
-        else:  # Named tuple from itertuples
-            return getattr(row, field, default)
+        return getattr(row, field, default)  # named tuple from itertuples
 
     item_type = get_value(row, "itemType")
 
@@ -455,83 +465,146 @@ def prepare_zotero_item(
     if item_type == "bookSection":
         item_type = "journalArticle"
 
-    # Validate item type
     if not is_valid(item_type):
         return None
 
     # Get or fetch template
     if item_type not in templates_cache:
-        api = ZoteroAPI("", "", "")  # Temporary instance just for template
+        api = ZoteroAPI("", "", "")
         template = api.get_item_template(item_type)
         if not template:
             return None
         templates_cache[item_type] = template
 
-    # Copy template and set collection
     item = templates_cache[item_type].copy()
     item["collections"] = [collection_key]
 
-    # Map common fields
+    # --- Direct field mappings ---
     common_fields = [
-        "publisher",
-        "title",
-        "date",
-        "DOI",
-        "archive",
-        "url",
-        "rights",
-        "pages",
-        "journalAbbreviation",
-        "conferenceName",
-        "volume",
-        "issue",
+        "publisher", "title", "date", "DOI", "archive", "url",
+        "rights", "pages", "journalAbbreviation", "conferenceName",
+        "volume", "issue", "language",
     ]
-
     for field in common_fields:
-        field_value = get_value(row, field)
-        if field in item and is_valid(field_value):
-            item[field] = str(field_value)
+        val = get_value(row, field)
+        if field in item and is_valid(val):
+            item[field] = str(val)
 
-    # Handle abstract
+    if "series" in item:
+        serie = get_value(row, "serie")
+        if is_valid(serie):
+            item["series"] = str(serie)
+
     if "abstractNote" in item:
-        abstract = get_value(row, "abstract", "")
-        item["abstractNote"] = str(abstract)
+        item["abstractNote"] = str(get_value(row, "abstract", ""))
 
-    # Handle archive location
-    if "archiveLocation" in item:
-        archive_id = get_value(row, "archiveID", "")
-        item["archiveLocation"] = str(archive_id)
-
-    # Handle authors
+    # --- Authors ---
     authors_str = get_value(row, "authors")
     if is_valid(authors_str):
         authors = str(authors_str).split(";")
-        if item.get("creators") and len(item["creators"]) > 0:
+        if item.get("creators"):
             template_author = item["creators"][0].copy()
             item["creators"] = [
                 dict(template_author, firstName=auth.strip()) for auth in authors
             ]
 
-    # Ensure URL is valid (use DOI as fallback)
+    # --- URL fallback to DOI ---
     if not is_valid(item.get("url")):
         doi = item.get("DOI")
         item["url"] = str(doi) if is_valid(doi) else None
 
-    # Handle HF tags (if present in CSV)
-    tags_str = get_value(row, "tags", MISSING_VALUE)
-    if is_valid(tags_str) and tags_str != MISSING_VALUE:
-        tags_list = [tag.strip() for tag in str(tags_str).split(";")]
-        tags_list = [t for t in tags_list if t]  # Remove empty strings
-        if tags_list:
-            item["tags"] = [{"tag": t} for t in tags_list]
-
-    # Handle GitHub repo (if present in CSV)
+    # --- Resolve github_repo / archiveID for archiveLocation + extra ---
     github_repo = get_value(row, "github_repo", MISSING_VALUE)
-    if (
-        is_valid(github_repo)
-        and github_repo != MISSING_VALUE
-        and "archiveLocation" in item
-    ):
-        item["archiveLocation"] = str(github_repo)
+    archive_id = get_value(row, "archiveID", MISSING_VALUE)
+    github_valid = is_valid(github_repo) and github_repo != MISSING_VALUE
+    archive_id_valid = is_valid(archive_id)
+
+    extra_lines = []
+
+    # Existing free-text extra column
+    existing_extra = get_value(row, "extra", MISSING_VALUE)
+    if is_valid(existing_extra) and existing_extra != MISSING_VALUE:
+        extra_lines.append(str(existing_extra))
+
+    if "archiveLocation" in item:
+        if github_valid:
+            item["archiveLocation"] = str(github_repo)
+            if archive_id_valid:           # archiveID bumped to extra
+                extra_lines.append(f"Archive ID: {archive_id}")
+        elif archive_id_valid:
+            item["archiveLocation"] = str(archive_id)
+
+    # URLs in extra
+    pdf_url = get_value(row, "pdf_url", MISSING_VALUE)
+    pdf_valid = is_valid(pdf_url) and pdf_url != MISSING_VALUE
+    if pdf_valid:
+        extra_lines.append(f"PDF URL: {pdf_url}")
+
+    hf_url = get_value(row, "hf_url", MISSING_VALUE)
+    hf_valid = is_valid(hf_url) and hf_url != MISSING_VALUE
+    if hf_valid:
+        extra_lines.append(f"HF URL: {hf_url}")
+
+    if extra_lines and "extra" in item:
+        item["extra"] = "\n".join(extra_lines)
+
+    # --- Tags ---
+    all_tags = []
+
+    def _split_tags(raw):
+        if is_valid(raw) and raw != MISSING_VALUE:
+            return [t.strip() for t in str(raw).split(";") if t.strip()]
+        return []
+
+    # HF enrichment tags + bonus keyword tags + collect keywords
+    all_tags.extend(_split_tags(get_value(row, "tags", MISSING_VALUE)))
+    all_tags.extend(_split_tags(get_value(row, "bonus_keyword_tags", MISSING_VALUE)))
+    all_tags.extend(_split_tags(get_value(row, "collect_keywords", MISSING_VALUE)))
+
+    # Presence tags
+    if pdf_valid:
+        all_tags.append("HavePDF")
+    if hf_valid:
+        all_tags.append("HaveHF")
+    if github_valid:
+        all_tags.append("HaveGithub")
+
+    # Citation score: average of OA + SS, bucketed by power of 10
+    oa = get_value(row, "oa_citation_count", MISSING_VALUE)
+    ss = get_value(row, "ss_citation_count", MISSING_VALUE)
+    try:
+        vals = []
+        if is_valid(oa):
+            vals.append(float(oa))
+        if is_valid(ss):
+            vals.append(float(ss))
+        if vals:
+            avg_cit = sum(vals) / len(vals)
+            bucket = _log10_bucket(avg_cit)
+            if bucket is not None:
+                all_tags.append(f"CITAT:{bucket}")
+    except (ValueError, TypeError):
+        pass
+
+    # Quality score: raw 0-100 → normalized 0-10
+    quality = get_value(row, "quality_score", MISSING_VALUE)
+    if is_valid(quality):
+        try:
+            q = max(0, min(10, round(float(quality) / 10)))
+            all_tags.append(f"QUALI_SCORE:{q}")
+        except (ValueError, TypeError):
+            pass
+
+    # Relevance score: already ~0-10 scale → round to int
+    relevance = get_value(row, "relevance_score", MISSING_VALUE)
+    if is_valid(relevance):
+        try:
+            r = max(0, min(10, round(float(relevance))))
+            all_tags.append(f"REL_SCORE:{r}")
+        except (ValueError, TypeError):
+            pass
+
+    if all_tags:
+        item["tags"] = [{"tag": t} for t in all_tags]
 
     return item if item.get("url") else None

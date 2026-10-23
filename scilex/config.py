@@ -20,11 +20,12 @@ Usage:
 
 import copy
 import logging
+import os
 from pathlib import Path
 
 import yaml
 
-from scilex.config_defaults import get_default_quality_filters
+from scilex.config_defaults import DEFAULT_OUTPUT_DIR, get_default_quality_filters
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,65 @@ class SciLExConfig:
             _merge_advanced_config(main_config, advanced_config)
             logger.info("Loaded advanced config from %s", advanced_path)
 
+        return cls(main_config, api_config)
+
+    @classmethod
+    def from_collection(
+        cls, collection: str | None, config_dir: Path | None = None
+    ) -> "SciLExConfig":
+        """Load configuration for an existing collection.
+
+        If ``collection`` is None this is equivalent to ``from_files()``.
+        Otherwise the main config is loaded from the ``config_used.yml``
+        snapshot saved inside that collection directory. ``collection`` may be
+        a plain collection name (looked up under ``output_dir`` of the current
+        ``scilex.config.yml``) or a full path to the collection directory.
+        The API config always comes from ``api.config.yml`` (empty if absent).
+
+        Args:
+            collection: Collection name, full path, or None.
+            config_dir: Directory containing config files (default: scilex/).
+
+        Returns:
+            SciLExConfig for the requested collection.
+
+        Raises:
+            FileNotFoundError: If the collection has no saved config_used.yml.
+        """
+        if collection is None:
+            return cls.from_files(config_dir)
+
+        config_dir = Path(config_dir) if config_dir else _PACKAGE_DIR
+
+        if os.path.isabs(collection) or os.sep in collection or "/" in collection:
+            collect_dir = collection
+        else:
+            try:
+                current_main = _load_yaml(config_dir / "scilex.config.yml")
+                output_dir = current_main.get("output_dir", DEFAULT_OUTPUT_DIR)
+            except FileNotFoundError:
+                output_dir = DEFAULT_OUTPUT_DIR
+            collect_dir = os.path.join(output_dir, collection)
+
+        config_path = Path(collect_dir) / "config_used.yml"
+        if not config_path.is_file():
+            raise FileNotFoundError(
+                f"Cannot find saved config at {config_path}. Make sure the "
+                "collection name or path is correct and the collection has "
+                "been started at least once."
+            )
+        main_config = _load_yaml(config_path)
+
+        advanced_path = config_dir / "scilex.advanced.yml"
+        if advanced_path.is_file():
+            _merge_advanced_config(main_config, _load_yaml(advanced_path))
+
+        try:
+            api_config = _load_yaml(config_dir / "api.config.yml")
+        except FileNotFoundError:
+            api_config = {}
+
+        logger.info("Loaded config for collection from %s", config_path)
         return cls(main_config, api_config)
 
     @classmethod

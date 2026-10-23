@@ -28,7 +28,7 @@ class OpenAIRE_collector(API_collector):
         Returns:
             str: URL template with {} placeholder for page number.
         """
-        # Flatten all keyword groups into a single space-joined query
+        # Each keyword group is quoted for exact-phrase matching, joined with AND
         all_keywords = []
         for keyword_group in self.get_keywords():
             if isinstance(keyword_group, list):
@@ -36,7 +36,7 @@ class OpenAIRE_collector(API_collector):
             else:
                 all_keywords.append(keyword_group)
 
-        keywords_str = " ".join(all_keywords)
+        keywords_str = " AND ".join(f'"{kw}"' for kw in all_keywords)
         encoded_keywords = urllib.parse.quote(keywords_str, safe="")
 
         year = self.get_year()
@@ -53,8 +53,14 @@ class OpenAIRE_collector(API_collector):
             f"&page={{}}"
         )
 
+
         logging.debug(f"OpenAIRE configured URL: {url}")
         return url
+
+    def get_auth_headers(self):
+        if self.api_key:
+            return {"Authorization": f"Bearer {self.api_key}"}
+        return None
 
     def get_offset(self, page):
         """Return the page number (OpenAIRE uses 1-based page numbers).

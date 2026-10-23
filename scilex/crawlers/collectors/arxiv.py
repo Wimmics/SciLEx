@@ -18,7 +18,7 @@ class Arxiv_collector(API_collector):
         super().__init__(filter_param, data_path, api_key)
         self.max_by_page = 500  # Maximum results per page
         self.api_name = "Arxiv"
-        self.api_url = "http://export.arxiv.org/api/query"
+        self.api_url = "https://export.arxiv.org/api/query"
         self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
@@ -38,16 +38,17 @@ class Arxiv_collector(API_collector):
         # Extract entries from the XML tree
         entries = tree.xpath('*[local-name()="entry"]')
         years_query = str(self.get_year())
-        # Process each entry
+        # Process each entry — use 'updated' (current version date) to match
+        # the submittedDate filter in the URL, not 'published' (original date).
         for entry in entries:
-            date_published = entry.xpath('*[local-name()="published"]')[0].text
-            if years_query in date_published:
+            date_updated = entry.xpath('*[local-name()="updated"]')[0].text
+            if years_query in date_updated:
                 ### ADD IT TO KEEP ONLY GOOD DATE art
 
                 current = {
                     "id": entry.xpath('*[local-name()="id"]')[0].text,
-                    "updated": entry.xpath('*[local-name()="updated"]')[0].text,
-                    "published": date_published,
+                    "updated": date_updated,
+                    "published": entry.xpath('*[local-name()="published"]')[0].text,
                     "title": entry.xpath('*[local-name()="title"]')[0].text,
                     "abstract": entry.xpath('*[local-name()="summary"]')[0].text,
                     "authors": self.extract_authors(
@@ -117,23 +118,21 @@ class Arxiv_collector(API_collector):
             group_keywords = []
 
             # Add 'ti' (title) and 'abs' (abstract) queries for each keyword
-            group_keywords += [f'ti:"{urllib.parse.quote(keyword)}"']
-            group_keywords += [f'abs:"{urllib.parse.quote(keyword)}"']
+            group_keywords += [f'ti:%22{urllib.parse.quote(keyword)}%22']
+            group_keywords += [f'abs:%22{urllib.parse.quote(keyword)}%22']
 
-            # Join the current group's keywords with ' +OR+ '
-            formatted_keyword_groups.append(f"({' +OR+ '.join(group_keywords)})")
+            formatted_keyword_groups.append(f"({'+OR+'.join(group_keywords)})")
 
         years_query = str(self.get_year())
         year_arg = (
-            "submittedDate:["
+            "submittedDate:%5B"
             + years_query
-            + "01010000 + TO + "
+            + "01010000+TO+"
             + years_query
-            + "12312400]"
+            + "12312359%5D"
         )
-        # Join all formatted keyword groups with ' +AND+ '
-        search_query = "+AND+".join(formatted_keyword_groups)
-        search_query = search_query + "&" + year_arg
+        # Join keyword groups and year filter all within search_query (Arxiv API requirement)
+        search_query = "+AND+".join(formatted_keyword_groups) + "+AND+" + year_arg
         logging.debug(f"Constructed search query: {search_query}")
         return search_query
 

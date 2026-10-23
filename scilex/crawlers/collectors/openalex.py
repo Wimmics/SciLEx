@@ -68,8 +68,8 @@ class OpenAlex_collector(API_collector):
         keyword_filters = []
 
         for keyword_set in self.get_keywords():
-            # Use title_and_abstract.search to search both title AND abstract
-            keyword_filters.append(f"title_and_abstract.search:{keyword_set}")
+            # Quoted phrase forces exact-phrase matching (not word-level relevance)
+            keyword_filters.append(f'title_and_abstract.search:"{keyword_set}"')
 
         formatted_keyword_filters = ",".join(keyword_filters)
 
@@ -82,9 +82,11 @@ class OpenAlex_collector(API_collector):
             f"&per-page={self.max_by_page}"
         )
 
-        # Add API key if configured (free key: 100k credits/day vs 100 without)
+        # OpenAlex polite pool: pass email as mailto (not api_key).
+        # A real premium API key would use &api_key=, but the configured value
+        # is an email address used for the free polite pool.
         if self.api_key:
-            api_url += f"&api_key={self.api_key}"
+            api_url += f"&mailto={self.api_key}"
 
         logging.debug(f"Configured URL: {self._sanitize_url(api_url)}")
         return api_url
@@ -111,6 +113,7 @@ class OpenAlex_collector(API_collector):
         base_url = self.get_configurated_url()
         cursor = "*"  # Initial cursor value for first request
         page = int(self.get_lastpage()) + 1
+        _first_results_logged = False
 
         logging.debug(f"Starting OpenAlex cursor-based collection from page {page}")
 
@@ -128,7 +131,7 @@ class OpenAlex_collector(API_collector):
             logging.debug(f"Fetching data from URL: {self._sanitize_url(url)}")
 
             try:
-                response = self.api_call_decorator(url)
+                response = self.api_call_decorator(url, headers=self.get_auth_headers())
                 logging.debug(f"OpenAlex API call completed for page {page}")
 
                 page_data, next_cursor = self.parsePageResults(response, page)
@@ -138,6 +141,14 @@ class OpenAlex_collector(API_collector):
 
                 nb_results = len(page_data["results"])
                 self.nb_art_collected += nb_results
+
+                if not _first_results_logged and nb_results > 0:
+                    kw_str = " + ".join(f'"{k}"' for k in self.get_keywords())
+                    logging.info(
+                        f"[OpenAlex] Q{self.collectId} ({kw_str}, {self.get_year()}): "
+                        f"page {page} → {nb_results} results, {page_data['total']} total"
+                    )
+                    _first_results_logged = True
 
                 if nb_results == 0:
                     logging.debug("No more results returned. Collection complete.")
@@ -161,10 +172,41 @@ class OpenAlex_collector(API_collector):
                 cursor = next_cursor
 
             except Exception as e:
-                logging.error(
-                    f"Error processing results on page {page} from OpenAlex API: {e}"
-                )
-                state_data["state"] = 0
+                exc_str = str(e)
+                is_throttle = "429" in exc_str or "409" in exc_str
+                if is_throttle:
+                    throttle_code = "409" if "409" in exc_str else "429"
+                    from scilex.vpn.rotator import get_vpn_rotator
+                    rotator = get_vpn_rotator()
+                    if rotator.should_rotate(self.api_name):
+                        logging.warning(
+                            f"[VPN] OpenAlex Q{self.collectId} page {page}: "
+                            f"persistent {throttle_code} — triggering IP rotation "
+                            f"(rotation {rotator.rotation_count + 1}/{rotator.max_rotations})"
+                        )
+                        if rotator.rotate():
+                            logging.warning(
+                                f"[VPN] OpenAlex Q{self.collectId}: "
+                                f"retrying page {page} with new IP"
+                            )
+                            continue  # Retry same cursor/page with new IP
+                        logging.warning(
+                            f"[VPN] OpenAlex Q{self.collectId}: "
+                            f"rotation failed — giving up on this query"
+                        )
+
+                    from scilex.crawlers.circuit_breaker import CircuitBreakerRegistry
+                    CircuitBreakerRegistry().get_breaker(self.api_name).record_failure()
+                    logging.warning(
+                        f"OpenAlex: persistent {throttle_code} on page {page} "
+                        f"of query {self.collectId} — marking complete."
+                    )
+                    state_data["state"] = 1
+                else:
+                    logging.error(
+                        f"Error processing results on page {page} from OpenAlex API: {e}"
+                    )
+                    state_data["state"] = 0
                 state_data["last_page"] = page
                 self._flush_buffer()
                 return state_data

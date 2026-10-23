@@ -1595,9 +1595,13 @@ def OpenAIREtoZoteroFormat(row):
     except (KeyError, TypeError):
         pass
 
-    # Abstract
+    # Abstract — description can be a dict {"$": "..."} or a plain string
     try:
-        zotero_temp["abstract"] = entity["description"]["$"]
+        desc = entity["description"]
+        if isinstance(desc, dict):
+            zotero_temp["abstract"] = desc["$"]
+        elif isinstance(desc, str) and desc:
+            zotero_temp["abstract"] = desc
     except (KeyError, TypeError):
         pass
 
@@ -1669,12 +1673,13 @@ def OpenAIREtoZoteroFormat(row):
         resource_type = entity["resourcetype"]["@classname"]
         type_mapping = {
             "Article": "journalArticle",
+            "publication": "journalArticle",  # OpenAIRE generic type
             "Conference object": "conferencePaper",
             "Book": "book",
             "Book part": "bookSection",
-            "Preprint": "Manuscript",
+            "Preprint": "preprint",
         }
-        zotero_temp["itemType"] = type_mapping.get(resource_type, "Manuscript")
+        zotero_temp["itemType"] = type_mapping.get(resource_type, "journalArticle")
     except (KeyError, TypeError):
         pass
 

@@ -49,20 +49,22 @@ class TestOpenAlexCollectorURL:
 
         assert "per-page=200" in url
 
-    def test_api_key_appended_when_configured(self):
-        """URL should include api_key parameter when configured."""
+    def test_api_key_appended_as_mailto(self):
+        """api_key value is sent as mailto= (OpenAlex polite pool, not auth)."""
         collector = OpenAlex_collector(
-            self.data_query, "/tmp/test", "openalex_test_key"
+            self.data_query, "/tmp/test", "user@example.org"
         )
         url = collector.get_configurated_url()
 
-        assert "api_key=openalex_test_key" in url
+        assert "mailto=user%40example.org" in url or "mailto=user@example.org" in url
+        assert "api_key=" not in url
 
-    def test_no_api_key_by_default(self):
-        """URL should not include api_key when not configured."""
+    def test_no_mailto_when_no_key(self):
+        """URL should not include mailto when api_key is not configured."""
         collector = OpenAlex_collector(self.data_query, "/tmp/test", None)
         url = collector.get_configurated_url()
 
+        assert "mailto=" not in url
         assert "api_key=" not in url
 
 

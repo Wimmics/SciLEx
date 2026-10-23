@@ -200,6 +200,8 @@ DEFAULT_RATE_LIMITS = {
         "with_key": 10.0,
     },  # NCBI: 3/sec free, 10/sec with key
     "PubMedCentral": {"without_key": 3.0, "with_key": 10.0},  # Same NCBI limits
+    "OpenAIRE": {"without_key": 0.2, "with_key": 1.0},  # anonymous: 5s gap; registered token: ~1 req/s
+    "ORKG": {"without_key": 0.5, "with_key": 0.5},       # 2s between requests; timeouts at higher rates
 }
 """Rate limits for each API provider (requests per second).
 Each entry has without_key/with_key values. The correct rate is auto-selected

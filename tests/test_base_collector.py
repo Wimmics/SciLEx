@@ -230,9 +230,10 @@ class TestApiCallDecoratorErrorPaths:
         with pytest.raises(requests.exceptions.HTTPError):
             self._call(collector, mock_registry)
 
-        # Should be called exactly once (no retries)
+        # No retry and NO circuit-breaker failure: auth errors are permanent config
+        # failures, not transient endpoint failures
         assert collector.session.get.call_count == 1
-        mock_breaker.record_failure.assert_called_once()
+        mock_breaker.record_failure.assert_not_called()
 
     def test_403_no_retry_raises(self):
         collector = _make_collector()
@@ -244,7 +245,7 @@ class TestApiCallDecoratorErrorPaths:
             self._call(collector, mock_registry)
 
         assert collector.session.get.call_count == 1
-        mock_breaker.record_failure.assert_called_once()
+        mock_breaker.record_failure.assert_not_called()
 
     def test_500_retries_max_retries_times(self):
         collector = _make_collector()

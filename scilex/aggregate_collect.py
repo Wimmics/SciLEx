@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -12,6 +13,10 @@ import scilex.citations.citations_tools as cit_tools
 from scilex.config import SciLExConfig  # noqa: F811
 from scilex.constants import is_valid
 from scilex.logging_config import log_section, setup_logging  # noqa: F811
+from scilex.pipeline.bonus_keywords import (  # noqa: F811
+    generate_bonus_keyword_stats,
+    tag_papers_with_bonus_keywords,
+)
 from scilex.pipeline.citation_filter import (  # noqa: F811
     apply_time_aware_citation_filter,
     calculate_paper_age_months,
@@ -31,7 +36,9 @@ from scilex.pipeline.ranking import (  # noqa: F811
     calculate_relevance_score,
     count_keyword_matches,
 )
+from scilex.pipeline.report import write_aggregation_report  # noqa: F811
 from scilex.pipeline.text_filter import (  # noqa: F811
+    check_keywords_flexible,
     check_keywords_in_text,
     keyword_matches_in_abstract,
     record_passes_text_filter,
@@ -40,7 +47,11 @@ from scilex.pipeline.text_filter import (  # noqa: F811
 # Backward-compatible aliases (old names with leading _)
 _keyword_matches_in_abstract = keyword_matches_in_abstract
 _check_keywords_in_text = check_keywords_in_text
+_check_keywords_flexible = check_keywords_flexible
 _record_passes_text_filter = record_passes_text_filter
+_tag_papers_with_bonus_keywords = tag_papers_with_bonus_keywords
+_generate_bonus_keyword_stats = generate_bonus_keyword_stats
+_write_aggregation_report = write_aggregation_report
 _calculate_paper_age_months = calculate_paper_age_months
 _calculate_required_citations = calculate_required_citations
 _apply_time_aware_citation_filter = apply_time_aware_citation_filter
@@ -385,6 +396,7 @@ def _fetch_citations_parallel(
     resume_from=None,
     use_cache=True,
     crossref_mailto=None,
+    api_config=None,
 ):
     """Fetch citations using phase-based batch processing.
 
@@ -406,10 +418,15 @@ def _fetch_citations_parallel(
         checkpoint_path: Path to checkpoint file
         resume_from: Index to resume from (if resuming)
         use_cache: Whether to use citation caching (default: True)
+        crossref_mailto: Email for the CrossRef polite pool (optional)
+        api_config: Optional API config dict; its CrossRef mailto is used when
+            crossref_mailto is not given.
 
     Returns:
         tuple: (extras list, nb_citeds list, nb_citations list, stats dict)
     """
+    if crossref_mailto is None and api_config:
+        crossref_mailto = api_config.get("CrossRef", {}).get("mailto")
     total_papers = len(df_clean)
 
     # Initialize citation cache
@@ -899,6 +916,16 @@ def main():
         description="Aggregate collected papers and fetch citations"
     )
     parser.add_argument(
+        "--collection",
+        metavar="COLLECT",
+        default=None,
+        help=(
+            "Aggregate a specific collection by name or full path. "
+            "Loads config_used.yml from that directory. "
+            "If omitted, uses collect_name from scilex.config.yml."
+        ),
+    )
+    parser.add_argument(
         "--resume", action="store_true", help="Resume from checkpoint if available"
     )
     parser.add_argument(
@@ -925,7 +952,14 @@ def main():
         "--parallel-workers",
         type=int,
         default=None,
-        help="Number of parallel workers (default: auto-detect CPU count - 1)",
+        help="Number of parallel workers for batch processing (default: auto-detect CPU count - 1)",
+    )
+    parser.add_argument(
+        "--load-workers",
+        type=int,
+        default=None,
+        help="Number of parallel workers for JSON file loading (default: 4). "
+        "Increase for fast local filesystems; keep low for WSL2/network paths.",
     )
     parser.add_argument(
         "--batch-size",
@@ -936,12 +970,41 @@ def main():
     parser.add_argument(
         "--profile", action="store_true", help="Output detailed performance statistics"
     )
+    parser.add_argument(
+        "--no-abstract-enrichment",
+        action="store_true",
+        help=(
+            "Skip abstract enrichment step entirely. By default, records without abstracts "
+            "(e.g. from Elsevier, ORKG) are enriched via Semantic Scholar / OpenAlex "
+            "before aggregation, and the fetched abstracts are saved back to the "
+            "source JSON files."
+        ),
+    )
+    parser.add_argument(
+        "--cache-only-enrichment",
+        action="store_true",
+        help=(
+            "Apply only already-cached abstracts during enrichment — no network calls. "
+            "Useful for fast re-aggregations when the cache is already warm. "
+            "Ignored if --no-abstract-enrichment is set."
+        ),
+    )
+    parser.add_argument(
+        "--enrich-workers",
+        type=int,
+        default=4,
+        help="Parallel workers for abstract enrichment HTTP requests (default: 4)",
+    )
     args = parser.parse_args()
 
     logger = logging.getLogger(__name__)
 
-    # Load configuration
-    config = SciLExConfig.from_files()
+    # Load configuration (from a previous collection's snapshot if --collection)
+    try:
+        config = SciLExConfig.from_collection(args.collection)
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
     # Log aggregation start
     log_section(logger, "SciLEx Data Aggregation")
@@ -956,6 +1019,10 @@ def main():
         parallel_workers=args.parallel_workers,
         batch_size=args.batch_size,
         profile=args.profile,
+        no_abstract_enrichment=args.no_abstract_enrichment,
+        cache_only_enrichment=args.cache_only_enrichment,
+        enrich_workers=args.enrich_workers,
+        load_workers=args.load_workers,
     )
 
     # Run the pipeline

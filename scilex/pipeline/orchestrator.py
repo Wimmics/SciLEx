@@ -11,6 +11,7 @@ import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 import pandas as pd
 import yaml
@@ -32,6 +33,11 @@ from scilex.duplicate_tracking import (
     generate_itemtype_distribution_report,
 )
 from scilex.keyword_validation import generate_keyword_validation_report
+from scilex.logging_config import add_file_log_handler
+from scilex.pipeline.bonus_keywords import (
+    generate_bonus_keyword_stats,
+    tag_papers_with_bonus_keywords,
+)
 from scilex.pipeline.citation_filter import apply_time_aware_citation_filter
 from scilex.pipeline.enrichment import (
     fill_missing_urls_from_doi,
@@ -40,6 +46,7 @@ from scilex.pipeline.enrichment import (
 )
 from scilex.pipeline.itemtype_filter import apply_itemtype_bypass, apply_itemtype_filter
 from scilex.pipeline.ranking import apply_relevance_ranking
+from scilex.pipeline.report import write_aggregation_report
 from scilex.pipeline.tracker import FilteringTracker
 from scilex.quality_validation import (
     apply_quality_filters,
@@ -61,19 +68,32 @@ class AggregationOptions:
     parallel_workers: int | None = None
     batch_size: int = 5000
     profile: bool = False
+    # Abstract enrichment pre-step (Semantic Scholar / OpenAlex by DOI)
+    no_abstract_enrichment: bool = False
+    cache_only_enrichment: bool = False
+    enrich_workers: int = 4
+    # Workers for JSON file loading (None = parallel_aggregate default)
+    load_workers: int | None = None
 
 
 def run_collection(
     config: SciLExConfig,
     progress_callback: Callable | None = None,
     cancel_event=None,
+    run_label: str = "new run",
 ) -> None:
     """Run paper collection programmatically.
+
+    Warnings and errors raised during the run are also written to
+    ``{output_dir}/{collect_name}/collect_errors.log`` (with a session header
+    and footer) so they survive the console progress bar.
 
     Args:
         config: Loaded SciLExConfig instance.
         progress_callback: Optional callback(api_stats, completed, total).
         cancel_event: Optional threading.Event to signal cancellation.
+        run_label: Short description written in the error-log session header
+            (e.g. "new run" or "resumed: <collection>").
     """
     main_config = config.main
     api_config = config.api
@@ -81,17 +101,49 @@ def run_collection(
     output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
     os.makedirs(output_dir, exist_ok=True)
 
-    # CollectCollection handles writing config_used.yml to the correct
-    # {output_dir}/{collect_name}/ subdirectory — no duplicate write needed here.
+    # Resolve collection directory and attach the error log file
+    collect_name = main_config.get("collect_name", "unknown")
+    dir_collect = os.path.join(output_dir, collect_name)
+    os.makedirs(dir_collect, exist_ok=True)
+    log_path = os.path.join(dir_collect, "collect_errors.log")
+    file_handler = add_file_log_handler(log_path, level=logging.WARNING)
 
-    # Run collection
-    collector = CollectCollection(
-        main_config,
-        api_config,
-        progress_callback=progress_callback,
-        cancel_event=cancel_event,
-    )
-    collector.create_collects_jobs()
+    # Session-start separator (written directly so it is always present)
+    separator = "=" * 70
+    apis = main_config.get("apis", [])
+    years = main_config.get("years", [])
+    with open(log_path, "a", encoding="utf-8") as log_file:
+        log_file.write(f"\n{separator}\n")
+        log_file.write(
+            f"=== SciLEx collect — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            f" ({run_label}) ===\n"
+        )
+        log_file.write(f"    APIs: {', '.join(apis)}\n")
+        log_file.write(f"    Years: {', '.join(str(y) for y in years)}\n")
+        log_file.write(f"{separator}\n")
+    logger.info(f"Error log: {log_path}")
+
+    session_start = datetime.now()
+    try:
+        # CollectCollection handles writing config_used.yml to the correct
+        # {output_dir}/{collect_name}/ subdirectory — no duplicate write needed here.
+        collector = CollectCollection(
+            main_config,
+            api_config,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
+        collector.create_collects_jobs()
+    finally:
+        session_end = datetime.now()
+        elapsed = (session_end - session_start).total_seconds()
+        with open(log_path, "a", encoding="utf-8") as log_file:
+            log_file.write(
+                f"=== Run ended — {session_end.strftime('%Y-%m-%d %H:%M:%S')}"
+                f" (duration: {elapsed / 60:.1f} min) ===\n\n"
+            )
+        logging.getLogger().removeHandler(file_handler)
+        file_handler.close()
 
 
 def run_aggregation(
@@ -114,6 +166,8 @@ def run_aggregation(
     """
     if options is None:
         options = AggregationOptions()
+
+    run_start = datetime.now()
 
     main_config = config.main
     api_config = config.api
@@ -138,6 +192,14 @@ def run_aggregation(
     if progress_callback:
         progress_callback("initializing", 5, "Loading configuration...")
 
+    # Collection completeness report (printed before aggregation)
+    try:
+        from scilex.collect_status import build_status, print_status
+
+        print_status(build_status(dir_collect, main_config))
+    except Exception as e:
+        logging.warning(f"Could not build collection status report: {e}")
+
     # Auto-populate year_range from main config if empty
     if quality_filters.get("validate_year_range", False):
         year_range = quality_filters.get("year_range", [])
@@ -160,6 +222,30 @@ def run_aggregation(
     with open(config_used_path, encoding="utf-8") as f:
         config_used = yaml.safe_load(f)
 
+    # =========================================================================
+    # PRE-STEP: ABSTRACT ENRICHMENT
+    # =========================================================================
+    if not options.no_abstract_enrichment:
+        from scilex.abstract_enrichment import enrich_collection_abstracts
+
+        ss_key = (api_config or {}).get("SemanticScholar", {}).get("api_key")
+        enrich_stats = enrich_collection_abstracts(
+            dir_collect,
+            ss_api_key=ss_key,
+            num_workers=options.enrich_workers,
+            cache_only=options.cache_only_enrichment,
+        )
+        if enrich_stats["dois_found"] > 0:
+            logging.info(
+                f"Abstract enrichment complete: "
+                f"{enrich_stats['enriched']}/{enrich_stats['dois_found']} abstracts available "
+                f"({enrich_stats.get('cache_hits', 0)} from cache, "
+                f"{enrich_stats.get('newly_fetched', 0)} newly fetched), "
+                f"{enrich_stats['patched_records']} records updated in source files"
+            )
+    else:
+        logging.info("Abstract enrichment skipped")
+
     if progress_callback:
         progress_callback("aggregating", 10, "Running parallel aggregation...")
 
@@ -168,6 +254,47 @@ def run_aggregation(
     # =========================================================================
     from scilex.crawlers.aggregate_parallel import parallel_aggregate
 
+    # In cache-only mode, load the SQLite abstract cache once and pass it to the
+    # aggregation pipeline so workers can inject abstracts on the fly.
+    cached_abstracts: dict | None = None
+    if options.cache_only_enrichment:
+        from scilex.abstract_enrichment import load_all_cached_abstracts
+
+        logging.info(
+            "Loading abstract cache for inline injection during aggregation..."
+        )
+        cached_abstracts = load_all_cached_abstracts(dir_collect)
+        logging.info(f"  {len(cached_abstracts):,} cached abstracts loaded")
+
+    # Early-filter dict: cheap checks pushed into batch workers so papers that
+    # fail year or itemType criteria never reach text-filtering or dedup.
+    pre_filters: dict = {}
+    if quality_filters.get("enable_itemtype_filter", False) and quality_filters.get(
+        "allowed_item_types", []
+    ):
+        pre_filters["allowed_item_types"] = set(quality_filters["allowed_item_types"])
+
+    # Year range: derived from the main config's "years" list (same list used
+    # during collection); quality_filters.year_range can override explicitly.
+    year_list = quality_filters.get("year_range") or main_config.get("years", [])
+    if year_list:
+        pre_filters["year_range"] = {int(y) for y in year_list}
+
+    if pre_filters:
+        logging.info(
+            "Pre-filters configured for batch workers: "
+            + (
+                f"itemTypes={sorted(pre_filters['allowed_item_types'])} "
+                if "allowed_item_types" in pre_filters
+                else ""
+            )
+            + (
+                f"years={sorted(pre_filters['year_range'])}"
+                if "year_range" in pre_filters
+                else ""
+            )
+        )
+
     df, parallel_stats = parallel_aggregate(
         dir_collect=dir_collect,
         config_used=config_used,
@@ -175,6 +302,10 @@ def run_aggregation(
         num_workers=options.parallel_workers,
         batch_size=options.batch_size,
         keyword_groups=keyword_groups,
+        load_workers=options.load_workers,
+        bonus_keywords=bonus_keywords if bonus_keywords else None,
+        cached_abstracts=cached_abstracts,
+        pre_filters=pre_filters if pre_filters else None,
     )
 
     if options.profile:
@@ -205,7 +336,7 @@ def run_aggregation(
     # STEP 0: Fill Missing URLs from DOIs
     # =========================================================================
     logging.info("\n=== URL Fallback from DOI ===")
-    df_clean, _url_stats = fill_missing_urls_from_doi(df_clean)
+    df_clean, url_stats = fill_missing_urls_from_doi(df_clean)
 
     # =========================================================================
     # STEP 1: ItemType Filtering (Whitelist Mode)
@@ -308,7 +439,11 @@ def run_aggregation(
 
     keywords = main_config.get("keywords", [])
     if keywords and quality_filters.get("generate_quality_report", True):
-        keyword_report = generate_keyword_validation_report(df_clean, keywords)
+        keyword_report = generate_keyword_validation_report(
+            df_clean,
+            keywords,
+            bonus_keywords=bonus_keywords if bonus_keywords else None,
+        )
         logging.info(keyword_report)
 
     # Abstract quality validation
@@ -340,6 +475,8 @@ def run_aggregation(
     # =========================================================================
     # STEP 3: Citation Fetching & Filtering
     # =========================================================================
+    citation_stats_report = None
+
     if get_citation and len(df_clean) > 0:
         from scilex.aggregate_collect import _fetch_citations_parallel
 
@@ -355,6 +492,8 @@ def run_aggregation(
             use_cache=not options.no_cache,
             crossref_mailto=crossref_mailto,
         )
+
+        citation_stats_report = stats
 
         df_clean["extra"] = extras
         df_clean["nb_cited"] = nb_citeds
@@ -434,6 +573,14 @@ def run_aggregation(
     except OSError as e:
         logging.warning(f"Could not save filtering summary: {e}")
 
+    # Tag papers with bonus keywords and report distribution
+    if bonus_keywords:
+        logging.info("Tagging papers with bonus keywords...")
+        df_clean = tag_papers_with_bonus_keywords(df_clean, bonus_keywords)
+        generate_bonus_keyword_stats(df_clean, bonus_keywords)
+    else:
+        df_clean["bonus_keyword_tags"] = ""
+
     # Save to CSV
     output_path = os.path.join(dir_collect, output_filename)
     logging.info(f"Saving {len(df_clean)} aggregated papers to {output_path}")
@@ -444,6 +591,20 @@ def run_aggregation(
         quoting=csv.QUOTE_NONNUMERIC,
     )
     logging.info(f"Aggregation complete! Results saved to {output_path}")
+
+    # Write aggregation report (Markdown + CSV stats)
+    write_aggregation_report(
+        dir_collect=dir_collect,
+        collect_name=collect_name,
+        run_date=run_start,
+        duration_seconds=(datetime.now() - run_start).total_seconds(),
+        main_config=main_config,
+        parallel_stats=parallel_stats,
+        filtering_tracker=filtering_tracker,
+        citation_stats=citation_stats_report,
+        url_stats=url_stats,
+        df_clean=df_clean,
+    )
 
     if progress_callback:
         progress_callback("completed", 100, "Aggregation completed!")

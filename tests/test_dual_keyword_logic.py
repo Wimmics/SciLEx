@@ -69,12 +69,12 @@ class TestDualKeywordLogic:
         query_params = urllib.parse.parse_qs(parsed.query)
         filter_string = query_params.get("filter", [""])[0]
 
-        # Should have separate title_and_abstract.search for each keyword
-        assert "title_and_abstract.search:knowledge graph" in filter_string, (
-            "OpenAlex should search for 'knowledge graph' in title_and_abstract"
+        # Should have separate quoted title_and_abstract.search for each keyword
+        assert 'title_and_abstract.search:"knowledge graph"' in filter_string, (
+            "OpenAlex should search for 'knowledge graph' as an exact phrase"
         )
-        assert "title_and_abstract.search:LLM" in filter_string, (
-            "OpenAlex should search for 'LLM' in title_and_abstract"
+        assert 'title_and_abstract.search:"LLM"' in filter_string, (
+            "OpenAlex should search for 'LLM' as an exact phrase"
         )
 
         # Should use comma to separate (AND logic)

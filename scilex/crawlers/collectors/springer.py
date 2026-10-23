@@ -71,7 +71,7 @@ class Springer_collector(API_collector):
             else:
                 total = 0
 
-            page_data["total_nb"] = int(total)
+            page_data["total"] = int(total)
 
             # Process the 'records' if they exist and are in the correct format
             if isinstance(records, list) and len(records) > 0:
@@ -119,9 +119,9 @@ class Springer_collector(API_collector):
         # Construct the search query
         keywords_query = self.construct_search_query()
 
-        # Construct the URLs for both endpoints
-        meta_url = f"{self.meta_url}?q={keywords_query}&api_key={self.meta_api_key}"
-        openaccess_url = f"{self.openaccess_url}?q={keywords_query}&api_key={self.openaccess_api_key}"
+        # p = results per page (fixed); s = start position (added per-page in collect_from_endpoints)
+        meta_url = f"{self.meta_url}?q={keywords_query}&api_key={self.meta_api_key}&p={self.max_by_page}"
+        openaccess_url = f"{self.openaccess_url}?q={keywords_query}&api_key={self.openaccess_api_key}&p={self.max_by_page}"
 
         logging.debug(f"Constructed query for meta: {meta_url}")
         logging.debug(f"Constructed query for openaccess: {openaccess_url}")
@@ -153,10 +153,9 @@ class Springer_collector(API_collector):
                     )
                     break
 
-                # Append pagination parameter to the base URL
-                paginated_url = (
-                    f"{base_url}&p={page}"  # Use 'p' for Springer API pagination
-                )
+                # s = 1-based start position; p (results-per-page) is already in base_url
+                start = (page - 1) * self.max_by_page + 1
+                paginated_url = f"{base_url}&s={start}"
                 logging.debug(f"Fetching data from URL: {paginated_url}")
 
                 # Call the API

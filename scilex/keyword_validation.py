@@ -11,6 +11,8 @@ import pandas as pd
 
 from scilex.constants import is_missing
 
+_STOP_WORDS = {"of", "the", "a", "an", "and", "or", "in", "on", "at", "to", "for"}
+
 
 def normalize_text(text: str) -> str:
     """Normalize text for keyword matching (lowercase, handle dict format)."""
@@ -25,23 +27,38 @@ def normalize_text(text: str) -> str:
 
 
 def check_keyword_in_text(keyword: str, text: str) -> bool:
+    """Exact case-insensitive substring match.
+
+    Used for mandatory query-term filtering (Group 1 / Group 2 keywords).
+    The keyword must appear verbatim (lowercased) somewhere in the text.
     """
-    Check if keyword appears in text (case-insensitive, handles phrases).
+    if is_missing(text) or not keyword:
+        return False
+    return keyword.lower() in normalize_text(text)
 
-    Args:
-        keyword: Keyword or phrase to search for
-        text: Text to search in
 
-    Returns:
-        True if keyword found, False otherwise
+def check_keyword_in_text_flexible(keyword: str, text: str) -> bool:
+    """Flexible match: exact phrase first, word-level fallback for compound keywords.
+
+    Used for bonus keywords where the words may appear separately in the text.
+    For single-word keywords behaves identically to check_keyword_in_text.
+    For multi-word keywords: exact phrase OR every meaningful constituent word
+    (length > 2, not a stop word) present anywhere in the text.
     """
     if is_missing(text) or not keyword:
         return False
 
-    normalized_text = normalize_text(text)
-    normalized_keyword = keyword.lower()
+    text_lower = normalize_text(text)
+    kw_lower = keyword.lower()
 
-    return normalized_keyword in normalized_text
+    if kw_lower in text_lower:
+        return True
+
+    words = kw_lower.split()
+    if len(words) < 2:
+        return False
+    meaningful = [w for w in words if len(w) > 2 and w not in _STOP_WORDS]
+    return bool(meaningful) and all(w in text_lower for w in meaningful)
 
 
 def check_keywords_in_paper(
@@ -97,13 +114,20 @@ def check_keywords_in_paper(
 def generate_keyword_validation_report(
     df: pd.DataFrame,
     keywords: list[list[str]],
+    bonus_keywords: list[str] | None = None,
 ) -> str:
     """
     Generate a report on keyword presence in collected papers.
 
+    Each keyword's frequency is counted independently — a keyword is counted
+    whenever it appears in a paper's title/abstract, regardless of whether the
+    other group also matches.  Group-level summaries (papers matching Group 1
+    only, Group 2 only, or both) are shown separately.
+
     Args:
         df: DataFrame with paper records
         keywords: Keyword groups from config
+        bonus_keywords: Optional bonus keyword list (flexible matching)
 
     Returns:
         String containing the validation report
@@ -112,78 +136,149 @@ def generate_keyword_validation_report(
         return "No papers to validate."
 
     total_papers = len(df)
-    papers_with_keywords = 0
-    papers_without_keywords = 0
-    keyword_counts = {}
+    dual_group_mode = len(keywords) == 2 and bool(keywords[0]) and bool(keywords[1])
 
-    # Initialize keyword counts
+    # -----------------------------------------------------------------------
+    # Count each keyword independently (not gated on other group)
+    # -----------------------------------------------------------------------
+    keyword_counts: dict[str, int] = {}
     for group in keywords:
         for kw in group:
             keyword_counts[kw] = 0
 
-    # Check each paper
+    bonus_counts: dict[str, int] = {}
+    if bonus_keywords:
+        for kw in bonus_keywords:
+            bonus_counts[kw] = 0
+
+    group1_only = 0
+    group2_only = 0
+    both_groups = 0
+    neither = 0
+
     for _, row in df.iterrows():
-        found, matched = check_keywords_in_paper(row.to_dict(), keywords)
+        record = row.to_dict()
+        title = record.get("title", "")
+        abstract = record.get("abstract", "")
+        combined = f"{title} {abstract}"
 
-        if found:
-            papers_with_keywords += 1
-            for kw in matched:
-                keyword_counts[kw] = keyword_counts.get(kw, 0) + 1
+        if dual_group_mode:
+            g1_hit = False
+            g2_hit = False
+            for kw in keywords[0]:
+                if check_keyword_in_text(kw, combined):
+                    keyword_counts[kw] += 1
+                    g1_hit = True
+            for kw in keywords[1]:
+                if check_keyword_in_text(kw, combined):
+                    keyword_counts[kw] += 1
+                    g2_hit = True
+            if g1_hit and g2_hit:
+                both_groups += 1
+            elif g1_hit:
+                group1_only += 1
+            elif g2_hit:
+                group2_only += 1
+            else:
+                neither += 1
         else:
-            papers_without_keywords += 1
+            group = keywords[0] if keywords else []
+            hit = False
+            for kw in group:
+                if check_keyword_in_text(kw, combined):
+                    keyword_counts[kw] += 1
+                    hit = True
+            if hit:
+                both_groups += 1  # reuse counter as "papers with any keyword"
+            else:
+                neither += 1
 
+        if bonus_keywords:
+            for kw in bonus_keywords:
+                if check_keyword_in_text_flexible(kw, combined):
+                    bonus_counts[kw] += 1
+
+    # -----------------------------------------------------------------------
     # Build report
+    # -----------------------------------------------------------------------
     report_lines = [
         "\n" + "=" * 70,
         "KEYWORD VALIDATION REPORT",
         "=" * 70,
         f"Total papers: {total_papers}",
-        f"Papers with keywords: {papers_with_keywords} ({papers_with_keywords / total_papers * 100:.1f}%)",
-        f"Papers WITHOUT keywords: {papers_without_keywords} ({papers_without_keywords / total_papers * 100:.1f}%)",
+        "",
+        "Matching mode: EXACT per-keyword (case-insensitive substring)",
+        "Note: each keyword counted independently; group summaries shown below.",
         "",
     ]
 
-    # Show matching mode
-    report_lines.append("Matching mode: EXACT (case-insensitive substring)")
-    report_lines.append("")
-
-    # Show keyword group structure
-    if len(keywords) == 2 and keywords[0] and keywords[1]:
-        report_lines.append("Keyword groups (papers must match from BOTH groups):")
-        report_lines.append(f"  Group 1: {', '.join(keywords[0])}")
-        report_lines.append(f"  Group 2: {', '.join(keywords[1])}")
+    if dual_group_mode:
+        report_lines += [
+            "Keyword groups (filter requires Group 1 AND (Group 2 OR bonus)):",
+            f"  Group 1: {', '.join(keywords[0])}",
+            f"  Group 2: {', '.join(keywords[1])}",
+            "",
+            "Group-level paper breakdown:",
+            f"  Both Group 1 AND Group 2 matched : {both_groups:>6}  ({both_groups / total_papers * 100:.1f}%)",
+            f"  Group 1 only (Group 2 via bonus) : {group1_only:>6}  ({group1_only / total_papers * 100:.1f}%)",
+            f"  Group 2 only (no Group 1 match)  : {group2_only:>6}  ({group2_only / total_papers * 100:.1f}%)",
+            f"  Neither group matched            : {neither:>6}  ({neither / total_papers * 100:.1f}%)",
+            "",
+        ]
     else:
-        report_lines.append(
-            f"Keywords (papers must match ANY): {', '.join(keywords[0] if keywords else [])}"
-        )
+        report_lines += [
+            f"Keywords: {', '.join(keywords[0] if keywords else [])}",
+            "",
+            f"  Papers with any keyword : {both_groups:>6}  ({both_groups / total_papers * 100:.1f}%)",
+            f"  Papers with no keyword  : {neither:>6}  ({neither / total_papers * 100:.1f}%)",
+            "",
+        ]
 
-    report_lines.append("")
-    report_lines.append("Individual keyword frequencies:")
+    report_lines.append("Individual keyword frequencies (independent counts):")
+    report_lines.append("  Group 1:")
+    g1_kws = keywords[0] if keywords else []
+    for kw, count in sorted(
+        [(k, keyword_counts[k]) for k in g1_kws], key=lambda x: x[1], reverse=True
+    ):
+        report_lines.append(f"    '{kw}': {count} ({count / total_papers * 100:.1f}%)")
 
-    # Sort keywords by frequency
-    for kw, count in sorted(keyword_counts.items(), key=lambda x: x[1], reverse=True):
-        percentage = count / total_papers * 100
-        report_lines.append(f"  '{kw}': {count} ({percentage:.1f}%)")
+    if dual_group_mode:
+        report_lines.append("  Group 2:")
+        for kw, count in sorted(
+            [(k, keyword_counts[k]) for k in keywords[1]],
+            key=lambda x: x[1],
+            reverse=True,
+        ):
+            report_lines.append(
+                f"    '{kw}': {count} ({count / total_papers * 100:.1f}%)"
+            )
+
+    if bonus_keywords and bonus_counts:
+        report_lines.append("  Bonus keywords (flexible match):")
+        for kw, count in sorted(bonus_counts.items(), key=lambda x: x[1], reverse=True):
+            report_lines.append(
+                f"    '{kw}': {count} ({count / total_papers * 100:.1f}%)"
+            )
 
     report_lines.append("")
     report_lines.append("Interpretation:")
-    false_positive_rate = papers_without_keywords / total_papers * 100
-
-    if false_positive_rate > 30:
-        report_lines.append(
-            f"  Warning: {false_positive_rate:.1f}% of papers don't contain keywords"
-        )
-        report_lines.append("      This suggests high false positive rate from APIs.")
-        report_lines.append("      Consider more specific keywords or different APIs.")
-    elif false_positive_rate > 10:
-        report_lines.append(
-            f"  Moderate: {false_positive_rate:.1f}% of papers don't contain keywords"
-        )
-        report_lines.append("      Some API false positives detected.")
+    if neither > 0:
+        rate = neither / total_papers * 100
+        if rate > 30:
+            report_lines.append(
+                f"  Warning: {rate:.1f}% of papers matched neither keyword group."
+            )
+            report_lines.append(
+                "      These passed via bonus-keyword fallback or are API false positives."
+            )
+        elif rate > 10:
+            report_lines.append(
+                f"  Moderate: {rate:.1f}% of papers matched neither group."
+            )
+        else:
+            report_lines.append(f"  Good: {rate:.1f}% of papers matched neither group.")
     else:
-        report_lines.append(
-            f"  Good: {false_positive_rate:.1f}% false positive rate is acceptable"
-        )
+        report_lines.append("  All papers matched at least one keyword group.")
 
     report_lines.append("=" * 70 + "\n")
     return "\n".join(report_lines)
