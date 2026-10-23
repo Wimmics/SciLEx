@@ -268,7 +268,7 @@ def render(ctx: AppContext, review: Review) -> None:
                 put(path, parts)  # shown as a validation error
 
         ui.input(
-            label + " (comma separated)",
+            (label + " (comma separated)").strip(),
             value=", ".join(str(v) for v in get(path) or []),
             on_change=changed,
         ).props("dense outlined").classes("w-64").mark(f"field-{'.'.join(path)}")
@@ -310,7 +310,7 @@ def render(ctx: AppContext, review: Review) -> None:
             except yaml.YAMLError:
                 put(path, raw)  # reported as "not a valid mapping"
 
-        ui.textarea(label + " (YAML)", value=text, on_change=changed).props(
+        ui.textarea((label + " (YAML)").strip(), value=text, on_change=changed).props(
             "dense outlined"
         ).classes("w-96").mark(f"field-{'.'.join(path)}")
 
@@ -338,7 +338,8 @@ def render(ctx: AppContext, review: Review) -> None:
         with ui.column().classes("gap-0"):
             if spec.kind != "bool":
                 caption(path, label)
-            builders[spec.kind](path, spec, label)
+            # The caption above already names the field: no second floating label.
+            builders[spec.kind](path, spec, label if spec.kind == "bool" else "")
             error_slot(path)
             if spec.kind == "bool":
                 help_text = editor.FIELD_HELP.get(".".join(path))
