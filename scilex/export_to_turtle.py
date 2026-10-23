@@ -41,6 +41,32 @@ def load_config() -> dict:
     return configs["main_config"]
 
 
+def export_citation_graph(
+    config: dict, collect_dir: str, include_doi_metadata: bool = True
+) -> str:
+    """Write ``citation_graph.ttl`` for the aggregated collection."""
+    from scilex.citations.reference_fetcher import fetch_references_batch
+    from scilex.io_utils import load_aggregated_data
+    from scilex.pipeline_utils import extract_corpus_dois
+    from scilex.rdf.citation_graph import write_citation_graph
+
+    dois = sorted(extract_corpus_dois(load_aggregated_data(config, collect_dir)))
+    api_configs = load_all_configs({"api_config": "api.config.yml"})["api_config"]
+    references = fetch_references_batch(
+        dois,
+        api_key=((api_configs or {}).get("SemanticScholar") or {}).get("api_key"),
+        cache_path=os.path.join(collect_dir, "citations_cache.json"),
+        mailto=((api_configs or {}).get("CrossRef") or {}).get("mailto"),
+    )
+    return write_citation_graph(
+        dois,
+        collect_dir,
+        references,
+        include_doi_metadata=include_doi_metadata,
+        mailto=((api_configs or {}).get("CrossRef") or {}).get("mailto"),
+    )
+
+
 def main():
     """Entry point for Turtle export."""
     parser = argparse.ArgumentParser(description="Export SciLEx BibTeX to RDF/Turtle")
@@ -59,6 +85,17 @@ def main():
         "--input",
         default=None,
         help="Path to input .bib file (overrides auto-detection from config)",
+    )
+    parser.add_argument(
+        "--citation-graph",
+        action="store_true",
+        help="Also write citation_graph.ttl (bibo:cites edges + DOI metadata "
+        "from doi.org content negotiation) from the aggregated CSV",
+    )
+    parser.add_argument(
+        "--no-doi-metadata",
+        action="store_true",
+        help="With --citation-graph: skip the doi.org requests (edges only)",
     )
     args = parser.parse_args()
 
@@ -108,6 +145,12 @@ def main():
 
         logger.info(f"Output: {output_file}")
         print(f"\nRDF export complete: {output_file}")
+
+        if args.citation_graph:
+            graph_path = export_citation_graph(
+                config, collect_dir, include_doi_metadata=not args.no_doi_metadata
+            )
+            print(f"Citation graph: {graph_path}")
 
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")

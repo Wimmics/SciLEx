@@ -24,3 +24,9 @@ Aucune nouvelle clé de config. Utilise `SemanticScholar.api_key` (api.config.ym
 `collect_name` (sortie `output/<collect_name>_seed/`, ou `--collect-name`), `aggregate_file`,
 `keywords`/`bonus_keywords` (seulement avec `--keyword-filter`).
 Options CLI : `--dois`, `--doi-file`, `--bibtex`, `--limit`, `--snowball`, `--keyword-filter`, `--collect-name`.
+
+## scilex-export-turtle --citation-graph (#35)
+Aucune clé de config. Options CLI : `--citation-graph`, `--no-doi-metadata`. Utilise `SemanticScholar.api_key`
+et `CrossRef.mailto` (api.config.yml). Sortie `output/<collect>/citation_graph.ttl`; caches `citations_cache.json`
+et `doi_turtle_cache.json`. Note : la négociation de contenu doi.org (`Accept: text/turtle`) ne renvoie que les
+métadonnées du DOI, pas ses citations ; les arêtes `bibo:cites` viennent de reference_fetcher.
