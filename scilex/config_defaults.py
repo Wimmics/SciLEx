@@ -24,9 +24,6 @@ Absolute path to ensure consistency regardless of working directory."""
 DEFAULT_AGGREGATED_FILENAME = "aggregated_results.csv"
 """Filename for aggregated and deduplicated papers."""
 
-DEFAULT_ENABLE_TEXT_FILTER = True
-"""Always apply text filters during aggregation (filter low-quality papers)."""
-
 # ============================================================================
 # ABSTRACT QUALITY THRESHOLDS
 # ============================================================================
@@ -152,6 +149,9 @@ DEFAULT_USE_SEMANTIC_SCHOLAR_CITATIONS = True
 """Use Semantic Scholar citation data as fallback for OpenCitations.
 Improves citation completeness for preprints and recent papers."""
 
+DEFAULT_USE_OPENALEX_CITATIONS = True
+"""Use OpenAlex as citation fallback (read by the aggregation orchestrator)."""
+
 DEFAULT_APPLY_RELEVANCE_RANKING = True
 """Apply composite relevance scoring to rank papers by importance.
 Papers sorted by relevance_score (higher = more relevant)."""
@@ -172,10 +172,6 @@ Generates reports showing API value and optimization recommendations."""
 DEFAULT_COLLECT_ENABLED = True
 """Enable collection phase by default.
 Set to False to skip collection and only aggregate existing data."""
-
-DEFAULT_SEMANTIC_SCHOLAR_MODE = "regular"
-"""Semantic Scholar API endpoint mode.
-Options: 'regular' (default, recommended) or 'bulk' (requires special access)."""
 
 # ============================================================================
 # API RATE LIMITS (requests per second)
@@ -200,8 +196,14 @@ DEFAULT_RATE_LIMITS = {
         "with_key": 10.0,
     },  # NCBI: 3/sec free, 10/sec with key
     "PubMedCentral": {"without_key": 3.0, "with_key": 10.0},  # Same NCBI limits
-    "OpenAIRE": {"without_key": 0.2, "with_key": 1.0},  # anonymous: 5s gap; registered token: ~1 req/s
-    "ORKG": {"without_key": 0.5, "with_key": 0.5},       # 2s between requests; timeouts at higher rates
+    "OpenAIRE": {
+        "without_key": 0.2,
+        "with_key": 1.0,
+    },  # anonymous: 5s gap; registered token: ~1 req/s
+    "ORKG": {
+        "without_key": 0.5,
+        "with_key": 0.5,
+    },  # 2s between requests; timeouts at higher rates
 }
 """Rate limits for each API provider (requests per second).
 Each entry has without_key/with_key values. The correct rate is auto-selected
@@ -229,6 +231,7 @@ QUALITY_FILTER_SCHEMA = {
     "generate_quality_report": bool,
     "apply_citation_filter": bool,
     "use_semantic_scholar_citations": bool,
+    "use_openalex_citations": bool,
     "apply_relevance_ranking": bool,
     "relevance_weights": dict,
     "itemtype_relevance_weights": dict,
@@ -259,6 +262,7 @@ def get_default_quality_filters():
             "generate_quality_report": DEFAULT_GENERATE_QUALITY_REPORT,
             "apply_citation_filter": DEFAULT_APPLY_CITATION_FILTER,
             "use_semantic_scholar_citations": DEFAULT_USE_SEMANTIC_SCHOLAR_CITATIONS,
+            "use_openalex_citations": DEFAULT_USE_OPENALEX_CITATIONS,
             "apply_relevance_ranking": DEFAULT_APPLY_RELEVANCE_RANKING,
             "relevance_weights": DEFAULT_RELEVANCE_WEIGHTS,
             "itemtype_relevance_weights": DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
