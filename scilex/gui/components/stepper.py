@@ -28,6 +28,9 @@ EXTRA_STEPS = (Step("keys", "API keys", "key"),)
 STEPS = {step.key: step for step in (*PIPELINE_STEPS, *EXTRA_STEPS)}
 DEFAULT_STEP = "collect"
 RESULTS_POLL_SECONDS = 1.0
+INVALID_CONFIG_HINT = "Fix scilex.yml in ① Configure first"
+# Steps usable while scilex.yml cannot be loaded (to repair it).
+USABLE_WHEN_INVALID = ("configure", "keys")
 NEEDS_RESULTS_HINT = "Available once a collection has been aggregated (step ②)."
 
 
@@ -80,7 +83,11 @@ def _step_button(
         on_click=lambda: ui.navigate.to(f"/review/{review.id}/{step.key}"),
     ).props("align=left no-caps" + ("" if step.key == active else " flat"))
     button.classes("w-full").mark(f"step-{step.key}")
-    if not is_enabled(step, review):
+    if review.error and step.key not in USABLE_WHEN_INVALID:
+        # Never unlocked by the results timer: the config must be fixed first.
+        button.disable()
+        button.tooltip(INVALID_CONFIG_HINT)
+    elif not is_enabled(step, review):
         button.disable()
         button.tooltip(NEEDS_RESULTS_HINT)
         locked.append(button)

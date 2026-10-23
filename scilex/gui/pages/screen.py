@@ -39,27 +39,31 @@ COLUMN_DEFS = [
     {
         "field": "year",
         "headerName": "Year",
-        "width": 80,
+        "width": 100,
+        "minWidth": 100,
         "filter": "agNumberColumnFilter",
     },
     {"field": "venue", "headerName": "Venue", "flex": 1, "minWidth": 100},
     {
         "field": "score",
         "headerName": "Score",
-        "width": 90,
+        "width": 120,
+        "minWidth": 120,
         "filter": "agNumberColumnFilter",
         "sort": "desc",
     },
     {
         "field": "citations",
         "headerName": "Cited",
-        "width": 90,
+        "width": 110,
+        "minWidth": 110,
         "filter": "agNumberColumnFilter",
     },
     {
         "field": "decision",
         "headerName": "Decision",
-        "width": 110,
+        "width": 140,
+        "minWidth": 140,
         ":cellClassRules": json.dumps(
             {
                 "decision-include": "x === 'Include'",

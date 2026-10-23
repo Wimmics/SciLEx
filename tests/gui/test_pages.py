@@ -33,7 +33,7 @@ async def test_review_steps_disabled_before_results(ctx, tmp_path):
     review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
     async with user_simulation(build_root(ctx)) as user:
         await user.open(f"/review/{review.id}")
-        await user.should_see("Not run in this session.")
+        await user.should_see(marker="step-screen")
         screen_button = user.find(marker="step-screen").elements.pop()
         assert not screen_button.enabled
 
@@ -78,3 +78,26 @@ async def test_run_button_tooltips_do_not_pile_up(ctx, tmp_path):
         ]
         assert len(tooltips) == 1
         assert not tooltips[0].visible
+
+
+async def test_card_forget_menu_removes_review_and_keeps_files(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open("/")
+        user.find(marker=f"forget-item-{review.id}").click()
+        user.find(marker=f"forget-confirm-{review.id}").click()
+    assert ctx.workspace.list_reviews() == []
+    assert (tmp_path / "rag" / "scilex.yml").is_file()
+
+
+async def test_invalid_review_disables_other_steps(ctx, tmp_path):
+    folder = tmp_path / "bad"
+    folder.mkdir()
+    (folder / "scilex.yml").write_text("name: bad\nbogus: 1\n")
+    ctx.workspace._save_folders([folder])
+    (review,) = ctx.workspace.list_reviews()
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/configure")
+        assert not user.find(marker="step-collect").elements.pop().enabled
+        assert user.find(marker="step-configure").elements.pop().enabled
+        assert user.find(marker="step-keys").elements.pop().enabled

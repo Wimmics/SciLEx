@@ -3,15 +3,17 @@
 from nicegui import ui
 
 from scilex.gui.components.errors import show_error
-from scilex.gui.components.job_panel import JobPanel
+from scilex.gui.components.job_panel import BusyNotice, JobPanel
 from scilex.gui.services.collect_summary import (
     api_rows,
     detect_resume,
     load_summary,
     phase_steps,
+    placeholder_keywords,
     preflight_line,
 )
 from scilex.gui.services.jobs import PIPELINE, Job, JobConflictError
+from scilex.gui.services.screening import load_decisions
 from scilex.gui.services.workspace import Review, Workspace
 from scilex.gui.state import AppContext
 from scilex.pipeline import jobs as job_states
@@ -54,6 +56,20 @@ def render(ctx: AppContext, review: Review) -> None:
         try:
             preflight_text = preflight_line(Workspace.load_config(review))
             ui.label(preflight_text).classes("text-sm").mark("preflight")
+            placeholders = placeholder_keywords(Workspace.load_config(review))
+            if placeholders:
+                with ui.row().classes("items-center gap-2"):
+                    ui.label(
+                        "Keywords still look like the template's examples: "
+                        + ", ".join(placeholders)
+                    ).classes("text-sm text-warning").mark("placeholder-warning")
+                    ui.button(
+                        "Fix in ① Configure",
+                        icon="tune",
+                        on_click=lambda: ui.navigate.to(
+                            f"/review/{review.id}/configure"
+                        ),
+                    ).props("outline dense").mark("fix-placeholders")
         except (SettingsError, FileNotFoundError) as exc:
             ui.label(str(exc)).classes("text-negative whitespace-pre-wrap").mark(
                 "preflight-error"
@@ -75,6 +91,12 @@ def render(ctx: AppContext, review: Review) -> None:
             .props("dense clearable")
             .mark("since")
         )
+    if load_decisions(review):
+        ui.label(
+            "Decisions are kept; papers that are no longer in the new results "
+            "will appear as orphans in ③ Screen."
+        ).classes("text-sm text-gray-600").mark("screening-kept-notice")
+    busy_notice = BusyNotice(ctx)
     with ui.row().classes("items-center gap-4"):
         run_button = ui.button("Run", icon="play_arrow").mark("run")
         with run_button:
@@ -101,6 +123,7 @@ def render(ctx: AppContext, review: Review) -> None:
         run_button.set_enabled(not running and not busy_elsewhere)
         # One tooltip, shown or hidden: calling .tooltip() here would add a new one every tick.
         busy_tooltip.set_visibility(busy_elsewhere)
+        busy_notice.update(job)
         cancel_button.set_visibility(running)
         resume_info = None if running else resume_cache["info"]
         resume_button.set_visibility(resume_info is not None)
