@@ -10,6 +10,7 @@ This module provides sophisticated abstract quality checks beyond basic length v
 
 import logging
 import re
+from collections import Counter
 
 import pandas as pd
 
@@ -48,6 +49,71 @@ INCOMPLETE_SENTENCE_PATTERNS = [
     r"\b(?:and|or|but|however|therefore|thus|hence|moreover|furthermore)$",  # Ends with conjunction
     r"\b(?:the|a|an|of|in|on|at|to|for|with|by|from)$",  # Ends with preposition/article
 ]
+
+# Precompiled once at import (detectors run once per abstract, thousands of times)
+_TRUNCATION_REGEXES = [(p, re.compile(p, re.IGNORECASE)) for p in TRUNCATION_PATTERNS]
+_BOILERPLATE_REGEXES = [re.compile(p, re.IGNORECASE) for p in BOILERPLATE_PATTERNS]
+_INCOMPLETE_SENTENCE_REGEXES = [
+    re.compile(p, re.IGNORECASE) for p in INCOMPLETE_SENTENCE_PATTERNS
+]
+_WHITESPACE_RE = re.compile(r"\s+")
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+_SPECIAL_CHAR_RE = re.compile(r'[^\w\s.,;:!?()\-\'"]')
+_REPEATED_CHAR_RE = re.compile(r"(.)\1{5,}")
+
+
+# Common English words used by the language heuristic
+_COMMON_ENGLISH_WORDS = frozenset(
+    {
+        "the",
+        "be",
+        "to",
+        "of",
+        "and",
+        "a",
+        "in",
+        "that",
+        "have",
+        "i",
+        "it",
+        "for",
+        "not",
+        "on",
+        "with",
+        "he",
+        "as",
+        "you",
+        "do",
+        "at",
+        "this",
+        "but",
+        "his",
+        "by",
+        "from",
+        "they",
+        "we",
+        "say",
+        "her",
+        "she",
+        "or",
+        "an",
+        "will",
+        "my",
+        "one",
+        "all",
+        "would",
+        "there",
+        "their",
+        "is",
+        "are",
+        "was",
+        "were",
+        "been",
+        "has",
+        "had",
+        "having",
+    }
+)
 
 
 class AbstractQualityIssue:
@@ -110,7 +176,7 @@ def normalize_abstract(abstract) -> str:
     text = normalize_text_field(abstract)
 
     # Clean up whitespace
-    text = re.sub(r"\s+", " ", text).strip()
+    text = _WHITESPACE_RE.sub(" ", text).strip()
 
     return text
 
@@ -127,8 +193,8 @@ def detect_truncation(abstract: str) -> AbstractQualityIssue | None:
         return None
 
     # Check for explicit truncation indicators
-    for pattern in TRUNCATION_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
+    for pattern, regex in _TRUNCATION_REGEXES:
+        if regex.search(text):
             return AbstractQualityIssue(
                 issue_type="TRUNCATED",
                 severity=AbstractQualityIssue.CRITICAL,
@@ -136,8 +202,8 @@ def detect_truncation(abstract: str) -> AbstractQualityIssue | None:
             )
 
     # Check for incomplete sentences (ends with preposition/conjunction)
-    for pattern in INCOMPLETE_SENTENCE_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
+    for regex in _INCOMPLETE_SENTENCE_REGEXES:
+        if regex.search(text):
             return AbstractQualityIssue(
                 issue_type="INCOMPLETE_SENTENCE",
                 severity=AbstractQualityIssue.WARNING,
@@ -158,8 +224,8 @@ def detect_boilerplate(abstract: str) -> AbstractQualityIssue | None:
     if not text:
         return None
 
-    for pattern in BOILERPLATE_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
+    for regex in _BOILERPLATE_REGEXES:
+        if regex.search(text):
             return AbstractQualityIssue(
                 issue_type="BOILERPLATE",
                 severity=AbstractQualityIssue.WARNING,
@@ -229,63 +295,12 @@ def detect_language_issues(
     if not text or expected_language != "english":
         return None
 
-    # Simple heuristic based on common English words
-    common_english_words = {
-        "the",
-        "be",
-        "to",
-        "of",
-        "and",
-        "a",
-        "in",
-        "that",
-        "have",
-        "i",
-        "it",
-        "for",
-        "not",
-        "on",
-        "with",
-        "he",
-        "as",
-        "you",
-        "do",
-        "at",
-        "this",
-        "but",
-        "his",
-        "by",
-        "from",
-        "they",
-        "we",
-        "say",
-        "her",
-        "she",
-        "or",
-        "an",
-        "will",
-        "my",
-        "one",
-        "all",
-        "would",
-        "there",
-        "their",
-        "is",
-        "are",
-        "was",
-        "were",
-        "been",
-        "has",
-        "had",
-        "having",
-    }
-
     words = text.lower().split()
     if len(words) < 10:
         return None  # Too short to reliably detect language
 
     # Count how many common English words appear
-    english_word_count = sum(1 for word in words if word in common_english_words)
+    english_word_count = sum(1 for word in words if word in _COMMON_ENGLISH_WORDS)
     english_word_ratio = english_word_count / len(words)
 
     # If less than 10% are common English words, likely non-English
@@ -311,7 +326,7 @@ def detect_formatting_issues(abstract: str) -> AbstractQualityIssue | None:
         return None
 
     # Check for excessive HTML/XML tags
-    if re.search(r"<[^>]+>", text):
+    if _HTML_TAG_RE.search(text):
         return AbstractQualityIssue(
             issue_type="FORMATTING",
             severity=AbstractQualityIssue.WARNING,
@@ -319,7 +334,7 @@ def detect_formatting_issues(abstract: str) -> AbstractQualityIssue | None:
         )
 
     # Check for excessive special characters (indicates encoding issues)
-    special_char_count = len(re.findall(r'[^\w\s.,;:!?()\-\'"]', text))
+    special_char_count = len(_SPECIAL_CHAR_RE.findall(text))
     if special_char_count > len(text) * 0.05:  # More than 5% special chars
         return AbstractQualityIssue(
             issue_type="ENCODING",
@@ -328,7 +343,7 @@ def detect_formatting_issues(abstract: str) -> AbstractQualityIssue | None:
         )
 
     # Check for repeated characters (often indicates errors)
-    if re.search(r"(.)\1{5,}", text):  # Same character repeated 6+ times
+    if _REPEATED_CHAR_RE.search(text):  # Same character repeated 6+ times
         return AbstractQualityIssue(
             issue_type="FORMATTING",
             severity=AbstractQualityIssue.INFO,
@@ -378,6 +393,25 @@ def validate_abstract_quality(
     return quality
 
 
+_ISSUE_TO_STAT = {
+    "TRUNCATED": "truncated",
+    "TOO_SHORT": "too_short",
+    "TOO_LONG": "too_long",
+    "BOILERPLATE": "boilerplate",
+    "ENCODING": "encoding_issues",
+    "FORMATTING": "encoding_issues",
+    "LANGUAGE": "language_issues",
+}
+_STAT_KEYS = (
+    "truncated",
+    "too_short",
+    "too_long",
+    "boilerplate",
+    "encoding_issues",
+    "language_issues",
+)
+
+
 def validate_dataframe_abstracts(
     df: pd.DataFrame,
     abstract_column: str = "abstract",
@@ -424,33 +458,19 @@ def validate_dataframe_abstracts(
     ]
     df_result["abstract_quality_acceptable"] = acceptable
 
+    issue_counts = Counter(
+        _ISSUE_TO_STAT[issue.issue_type]
+        for quality in qualities
+        for issue in quality.issues
+        if issue.issue_type in _ISSUE_TO_STAT
+    )
     stats = {
         "total": len(df),
         "acceptable": sum(acceptable),
         "poor_quality": len(acceptable) - sum(acceptable),
-        "truncated": 0,
-        "too_short": 0,
-        "too_long": 0,
-        "boilerplate": 0,
-        "encoding_issues": 0,
-        "language_issues": 0,
+        **{stat_key: issue_counts[stat_key] for stat_key in _STAT_KEYS},
         "average_score": sum(scores) / len(scores),
     }
-
-    issue_to_stat = {
-        "TRUNCATED": "truncated",
-        "TOO_SHORT": "too_short",
-        "TOO_LONG": "too_long",
-        "BOILERPLATE": "boilerplate",
-        "ENCODING": "encoding_issues",
-        "FORMATTING": "encoding_issues",
-        "LANGUAGE": "language_issues",
-    }
-    for quality in qualities:
-        for issue in quality.issues:
-            stat_key = issue_to_stat.get(issue.issue_type)
-            if stat_key:
-                stats[stat_key] += 1
 
     if generate_report:
         logging.info(_generate_abstract_quality_report(stats))
