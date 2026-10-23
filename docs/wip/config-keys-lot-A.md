@@ -14,3 +14,7 @@ Toutes dans `quality_filters` (scilex.advanced.yml) pour l'instant ; section sug
 
 Nouvelles colonnes : `canonical_citation_count` (toujours calculée après citations), `oa_type`, `first_author_hindex`, `last_author_hindex`, `venue_rank`.
 Clé API optionnelle : `api_config.Unpaywall.email`.
+
+> Note d'intégration (orchestrateur) : ces clés ne figurent PAS dans `get_default_quality_filters()` ni
+> dans `QUALITY_FILTER_SCHEMA`, pour préserver l'invariant legacy ↔ `scilex/settings` (tests de scilex-90).
+> Elles sont lues via `quality_filters.get(<clé>, DEFAULT_<CLÉ>)`. À intégrer au schéma lors de C2.

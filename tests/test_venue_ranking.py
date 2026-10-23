@@ -6,6 +6,7 @@ from scilex.pipeline.ranking import calculate_relevance_score
 from scilex.pipeline.venue_ranking import (
     add_venue_rank,
     extract_acronyms,
+    load_rankings,
     lookup_venue_rank,
     normalize_venue,
     venue_rank_score,
@@ -27,19 +28,35 @@ def test_extract_acronyms():
     assert extract_acronyms("No acronym here") == []
 
 
+# Small fixture tables, independent of the shipped data files.
+FIXTURE_RANKINGS = (
+    {
+        normalize_venue("International Conference on Machine Learning"): "A*",
+        normalize_venue("International Semantic Web Conference"): "A",
+    },
+    {"ESWC": "A", "ISWC": "A"},
+    {
+        normalize_venue("Bioinformatics"): "Q1",
+        normalize_venue("Nucleic Acids Research"): "Q1",
+    },
+)
+
+
 def test_lookup_journal_conference_acronym_and_unknown():
-    assert lookup_venue_rank("Bioinformatics") == "Q1"
-    assert lookup_venue_rank("International Conference on Machine Learning") == "A*"
-    assert lookup_venue_rank("Some Workshop Proceedings (ESWC 2022)") == "A"
-    assert (
-        lookup_venue_rank(
-            "Proceedings of the 21st International Semantic Web Conference, ISWC 2022"
-        )
-        == "NA"
-        or True
-    )
-    assert lookup_venue_rank("Obscure Local Meeting") == "NA"
-    assert lookup_venue_rank("NA") == "NA"
+    def lookup(name):
+        return lookup_venue_rank(name, FIXTURE_RANKINGS)
+
+    assert lookup("Bioinformatics") == "Q1"
+    assert lookup("International Conference on Machine Learning") == "A*"
+    assert lookup("Some Workshop Proceedings (ESWC 2022)") == "A"
+    assert lookup("Obscure Local Meeting") == "NA"
+    assert lookup("NA") == "NA"
+
+
+def test_shipped_core_data_loads():
+    conference_titles, conference_acronyms, _ = load_rankings()
+    assert len(conference_titles) > 100
+    assert set(conference_acronyms.values()) <= {"A*", "A", "B", "C"}
 
 
 def test_add_venue_rank_uses_conference_then_journal():
@@ -53,8 +70,9 @@ def test_add_venue_rank_uses_conference_then_journal():
             "journalAbbreviation": ["Nucleic Acids Research", "NA", "Unknown"],
         }
     )
-    assert list(add_venue_rank(df)["venue_rank"]) == ["Q1", "A", "NA"]
-    assert list(add_venue_rank(df.iloc[0:0])["venue_rank"]) == []
+    ranked = add_venue_rank(df, FIXTURE_RANKINGS)
+    assert list(ranked["venue_rank"]) == ["Q1", "A", "NA"]
+    assert list(add_venue_rank(df.iloc[0:0], FIXTURE_RANKINGS)["venue_rank"]) == []
 
 
 def test_rank_score():

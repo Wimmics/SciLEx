@@ -260,13 +260,6 @@ QUALITY_FILTER_SCHEMA = {
     "itemtype_relevance_weights": dict,
     "max_papers": (int, type(None)),
     "track_duplicate_sources": bool,
-    "canonical_citation_discrepancy_threshold": float,
-    "recover_missing_dois": bool,
-    "doi_recovery_min_similarity": float,
-    "enrich_unpaywall": bool,
-    "unpaywall_email": str,
-    "enrich_author_hindex": bool,
-    "use_venue_ranking": bool,
 }
 """Schema documenting all available quality filter options."""
 
@@ -298,13 +291,6 @@ def get_default_quality_filters():
             "itemtype_relevance_weights": DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
             "max_papers": DEFAULT_MAX_PAPERS,
             "track_duplicate_sources": DEFAULT_TRACK_DUPLICATE_SOURCES,
-            "canonical_citation_discrepancy_threshold": DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
-            "recover_missing_dois": DEFAULT_RECOVER_MISSING_DOIS,
-            "doi_recovery_min_similarity": DEFAULT_DOI_RECOVERY_MIN_SIMILARITY,
-            "enrich_unpaywall": DEFAULT_ENRICH_UNPAYWALL,
-            "unpaywall_email": DEFAULT_UNPAYWALL_EMAIL,
-            "enrich_author_hindex": DEFAULT_ENRICH_AUTHOR_HINDEX,
-            "use_venue_ranking": DEFAULT_USE_VENUE_RANKING,
         }
     )
 
