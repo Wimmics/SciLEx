@@ -555,8 +555,15 @@ def _apply_quality_filters_with_bypass(
             len(df),
             "Papers meeting quality requirements (DOI, abstract, year, author count, etc.)",
         )
-    elif len(df_bypass) > 0:
-        df = df_bypass
+    elif enable_bypass and bypass_item_types:
+        # Nothing went through quality validation (all papers bypassed, or no
+        # quality filters): record the kept total so the last tracker stage
+        # matches the papers that continue down the pipeline.
+        ctx.tracker.add_stage(
+            "Quality Filter",
+            len(df),
+            "No quality validation applied: bypassed papers kept as-is",
+        )
     return df
 
 

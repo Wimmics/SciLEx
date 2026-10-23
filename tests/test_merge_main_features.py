@@ -55,3 +55,22 @@ def test_config_from_collection(tmp_path):
     assert config.main["collect_name"] == "demo"
     with pytest.raises(FileNotFoundError):
         SciLExConfig.from_collection(str(tmp_path / "missing"))
+
+
+def test_write_aggregation_report_empty_dataframe_with_citations(tmp_path):
+    df = pd.DataFrame({"DOI": [], "archive": [], "nb_citation": []})
+    tracker = FilteringTracker()
+    tracker.set_initial(0, "init")
+    md_path, csv_path = write_aggregation_report(
+        str(tmp_path),
+        "demo",
+        datetime.datetime.now(),
+        1.0,
+        {"apis": ["HAL"], "years": [2020]},
+        {},
+        tracker,
+        None,
+        {},
+        df,
+    )
+    assert "| Max citations | 0 |" in Path(md_path).read_text()
