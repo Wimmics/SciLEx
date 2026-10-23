@@ -18,8 +18,7 @@ from scilex.constants import is_valid, normalize_path_component
 from scilex.crawlers.utils import load_all_configs
 from scilex.logging_config import setup_logging
 
-# Set up logging with centralized configuration
-setup_logging()
+
 logger = logging.getLogger(__name__)
 
 
@@ -224,12 +223,8 @@ def format_pages(pages_str: str) -> str:
         return ""
 
     pages_str = str(pages_str).strip()
-    # Replace single dash with double dash (BibTeX en-dash)
-    pages_str = pages_str.replace("-", "--")
-    # But avoid double-replacing if already double
-    pages_str = pages_str.replace("----", "--")
-
-    return pages_str
+    # Any run of hyphens / en / em dashes becomes the BibTeX range "--"
+    return re.sub(r"\s*[-\u2013\u2014]+\s*", "--", pages_str)
 
 
 def extract_year(date_str: str) -> str:
@@ -255,6 +250,18 @@ def extract_year(date_str: str) -> str:
         return match.group(0)
 
     return ""
+
+
+_INVALID_KEY_CHARS = re.compile(r"[^A-Za-z0-9_:-]")
+
+
+def _collision_suffix(counter: int) -> str:
+    """Return the collision suffix for a 1-based counter: a..z, aa, ab, ..."""
+    letters = ""
+    while counter > 0:
+        counter, remainder = divmod(counter - 1, 26)
+        letters = chr(ord("a") + remainder) + letters
+    return letters
 
 
 def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
@@ -289,7 +296,13 @@ def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
         if is_valid(authors_str):
             # Get first author's last name
             first_author = str(authors_str).split(";")[0].strip()
-            last_name = first_author.split()[-1] if first_author else "Unknown"
+            if "," in first_author:
+                # "Last, First" format
+                last_name = first_author.split(",")[0].strip()
+            elif first_author:
+                last_name = first_author.split()[-1]
+            else:
+                last_name = "Unknown"
         else:
             last_name = "Unknown"
 
@@ -299,13 +312,15 @@ def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
 
         base_key = f"{last_name}{year}_{first_word}"
 
+    base_key = _INVALID_KEY_CHARS.sub("", base_key) or "Paper"
+
     # Ensure uniqueness
     final_key = base_key
     counter = 0
     while final_key in used_keys:
         counter += 1
-        # Add suffix: a, b, c, etc.
-        suffix = chr(ord("a") + (counter - 1))
+        # Add suffix: a..z, then aa, ab, ...
+        suffix = _collision_suffix(counter)
         final_key = f"{base_key}_{suffix}"
 
     used_keys.add(final_key)
@@ -404,7 +419,9 @@ def export_to_bibtex(data: pd.DataFrame, config: dict) -> str:
         Path to generated BibTeX file
     """
     output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
-    dir_collect = os.path.join(output_dir, config["collect_name"])
+    dir_collect = os.path.join(
+        output_dir, normalize_path_component(config["collect_name"])
+    )
 
     # Output file path
     output_file = os.path.join(dir_collect, "aggregated_results.bib")
@@ -446,6 +463,7 @@ def export_to_bibtex(data: pd.DataFrame, config: dict) -> str:
 
 def main():
     """Main entry point for BibTeX export."""
+    setup_logging()
     parser = argparse.ArgumentParser(
         description="Export aggregated papers to BibTeX format"
     )
@@ -486,8 +504,8 @@ def main():
         logger.info(f"BibTeX export complete: {output_file}")
         print(f"\n✓ BibTeX file created: {output_file}")
 
-    except FileNotFoundError as e:
-        logger.error(f"Configuration error: {e}")
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(f"Configuration or data error: {e}")
         sys.exit(1)
     except Exception as e:
         logger.error(f"Error during BibTeX export: {e}", exc_info=True)

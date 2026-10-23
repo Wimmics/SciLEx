@@ -400,3 +400,68 @@ class TestItemtypeMapping:
 
     def test_manuscript(self):
         assert ITEMTYPE_TO_BIBTEX["Manuscript"] == "misc"
+
+
+class TestMainErrorHandling:
+    def test_value_error_exits_1(self, monkeypatch):
+        import scilex.export_to_bibtex as mod
+
+        monkeypatch.setattr("sys.argv", ["scilex-export-bibtex"])
+        monkeypatch.setattr(mod, "load_config", lambda **_: {"collect_name": "c"})
+
+        def raise_value_error(_config):
+            raise ValueError("bad csv")
+
+        monkeypatch.setattr(mod, "load_aggregated_data", raise_value_error)
+        with pytest.raises(SystemExit) as exc_info:
+            mod.main()
+        assert exc_info.value.code == 1
+
+
+def test_export_uses_normalized_collect_name(tmp_path):
+    import scilex.export_to_bibtex as mod
+
+    directory = tmp_path / "mycoll"
+    directory.mkdir()
+    data = pd.DataFrame([{"itemType": "book", "title": "T", "DOI": "10.1/a"}])
+    output = mod.export_to_bibtex(
+        data, {"output_dir": str(tmp_path), "collect_name": "/mycoll/"}
+    )
+    assert output == str(directory / "aggregated_results.bib")
+
+
+class TestFormatPagesDashes:
+    def test_en_dash(self):
+        assert format_pages("10\u201320") == "10--20"
+
+    def test_em_dash_with_spaces(self):
+        assert format_pages("10 \u2014 20") == "10--20"
+
+    def test_many_hyphens(self):
+        assert format_pages("10----20") == "10--20"
+
+
+class TestCitationKeyRobustness:
+    def test_suffixes_continue_past_z(self):
+        row = pd.Series({"title": "T"})
+        used = {"10_1_x"}
+        keys = [generate_citation_key("10.1/x", row, used) for _ in range(28)]
+        assert keys[0] == "10_1_x_a"
+        assert keys[25] == "10_1_x_z"
+        assert keys[26] == "10_1_x_aa"
+        assert keys[27] == "10_1_x_ab"
+        assert len(set(keys)) == 28
+
+    def test_fallback_key_sanitized(self):
+        row = pd.Series({"authors": "A B", "date": "2020", "title": "Q&A: {x}, y"})
+        assert generate_citation_key("NA", row, set()) == "B2020_QA:"
+
+    def test_last_first_author_format(self):
+        row = pd.Series(
+            {"authors": "Smith, John;Doe, Jane", "date": "2020", "title": "Hi"}
+        )
+        assert generate_citation_key("NA", row, set()) == "Smith2020_Hi"
+
+    def test_doi_with_invalid_chars_sanitized(self):
+        key = generate_citation_key("10.1002/(SICI)1097<x>", pd.Series({}), set())
+        assert key == "10_1002_SICI1097x"
