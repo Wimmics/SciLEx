@@ -3,7 +3,9 @@
 No network, no server: uses TestClient with a tmp output dir and mocked pipeline.
 """
 
+import logging
 import threading
+import time
 
 import pandas as pd
 import pytest
@@ -324,3 +326,80 @@ def test_delete_refuses_collection_with_active_job(client, output_root):
     assert (output_root / COLLECTION).exists()
     job["status"] = "completed"
     assert client.delete(f"/collections/{COLLECTION}").status_code == 200
+
+
+# ------------------------------------------------------- job concurrency
+
+
+@pytest.mark.parametrize("status", ["pending", "running", "cancelling"])
+def test_start_refused_while_a_job_is_active(client, mocked_pipeline, status):
+    _insert_job("job_busy", status)
+    response = client.post("/pipelines/start", json=_start_payload())
+    assert response.status_code == 409
+    assert len(scilex_api.pipeline_jobs) == 1
+    assert mocked_pipeline["aggregation"] == 0
+
+
+@pytest.mark.parametrize("status", ["completed", "failed", "cancelled"])
+def test_start_allowed_after_terminal_job(client, mocked_pipeline, status):
+    _insert_job("job_old", status)
+    assert client.post("/pipelines/start", json=_start_payload()).status_code == 200
+
+
+def test_job_log_handler_keeps_only_worker_thread_records():
+    job = {"logs": [], "log_threads": set()}
+    handler = scilex_api.JobLogHandler(job)
+    handler.addFilter(scilex_api.JobThreadFilter(job))
+    logger = logging.getLogger("test_webapi.isolation")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.addHandler(handler)
+    try:
+        logger.info("from main thread")  # unregistered thread: dropped
+
+        release = threading.Event()
+
+        def worker():
+            scilex_api._run_in_job_thread(job, logger.info, "from worker")
+            release.wait()  # stay alive so the thread id is not reused
+
+        thread = threading.Thread(target=worker, name="scilex-worker")
+        thread.start()
+        time.sleep(0.05)
+
+        other = threading.Thread(
+            target=logger.info, args=("from other",), name="anyio-worker-1"
+        )
+        other.start()
+        other.join()
+        release.set()
+        thread.join()
+    finally:
+        logger.removeHandler(handler)
+    assert job["logs"] == ["from worker"]
+
+
+def test_concurrent_job_logs_are_not_mixed(client, monkeypatch, mocked_pipeline):
+    noisy = logging.getLogger("test_webapi.noise")
+
+    def noisy_create(self):
+        noisy.warning("job log line")
+
+    monkeypatch.setattr(FakeCollector, "create_collects_jobs", noisy_create)
+    stop = threading.Event()
+
+    def foreign_logger():
+        while not stop.is_set():
+            noisy.warning("foreign line")
+            time.sleep(0.001)
+
+    foreign = threading.Thread(target=foreign_logger, name="foreign-thread")
+    foreign.start()
+    try:
+        job_id = client.post("/pipelines/start", json=_start_payload()).json()["job_id"]
+    finally:
+        stop.set()
+        foreign.join()
+    logs = client.get(f"/pipelines/{job_id}/status").json()["logs"]
+    assert any("job log line" in line for line in logs)
+    assert not any("foreign line" in line for line in logs)

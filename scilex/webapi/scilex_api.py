@@ -57,6 +57,32 @@ class JobLogHandler(logging.Handler):
             self.handleError(record)
 
 
+class JobThreadFilter(logging.Filter):
+    """Keep only log records emitted by a job's worker threads.
+
+    Worker threads register themselves in ``job["log_threads"]`` (see
+    ``_run_in_job_thread``). Threads spawned by the collector are plain
+    ``threading.Thread`` instances with default ``Thread-N`` names; they are
+    accepted too, which is only correct while a single job runs at a time
+    (enforced by ``POST /pipelines/start``).
+    """
+
+    def __init__(self, job_dict: dict[str, Any]):
+        super().__init__()
+        self._job = job_dict
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.thread in self._job.get("log_threads", ()):
+            return True
+        return (record.threadName or "").startswith("Thread-")
+
+
+def _run_in_job_thread(job: dict[str, Any], func, *args):
+    """Run ``func`` in the current (executor) thread, registering it for log capture."""
+    job.setdefault("log_threads", set()).add(threading.get_ident())
+    return func(*args)
+
+
 # ============================================================================
 # FASTAPI APP SETUP
 # ============================================================================
@@ -285,6 +311,7 @@ async def run_collection_task(
     log_handler.setFormatter(
         logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
     )
+    log_handler.addFilter(JobThreadFilter(job))
     root_logger = logging.getLogger()
     root_logger.addHandler(log_handler)
 
@@ -326,7 +353,9 @@ async def run_collection_task(
         )
         # Offload blocking call to thread pool so event loop stays responsive
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, collector.create_collects_jobs)
+        await loop.run_in_executor(
+            None, _run_in_job_thread, job, collector.create_collects_jobs
+        )
 
         # Check if cancelled during collection
         if cancel_event and cancel_event.is_set():
@@ -354,7 +383,13 @@ async def run_collection_task(
             job["message"] = message
 
         await loop.run_in_executor(
-            None, run_aggregation, agg_config, agg_options, _on_agg_progress
+            None,
+            _run_in_job_thread,
+            job,
+            run_aggregation,
+            agg_config,
+            agg_options,
+            _on_agg_progress,
         )
 
         # Check if cancelled during aggregation
@@ -392,7 +427,10 @@ async def run_collection_task(
             from scilex.enrich_with_hf import main as enrich_main
 
             await loop.run_in_executor(
-                None, lambda: enrich_main(progress_callback=on_enrichment_progress)
+                None,
+                _run_in_job_thread,
+                job,
+                lambda: enrich_main(progress_callback=on_enrichment_progress),
             )
 
         job["progress"] = 95
@@ -637,7 +675,14 @@ async def get_available_apis():
 
 @app.post("/pipelines/start")
 async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundTasks):
-    """Start a new collection pipeline."""
+    """Start a new collection pipeline (one job at a time)."""
+    # Jobs share global state (scilex.config.yml, sys.argv, root logger), so
+    # concurrent runs would corrupt each other. No await between this check
+    # and the job insertion below: the check-and-insert is atomic on the loop.
+    if any(job["status"] in ACTIVE_JOB_STATUSES for job in pipeline_jobs.values()):
+        raise HTTPException(
+            status_code=409, detail="Another pipeline job is already running"
+        )
     try:
         job_id = generate_job_id()
 
