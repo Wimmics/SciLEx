@@ -25,8 +25,11 @@ from scilex.config_defaults import (
     DEFAULT_AGGREGATED_FILENAME,
     DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
     DEFAULT_DOI_RECOVERY_MIN_SIMILARITY,
+    DEFAULT_ENRICH_AUTHOR_HINDEX,
+    DEFAULT_ENRICH_UNPAYWALL,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_RECOVER_MISSING_DOIS,
+    DEFAULT_UNPAYWALL_EMAIL,
     MAX_ABSTRACT_WORDS,
     MIN_ABSTRACT_QUALITY_SCORE,
     MIN_ABSTRACT_WORDS,
@@ -562,6 +565,31 @@ def run_aggregation(
             os.remove(checkpoint_path)
     elif get_citation and len(df_clean) == 0:
         logging.warning("Skipping citation fetching - no papers to process")
+
+    # =========================================================================
+    # STEP 3b (opt-in): Unpaywall OA status, first/last author h-index
+    # =========================================================================
+    if len(df_clean) > 0 and quality_filters.get(
+        "enrich_unpaywall", DEFAULT_ENRICH_UNPAYWALL
+    ):
+        from scilex.pipeline.open_access import enrich_with_unpaywall
+
+        unpaywall_email = (
+            quality_filters.get("unpaywall_email")
+            or (api_config or {}).get("Unpaywall", {}).get("email")
+            or DEFAULT_UNPAYWALL_EMAIL
+        )
+        df_clean = enrich_with_unpaywall(df_clean, unpaywall_email)
+
+    if len(df_clean) > 0 and quality_filters.get(
+        "enrich_author_hindex", DEFAULT_ENRICH_AUTHOR_HINDEX
+    ):
+        from scilex.pipeline.author_metrics import enrich_with_author_hindex
+
+        semantic_scholar_key = (
+            (api_config or {}).get("SemanticScholar", {}).get("api_key")
+        )
+        df_clean = enrich_with_author_hindex(df_clean, api_key=semantic_scholar_key)
 
     if progress_callback:
         progress_callback("ranking", 85, "Applying relevance ranking...")
