@@ -50,6 +50,18 @@ def check_imports() -> str:
     return f"{len(REQUIRED_MODULES)} modules"
 
 
+def check_step_pages() -> str:
+    """Check that every sidebar step has a page module (loaded dynamically, so
+    PyInstaller would not notice a missing one)."""
+    from scilex.gui.components.stepper import STEPS
+    from scilex.gui.pages.review import step_module
+
+    missing = [key for key in STEPS if step_module(key) is None]
+    if missing:
+        raise ModuleNotFoundError(f"no page module for steps: {', '.join(missing)}")
+    return f"{len(STEPS)} pages"
+
+
 def check_data_files() -> str:
     """Check that each data directory exists and is not empty."""
     counts = []
@@ -94,6 +106,7 @@ def check_review_roundtrip() -> str:
 
 CHECKS: tuple[tuple[str, Callable[[], str]], ...] = (
     ("imports", check_imports),
+    ("step pages", check_step_pages),
     ("data files", check_data_files),
     ("multiprocessing", check_multiprocessing),
     ("review round-trip", check_review_roundtrip),
