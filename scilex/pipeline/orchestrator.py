@@ -48,7 +48,7 @@ from scilex.pipeline.enrichment import (
 )
 from scilex.pipeline.itemtype_filter import apply_itemtype_bypass, apply_itemtype_filter
 from scilex.pipeline.ranking import apply_relevance_ranking
-from scilex.pipeline.report import write_aggregation_report
+from scilex.pipeline.report import write_aggregation_report, write_prisma_report
 from scilex.pipeline.tracker import FilteringTracker
 from scilex.quality_validation import (
     apply_quality_filters,
@@ -612,6 +612,20 @@ def run_aggregation(
         url_stats=url_stats,
         df_clean=df_clean,
     )
+
+    # PRISMA 2020 flow report (reuses the tracker and parallel stats numbers)
+    if main_config.get("generate_prisma_report", True):
+        try:
+            write_prisma_report(
+                dir_collect=dir_collect,
+                collect_name=collect_name,
+                run_date=run_start,
+                parallel_stats=parallel_stats,
+                filtering_tracker=filtering_tracker,
+                final_count=len(df_clean),
+            )
+        except OSError as e:
+            logging.warning(f"Could not write PRISMA report: {e}")
 
     if progress_callback:
         progress_callback("completed", 100, "Aggregation completed!")

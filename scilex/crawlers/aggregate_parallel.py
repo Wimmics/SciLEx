@@ -351,6 +351,7 @@ def parallel_load_all_files(
     start_time = time.time()
     papers_by_api = []
     total_papers = 0
+    papers_per_api: dict[str, int] = {}
 
     with (
         ThreadPoolExecutor(max_workers=num_workers) as executor,
@@ -365,6 +366,7 @@ def parallel_load_all_files(
             for future in as_completed(futures):
                 papers_list, api_name, keywords, num_papers = future.result()
                 total_papers += num_papers
+                papers_per_api[api_name] = papers_per_api.get(api_name, 0) + num_papers
                 for paper in papers_list:
                     papers_by_api.append((paper, api_name, keywords))
                 pbar.update(1)
@@ -376,6 +378,7 @@ def parallel_load_all_files(
     stats = {
         "files_loaded": n_files,
         "total_papers": total_papers,
+        "per_api": papers_per_api,
         "elapsed_seconds": elapsed,
         "files_per_second": n_files / elapsed if elapsed > 0 else 0,
         "papers_per_second": total_papers / elapsed if elapsed > 0 else 0,

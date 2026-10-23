@@ -285,3 +285,158 @@ def write_aggregation_report(
     logging.info(f"Aggregation stats written  → {csv_path}")
 
     return md_path, csv_path
+
+
+# ---------------------------------------------------------------------------
+# PRISMA 2020 report
+# ---------------------------------------------------------------------------
+
+_PRISMA_REASONS = {
+    "ItemType Filter": "publication type not in the allowed list",
+    "Quality Filter": "failed quality requirements (DOI, abstract, year, authors...)",
+    "Abstract Quality Filter": "abstract below the quality threshold",
+    "Since Filter": "published before the `since` date",
+    "Citation Filter": "below the time-aware citation threshold",
+    "Relevance Ranking": "outside the top-N by relevance score",
+}
+# Stages that only split the data set: they do not exclude anything by themselves.
+_PRISMA_NON_EXCLUDING_STAGES = {"ItemType Bypass Split"}
+
+
+def compute_prisma_screening_steps(filtering_tracker) -> list[dict]:
+    """Derive per-filter exclusions from the FilteringTracker stages.
+
+    The tracker records the paper count after every stage; the bypass split stage is
+    skipped because bypassed papers are merged back before the next stage.
+
+    Returns:
+        List of ``{"stage", "reason", "excluded", "remaining"}`` dicts.
+    """
+    steps = []
+    previous = filtering_tracker.initial_count
+    for info in filtering_tracker.stages[1:]:
+        if info["stage"] in _PRISMA_NON_EXCLUDING_STAGES:
+            continue
+        steps.append(
+            {
+                "stage": info["stage"],
+                "reason": _PRISMA_REASONS.get(info["stage"], info["description"]),
+                "excluded": max(previous - info["papers"], 0),
+                "remaining": info["papers"],
+            }
+        )
+        previous = info["papers"]
+    return steps
+
+
+def build_prisma_report(
+    collect_name,
+    run_date,
+    parallel_stats,
+    filtering_tracker,
+    final_count,
+) -> str:
+    """Build the PRISMA 2020 Markdown report (tables + Mermaid flow diagram)."""
+    loading = parallel_stats.get("loading", {})
+    processing = parallel_stats.get("processing", {})
+    dedup = parallel_stats.get("deduplication", {})
+
+    per_api = loading.get("per_api", {})
+    identified = loading.get("total_papers", 0)
+    prescreen_excluded = processing.get("papers_rejected", 0)
+    duplicates = dedup.get("total_removed", 0)
+    screened = filtering_tracker.initial_count
+    steps = compute_prisma_screening_steps(filtering_tracker)
+
+    md = [
+        f"# PRISMA Report — {collect_name}",
+        "",
+        f"**Date:** {run_date.strftime('%Y-%m-%d %H:%M:%S')}  ",
+        "Flow of records following the PRISMA 2020 statement.",
+        "",
+        "## Identification",
+        "",
+        "| Source | Records identified |",
+        "|--------|--------------------|",
+    ]
+    md.extend(f"| {api} | {count:,} |" for api, count in sorted(per_api.items()))
+    md.append(f"| **Total** | **{identified:,}** |")
+    md += [
+        "",
+        "| Step | Records removed | Reason |",
+        "|------|-----------------|--------|",
+        f"| Automated pre-screening | {prescreen_excluded:,} | "
+        "outside year range / publication type / keyword filter |",
+        f"| Deduplication | {duplicates:,} | duplicate DOI or title |",
+        "",
+        "## Screening",
+        "",
+        f"Records screened: **{screened:,}**",
+        "",
+        "| Filter | Excluded | Remaining | Reason |",
+        "|--------|----------|-----------|--------|",
+    ]
+    md.extend(
+        f"| {s['stage']} | {s['excluded']:,} | {s['remaining']:,} | {s['reason']} |"
+        for s in steps
+    )
+    md += [
+        "",
+        "## Included",
+        "",
+        f"Records included in the final collection: **{final_count:,}**",
+        "",
+        "## Flow diagram",
+        "",
+        "```mermaid",
+        "flowchart TD",
+        '    subgraph Identification["Identification"]',
+        f'        A["Records identified from databases<br/>n = {identified:,}"]',
+        f'        B["Records removed before screening<br/>Pre-screening: n = {prescreen_excluded:,}<br/>'
+        f'Duplicates: n = {duplicates:,}"]',
+        "    end",
+        '    subgraph Screening["Screening"]',
+        f'        C["Records screened<br/>n = {screened:,}"]',
+    ]
+    previous_node = "C"
+    for index, step in enumerate(steps):
+        node = f"S{index}"
+        excluded_node = f"X{index}"
+        md.append(
+            f'        {excluded_node}["Excluded: {step["stage"]}<br/>n = {step["excluded"]:,}"]'
+        )
+        md.append(f'        {node}["Remaining<br/>n = {step["remaining"]:,}"]')
+        md.append(f"        {previous_node} --> {node}")
+        md.append(f"        {previous_node} --> {excluded_node}")
+        previous_node = node
+    md += [
+        "    end",
+        '    subgraph Included["Included"]',
+        f'        Z["Records included<br/>n = {final_count:,}"]',
+        "    end",
+        "    A --> B",
+        "    A --> C",
+        f"    {previous_node} --> Z",
+        "```",
+        "",
+    ]
+    return "\n".join(md)
+
+
+def write_prisma_report(
+    dir_collect,
+    collect_name,
+    run_date,
+    parallel_stats,
+    filtering_tracker,
+    final_count,
+) -> str:
+    """Write ``prisma_report.md`` into *dir_collect* and return its path."""
+    content = build_prisma_report(
+        collect_name, run_date, parallel_stats, filtering_tracker, final_count
+    )
+    path = os.path.join(dir_collect, "prisma_report.md")
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    logging.info(f"PRISMA report saved to {path}")
+    return path
