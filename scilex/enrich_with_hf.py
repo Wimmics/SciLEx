@@ -67,8 +67,11 @@ def main():
     parser.add_argument(
         "--threshold",
         type=int,
-        default=85,
-        help="Fuzzy matching threshold (0-100, default: 85)",
+        default=None,
+        help=(
+            "Fuzzy matching threshold (0-100). Overrides "
+            "enrichment.huggingface.fuzzy_match_threshold (default: 85)"
+        ),
     )
     parser.add_argument(
         "--collect-dir",

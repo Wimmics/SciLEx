@@ -41,8 +41,9 @@ class EnrichmentOptions:
     Attributes:
         dry_run: Log the matches without modifying or writing the CSV.
         limit: Maximum number of papers to process (None or 0 = all).
-        threshold: Fuzzy title matching threshold (0-100); the config key
-            ``hf_enrichment.fuzzy_match_threshold`` takes precedence.
+        threshold: Fuzzy title matching threshold (0-100). When given (for
+            example by ``--threshold``) it takes precedence over the config key
+            ``hf_enrichment.fuzzy_match_threshold`` (default 85).
         collect_dir: Collect directory holding the aggregated CSV (overrides
             ``output_dir`` + ``collect_name`` from the config).
         workers: Papers searched concurrently. Network calls stay capped by
@@ -51,7 +52,7 @@ class EnrichmentOptions:
 
     dry_run: bool = False
     limit: int | None = None
-    threshold: int = 85
+    threshold: int | None = None
     collect_dir: str | None = None
     workers: int = 4
 
@@ -353,7 +354,11 @@ def run_enrichment(
         cache_ttl_days=hf_config.get("cache_ttl_days", 30),
     )
     matcher = TitleMatcher(
-        threshold=hf_config.get("fuzzy_match_threshold", options.threshold)
+        threshold=(
+            options.threshold
+            if options.threshold is not None
+            else hf_config.get("fuzzy_match_threshold", 85)
+        )
     )
     extractor = MetadataExtractor()
     formatter = TagFormatter()
