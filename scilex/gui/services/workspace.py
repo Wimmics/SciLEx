@@ -1,0 +1,182 @@
+"""Reviews known to the desktop app: list, create, open, forget.
+
+A review is a working folder holding a ``scilex.yml``, exactly as for the
+CLI. The app only remembers the list of folders in a small registry file
+stored in the per-OS user configuration directory.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
+
+from scilex.config import SciLExConfig
+from scilex.init_templates import apply_template, skeleton_text
+from scilex.settings.loader import CONFIG_FILENAME, load_settings
+
+logger = logging.getLogger(__name__)
+
+RESULTS_FILENAME = "aggregated_results.csv"
+REGISTRY_FILENAME = "gui_reviews.yml"
+
+
+def default_registry_path() -> Path:
+    """Return the registry file in the per-OS user configuration directory."""
+    from platformdirs import user_config_path
+
+    return user_config_path("scilex") / REGISTRY_FILENAME
+
+
+@dataclass(frozen=True)
+class Review:
+    """A literature review: a folder with its ``scilex.yml`` and its outputs."""
+
+    folder: Path
+    name: str
+    output_root: Path
+
+    @property
+    def id(self) -> str:
+        """Short stable identifier derived from the folder (used in URLs)."""
+        return hashlib.sha1(str(self.folder).encode()).hexdigest()[:10]
+
+    @property
+    def config_path(self) -> Path:
+        """Path of the review's ``scilex.yml``."""
+        return self.folder / CONFIG_FILENAME
+
+    @property
+    def collection_dir(self) -> Path:
+        """Directory where the pipeline writes this review's collection."""
+        return self.output_root / self.name
+
+    @property
+    def results_path(self) -> Path:
+        """Aggregated results file written by the aggregation step."""
+        return self.collection_dir / RESULTS_FILENAME
+
+    @property
+    def has_results(self) -> bool:
+        """True once the aggregation step has produced its results file."""
+        return self.results_path.is_file()
+
+
+def read_review(folder: Path) -> Review:
+    """Validate ``folder/scilex.yml`` and describe the review.
+
+    ``output_dir`` is resolved against the review folder, never against the
+    current working directory of the app.
+
+    Raises:
+        FileNotFoundError: If the folder has no ``scilex.yml``.
+        SettingsError: If the configuration is invalid.
+    """
+    folder = Path(folder).expanduser().resolve()
+    config_path = folder / CONFIG_FILENAME
+    if not config_path.is_file():
+        raise FileNotFoundError(f"No {CONFIG_FILENAME} in {folder}")
+    settings = load_settings(config_path=config_path).settings
+    output_root = Path(settings.output_dir).expanduser()
+    if not output_root.is_absolute():
+        output_root = folder / output_root
+    return Review(folder=folder, name=settings.name, output_root=output_root.resolve())
+
+
+class Workspace:
+    """Registry of the reviews known to the app."""
+
+    def __init__(self, registry_path: Path | None = None):
+        """Create a workspace backed by ``registry_path`` (per-OS default if None)."""
+        self.registry_path = registry_path or default_registry_path()
+
+    def _load_folders(self) -> list[Path]:
+        if not self.registry_path.is_file():
+            return []
+        data = yaml.safe_load(self.registry_path.read_text(encoding="utf-8")) or {}
+        return [Path(folder) for folder in data.get("reviews", [])]
+
+    def _save_folders(self, folders: list[Path]) -> None:
+        self.registry_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {"reviews": [str(folder) for folder in folders]}
+        self.registry_path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+    def list_reviews(self) -> list[Review]:
+        """Return the known reviews; folders that vanished or became invalid are skipped."""
+        reviews = []
+        for folder in self._load_folders():
+            try:
+                reviews.append(read_review(folder))
+            except (OSError, ValueError) as exc:
+                logger.warning("Skipping review %s: %s", folder, exc)
+        return reviews
+
+    def get(self, review_id: str) -> Review | None:
+        """Return the known review with this id, or None."""
+        return next((r for r in self.list_reviews() if r.id == review_id), None)
+
+    def open_review(self, folder: Path) -> Review:
+        """Register an existing review folder.
+
+        Raises:
+            FileNotFoundError: If the folder has no ``scilex.yml``.
+            SettingsError: If the configuration is invalid.
+        """
+        review = read_review(folder)
+        folders = self._load_folders()
+        if review.folder not in folders:
+            self._save_folders([*folders, review.folder])
+        return review
+
+    def create_review(
+        self, folder: Path, name: str, template: str | None = None
+    ) -> Review:
+        """Write a new ``scilex.yml`` in ``folder`` and register it.
+
+        Args:
+            folder: Working folder (created if needed).
+            name: Review name (the collection is written to ``output/<name>``).
+            template: Optional template or profile name (see ``scilex-init``).
+
+        Raises:
+            FileExistsError: If the folder already holds a ``scilex.yml``.
+            SettingsError: If the resulting configuration is invalid.
+        """
+        config_path = Path(folder).expanduser() / CONFIG_FILENAME
+        if config_path.exists():
+            raise FileExistsError(f"{config_path} already exists")
+        if template:
+            apply_template(template, config_path)
+            # Replace only the name line so the template's comments survive.
+            text = config_path.read_text(encoding="utf-8")
+            text = re.sub(
+                r"^name:.*$", f"name: {json.dumps(name)}", text, count=1, flags=re.M
+            )
+            config_path.write_text(text, encoding="utf-8")
+        else:
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config_path.write_text(skeleton_text(name), encoding="utf-8")
+        return self.open_review(config_path.parent)
+
+    def forget_review(self, folder: Path) -> None:
+        """Remove a folder from the registry (its files are left untouched)."""
+        folder = Path(folder).expanduser().resolve()
+        self._save_folders([f for f in self._load_folders() if f != folder])
+
+    @staticmethod
+    def load_config(review: Review, keys_path: Path | None = None) -> SciLExConfig:
+        """Load the pipeline configuration of ``review``.
+
+        ``output_dir`` is rewritten as an absolute path so the pipeline writes
+        into the review folder whatever the app's working directory.
+        """
+        config = SciLExConfig.from_files(
+            config_path=review.config_path, keys_path=keys_path
+        )
+        config.main["output_dir"] = str(review.output_root)
+        return config
