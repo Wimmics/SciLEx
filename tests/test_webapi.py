@@ -7,6 +7,7 @@ import threading
 
 import pandas as pd
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from scilex.webapi import scilex_api
@@ -280,3 +281,46 @@ def test_cancel_endpoint(client):
     assert "already finished" in message
     assert finished["status"] == "completed"
     assert client.post("/pipelines/nope/cancel").status_code == 404
+
+
+# ------------------------------------------------------- path traversal
+
+
+@pytest.mark.parametrize("bad_name", ["../x", "a/b", "..", ".", "", "a\\b", "x/../y"])
+def test_safe_collection_dir_rejects_bad_names(output_root, bad_name):
+    with pytest.raises(HTTPException) as excinfo:
+        scilex_api._safe_collection_dir(bad_name)
+    assert excinfo.value.status_code == 400
+
+
+def test_safe_collection_dir_accepts_plain_name(output_root):
+    assert scilex_api._safe_collection_dir("ok_name-1") == output_root / "ok_name-1"
+
+
+@pytest.mark.parametrize("bad_name", ["../x", "a/b", ".."])
+def test_body_endpoints_reject_traversal(client, output_root, bad_name):
+    outside = output_root.parent / "x"
+    outside.mkdir()
+    pd.DataFrame([{"title": "t"}]).to_csv(
+        outside / "aggregated_results.csv", sep=";", index=False
+    )
+    assert client.post("/export", json={"collect_name": bad_name}).status_code == 400
+    payload = _start_payload(collect_name=bad_name)
+    assert client.post("/pipelines/start", json=payload).status_code == 422
+    assert not scilex_api.pipeline_jobs
+
+
+@pytest.mark.parametrize("bad_name", ["..%2Fx", "a%5Cb", "%2E%2E"])
+def test_path_endpoints_reject_traversal(client, output_root, bad_name):
+    assert client.get(f"/results/{bad_name}").status_code in (400, 404)
+    assert client.delete(f"/collections/{bad_name}").status_code in (400, 404)
+
+
+def test_delete_refuses_collection_with_active_job(client, output_root):
+    _write_csv(output_root)
+    job = _insert_job("job_y", "running")
+    job["config"] = {"collect_name": COLLECTION}
+    assert client.delete(f"/collections/{COLLECTION}").status_code == 409
+    assert (output_root / COLLECTION).exists()
+    job["status"] = "completed"
+    assert client.delete(f"/collections/{COLLECTION}").status_code == 200

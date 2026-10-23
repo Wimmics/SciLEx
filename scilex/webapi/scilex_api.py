@@ -20,7 +20,7 @@ import yaml
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.crawlers.collector_collection import CollectCollection
@@ -105,6 +105,13 @@ class CollectionConfig(BaseModel):
     output_dir: str | None = None
     enable_enrichment: bool = False
 
+    @field_validator("collect_name")
+    @classmethod
+    def _validate_collect_name(cls, value: str) -> str:
+        """Reject names that could escape the output directory."""
+        _check_collection_name(value)
+        return value
+
 
 class FilterConfig(BaseModel):
     """Configuration for filtering papers."""
@@ -168,6 +175,60 @@ output_dir = DEFAULT_OUTPUT_DIR
 # ============================================================================
 # UTILITY FUNCTIONS
 # ============================================================================
+
+
+ACTIVE_JOB_STATUSES = ("pending", "running", "cancelling")
+
+
+def _check_collection_name(name: str) -> None:
+    """Raise ValueError if ``name`` is not a plain directory name."""
+    if (
+        not name
+        or not name.strip()
+        or "/" in name
+        or "\\" in name
+        or "\x00" in name
+        or ".." in name
+        or name in (".", "..")
+    ):
+        raise ValueError("Invalid collection name")
+
+
+def _safe_collection_dir(name: str, root: str | os.PathLike | None = None) -> Path:
+    """Return the directory of collection ``name`` under the output root.
+
+    Args:
+        name: Collection name supplied by the client.
+        root: Output root (defaults to the module-level ``output_dir``).
+
+    Returns:
+        Path of the collection directory (not guaranteed to exist).
+
+    Raises:
+        HTTPException: 400 if the name is not a plain directory name or the
+            resolved path escapes the output root.
+    """
+    try:
+        _check_collection_name(name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid collection name") from None
+
+    root_path = Path(root if root is not None else output_dir)
+    collection_path = root_path / name
+    try:
+        collection_path.resolve().relative_to(root_path.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid collection path") from None
+    return collection_path
+
+
+def _collection_has_active_job(name: str) -> bool:
+    """Return True if a pending/running/cancelling job targets ``name``."""
+    return any(
+        job["status"] in ACTIVE_JOB_STATUSES
+        and job.get("config", {}).get("collect_name") == name
+        for job in list(pipeline_jobs.values())
+    )
 
 
 def get_api_config_path() -> Path:
@@ -304,10 +365,9 @@ async def run_collection_task(
 
         # Load filtering summary if available
         collect_name = main_config.get("collect_name", "collection")
-        summary_path = os.path.join(
-            os_output_dir, collect_name, "filtering_summary.json"
-        )
-        if os.path.exists(summary_path):
+        collect_dir = _safe_collection_dir(collect_name, os_output_dir)
+        summary_path = collect_dir / "filtering_summary.json"
+        if summary_path.exists():
             with open(summary_path) as f:
                 job["filtering_summary"] = json.load(f)
 
@@ -344,13 +404,10 @@ async def run_collection_task(
         )
 
         # Prepare output
-        collect_dir = os.path.join(
-            os_output_dir, main_config.get("collect_name", "collection")
-        )
-        csv_path = os.path.join(collect_dir, "aggregated_results.csv")
+        csv_path = collect_dir / "aggregated_results.csv"
 
-        if os.path.exists(csv_path):
-            job["output_path"] = csv_path
+        if csv_path.exists():
+            job["output_path"] = str(csv_path)
             df = pd.read_csv(csv_path, delimiter=";")
 
             # Derive year from date if year column is missing
@@ -713,9 +770,9 @@ async def list_pipelines():
 async def get_results(collect_name: str, limit: int = 100, skip: int = 0):
     """Get aggregated results for a collection."""
     try:
-        csv_path = os.path.join(output_dir, collect_name, "aggregated_results.csv")
+        csv_path = _safe_collection_dir(collect_name) / "aggregated_results.csv"
 
-        if not os.path.exists(csv_path):
+        if not csv_path.exists():
             raise HTTPException(status_code=404, detail="Results not found")
 
         df = pd.read_csv(csv_path, delimiter=";")
@@ -744,9 +801,9 @@ async def get_results(collect_name: str, limit: int = 100, skip: int = 0):
 async def get_results_stats(collect_name: str):
     """Get statistics about results."""
     try:
-        csv_path = os.path.join(output_dir, collect_name, "aggregated_results.csv")
+        csv_path = _safe_collection_dir(collect_name) / "aggregated_results.csv"
 
-        if not os.path.exists(csv_path):
+        if not csv_path.exists():
             raise HTTPException(status_code=404, detail="Results not found")
 
         df = pd.read_csv(csv_path, delimiter=";")
@@ -781,11 +838,10 @@ async def get_results_stats(collect_name: str):
 async def export_results(request: ExportRequest):
     """Export results in different formats."""
     try:
-        csv_path = os.path.join(
-            output_dir, request.collect_name, "aggregated_results.csv"
-        )
+        collection_dir = _safe_collection_dir(request.collect_name)
+        csv_path = collection_dir / "aggregated_results.csv"
 
-        if not os.path.exists(csv_path):
+        if not csv_path.exists():
             raise HTTPException(status_code=404, detail="Results not found")
 
         if request.format == "csv":
@@ -797,10 +853,8 @@ async def export_results(request: ExportRequest):
 
         elif request.format == "bibtex":
             # Try to generate BibTeX export
-            bibtex_path = os.path.join(
-                output_dir, request.collect_name, "aggregated_results.bib"
-            )
-            if os.path.exists(bibtex_path):
+            bibtex_path = collection_dir / "aggregated_results.bib"
+            if bibtex_path.exists():
                 return FileResponse(
                     bibtex_path,
                     media_type="application/x-bibtex",
@@ -814,9 +868,7 @@ async def export_results(request: ExportRequest):
 
         elif request.format == "json":
             df = pd.read_csv(csv_path, delimiter=";")
-            json_path = os.path.join(
-                output_dir, request.collect_name, "results_temp.json"
-            )
+            json_path = collection_dir / "results_temp.json"
             df.to_json(json_path, orient="records")
             return FileResponse(
                 json_path,
@@ -872,17 +924,12 @@ async def list_collections():
 async def delete_collection(name: str):
     """Delete a collection directory with path traversal protection."""
 
-    # Validate name — must not be empty or contain path separators/special components
-    if not name or "/" in name or "\\" in name or name in (".", ".."):
-        raise HTTPException(status_code=400, detail="Invalid collection name")
+    collection_path = _safe_collection_dir(name)
 
-    collection_path = Path(output_dir) / name
-
-    # Ensure the resolved path is actually under output_dir
-    try:
-        collection_path.resolve().relative_to(Path(output_dir).resolve())
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid collection path") from None
+    if _collection_has_active_job(name):
+        raise HTTPException(
+            status_code=409, detail="Collection has a running pipeline job"
+        )
 
     if not collection_path.is_dir():
         raise HTTPException(status_code=404, detail="Collection not found")
@@ -903,9 +950,9 @@ async def delete_collection(name: str):
 async def filter_results(collect_name: str, filters: FilterConfig):
     """Apply filters to results and return filtered subset."""
     try:
-        csv_path = os.path.join(output_dir, collect_name, "aggregated_results.csv")
+        csv_path = _safe_collection_dir(collect_name) / "aggregated_results.csv"
 
-        if not os.path.exists(csv_path):
+        if not csv_path.exists():
             raise HTTPException(status_code=404, detail="Results not found")
 
         df = pd.read_csv(csv_path, delimiter=";")
