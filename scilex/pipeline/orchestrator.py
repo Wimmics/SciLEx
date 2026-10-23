@@ -30,6 +30,7 @@ from scilex.config_defaults import (
     DEFAULT_OUTPUT_DIR,
     DEFAULT_RECOVER_MISSING_DOIS,
     DEFAULT_UNPAYWALL_EMAIL,
+    DEFAULT_USE_VENUE_RANKING,
     MAX_ABSTRACT_WORDS,
     MIN_ABSTRACT_QUALITY_SCORE,
     MIN_ABSTRACT_WORDS,
@@ -591,6 +592,14 @@ def run_aggregation(
         )
         df_clean = enrich_with_author_hindex(df_clean, api_key=semantic_scholar_key)
 
+    use_venue_ranking = quality_filters.get(
+        "use_venue_ranking", DEFAULT_USE_VENUE_RANKING
+    )
+    if len(df_clean) > 0 and use_venue_ranking:
+        from scilex.pipeline.venue_ranking import add_venue_rank
+
+        df_clean = add_venue_rank(df_clean)
+
     if progress_callback:
         progress_callback("ranking", 85, "Applying relevance ranking...")
 
@@ -604,7 +613,13 @@ def run_aggregation(
             keyword_groups=keyword_groups,
             top_n=top_n,
             has_citations=get_citation and len(df_clean) > 0,
-            config=main_config,
+            config={
+                **main_config,
+                "quality_filters": {
+                    **(main_config.get("quality_filters") or {}),
+                    "use_venue_ranking": use_venue_ranking,
+                },
+            },
             bonus_keywords=bonus_keywords,
         )
         filtering_tracker.add_stage(

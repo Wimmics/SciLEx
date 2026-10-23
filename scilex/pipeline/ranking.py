@@ -10,6 +10,7 @@ from scilex.config_defaults import (
     DEFAULT_RELEVANCE_WEIGHTS,
 )
 from scilex.keyword_validation import build_searchable_text
+from scilex.pipeline.venue_ranking import venue_rank_score
 
 
 def count_keyword_matches(row, keyword_groups, bonus_keywords=None):
@@ -56,7 +57,8 @@ def calculate_relevance_score(
     Components (all normalized to 0-10 scale):
     1. Keyword relevance: Content relevance to search terms
     2. Metadata quality: Completeness and richness of metadata
-    3. Publication type: Scholarly publication venue
+    3. Publication type: Scholarly publication venue (blended with the
+       CORE/SJR venue rank when ``use_venue_ranking`` is enabled)
     4. Citation impact: Research impact (minimal weight to avoid recency bias)
 
     Args:
@@ -95,6 +97,11 @@ def calculate_relevance_score(
         "itemtype_relevance_weights", DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS
     )
     itemtype_score = 10 if itemtype_weights.get(item_type, False) else 0
+    # Opt-in: blend the CORE / SJR rank of the venue into this component.
+    if quality_filters.get("use_venue_ranking", False):
+        venue_score = venue_rank_score(row.get("venue_rank"))
+        if venue_score is not None:
+            itemtype_score = (itemtype_score + venue_score) / 2
 
     # 4. Citation impact (minimal weight to avoid recency bias)
     citation_score = 0
