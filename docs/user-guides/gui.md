@@ -94,8 +94,11 @@ Tabs: charts, keyword suggestions, HuggingFace enrichment, citations, snowball, 
 graph and community summaries. Each tab describes the analysis, offers its main options
 and a **Run** button; progress and logs are shown live. Results (images, Markdown
 reports, tables) are read from the collection folder and shown again when the tab opens.
-Snowball and the graph need the citation data (**Citations** tab); keyword suggestions
-and summaries need the graph to have run first.
+Snowball and the graph need the citation data: run the **Citations** tab first (it
+fetches the references and citing papers of the corpus). Keyword suggestions and
+summaries need the graph to have run first. **Cancel** stops an analysis at the end of
+its current step; citations already fetched are kept. **Run** buttons are disabled while
+another job is running.
 
 ## Troubleshooting
 
