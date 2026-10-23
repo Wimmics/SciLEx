@@ -210,7 +210,7 @@ def test_citations_and_ranking_enabled(tmp_path):
         "final": 2,
         "stages": [
             ("Initial", 3),
-            ("ItemType Bypass Split", 0),
+            ("ItemType Bypass Split", 3),
             ("Quality Filter", 3),
             ("Citation Filter", 2),
             ("Relevance Ranking", 2),
@@ -250,7 +250,7 @@ def test_citations_and_ranking_disabled(tmp_path):
         # All papers are bypassed: a "Quality Filter" stage records the kept
         # total so the summary matches the 3 papers written.
         "final": 3,
-        "stages": [("Initial", 3), ("ItemType Bypass Split", 0), ("Quality Filter", 3)],
+        "stages": [("Initial", 3), ("ItemType Bypass Split", 3), ("Quality Filter", 3)],
         "progress": FULL_PROGRESS,
     }
 

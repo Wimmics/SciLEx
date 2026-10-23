@@ -521,9 +521,11 @@ def _apply_quality_filters_with_bypass(
     if enable_bypass and bypass_item_types:
         logging.info("\n=== ItemType Bypass Filter ===")
         df_bypass, df_non_bypass = apply_itemtype_bypass(df, bypass_item_types)
+        # The split removes nothing: record the total so the next stage's
+        # removal count (non-bypass papers rejected) is not negative.
         ctx.tracker.add_stage(
             "ItemType Bypass Split",
-            len(df_non_bypass),
+            len(df),
             f"Split: {len(df_bypass):,} high-quality papers auto-pass ({', '.join(bypass_item_types)}), "
             f"{len(df_non_bypass):,} papers continue through quality validation",
         )
