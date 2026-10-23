@@ -120,6 +120,15 @@ class TestDualKeywordLogic:
         assert "knowledge graph" in query_string
         assert "LLM" in query_string
 
+    def test_elsevier_view_depends_on_inst_token(self):
+        """COMPLETE view needs an institutional token; a plain key gets STANDARD."""
+        plain = Elsevier_collector(self.data_query, "/tmp/test", "fake_api_key")
+        assert "view=STANDARD" in plain.get_configurated_url()
+        with_token = Elsevier_collector(
+            self.data_query, "/tmp/test", "fake_api_key", "fake_inst_token"
+        )
+        assert "view=COMPLETE" in with_token.get_configurated_url()
+
     def test_elsevier_uses_and_logic(self):
         """Test Elsevier uses AND operator between keywords."""
         collector = Elsevier_collector(self.data_query, "/tmp/test", "fake_api_key")

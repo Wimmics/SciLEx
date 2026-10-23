@@ -102,7 +102,10 @@ class Elsevier_collector(API_collector):
         # Combine the queries
         query = f"{keywords_query}&date={years_query}"
 
-        return f"{self.api_url}?query={query}&apiKey={self.api_key}&count={self.max_by_page}&view=COMPLETE&start={{}}"
+        # COMPLETE (abstracts, all authors) needs an institutional token;
+        # a plain API key gets 401 on it but is allowed the STANDARD view.
+        view = "COMPLETE" if self.inst_token else "STANDARD"
+        return f"{self.api_url}?query={query}&apiKey={self.api_key}&count={self.max_by_page}&view={view}&start={{}}"
 
     def auth_failure_hints(self):
         return [

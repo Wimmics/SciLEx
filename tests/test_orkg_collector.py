@@ -39,7 +39,8 @@ class TestORKGCollector:
         collector = ORKG_collector(data_query, "/tmp", None)
         url_template = collector.get_configurated_url()
 
-        assert "knowledge%20graph" in url_template
+        assert "title=knowledge%20graph" in url_template
+        assert "?q=" not in url_template  # ORKG ignores q and returns everything
         assert "size=" in url_template
         assert "{}" in url_template
 
