@@ -1,31 +1,13 @@
 # SciLEx domain template: bioinformatics
 # Computational biology, omics and knowledge graphs for life sciences. PubMed and OpenAlex lead; preprints (bioRxiv via OpenAlex, arXiv q-bio) kept.
-# Edit keywords, years and collect_name, then run: scilex-collect
-keywords:
-  - ["bioinformatics", "computational biology", "metabolomics"]
-  - ["knowledge graph", "ontology", "machine learning"]
-bonus_keywords: []
-years:
-  - 2022
-  - 2023
-  - 2024
-  - 2025
-apis:
-  - PubMed
-  - OpenAlex
-  - SemanticScholar
-  - Arxiv
-semantic_scholar_mode: regular
-collect_name: bioinformatics_review
-aggregate_get_citations: true
-quality_filters:
-  enable_itemtype_filter: true
-  allowed_item_types:
-    - journalArticle
-    - conferencePaper
-    - preprint
-  require_abstract: true
-  require_doi: false
-  apply_citation_filter: true
-  max_papers: 1000
-  validate_abstracts: true
+# Edit name, keywords and years, then run: scilex-collect
+name: bioinformatics_review
+search:
+  keywords:
+  - [bioinformatics, computational biology, metabolomics]
+  - [knowledge graph, ontology, machine learning]
+  years: [2022, 2023, 2024, 2025]
+  apis: [PubMed, OpenAlex, SemanticScholar, Arxiv]
+filters:
+  item_types: [journalArticle, conferencePaper, preprint]
+  abstract_quality: 60

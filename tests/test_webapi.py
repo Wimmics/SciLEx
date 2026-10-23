@@ -52,6 +52,9 @@ def output_root(tmp_path, monkeypatch):
     root.mkdir()
     monkeypatch.setattr(scilex_api, "output_dir", str(root))
     monkeypatch.setattr(scilex_api, "PROJECT_ROOT", tmp_path / "project")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("SCILEX_KEYS", raising=False)
+    monkeypatch.delenv("SCILEX_CONFIG", raising=False)
     scilex_api.pipeline_jobs.clear()
     yield root
     scilex_api.pipeline_jobs.clear()

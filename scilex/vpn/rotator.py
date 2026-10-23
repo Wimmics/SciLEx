@@ -13,8 +13,6 @@ import threading
 import time
 import urllib.request
 
-import yaml
-
 
 class VPNRotator:
     """Controls NordVPN IP rotation to bypass per-IP rate limits.
@@ -266,11 +264,18 @@ def get_vpn_rotator() -> VPNRotator:
 
 
 def _load_vpn_config() -> dict:
-    config_path = os.path.join(os.path.dirname(__file__), "..", "api.config.yml")
+    """Return the VPN block of the resolved configuration, never raising.
+
+    Reads ``main_config["vpn"]`` (from ``collect.vpn`` in ``scilex.yml``) and falls
+    back to ``api_config["vpn"]`` for the legacy ``api.config.yml``. An empty
+    dict disables rotation.
+    """
     try:
-        with open(config_path) as fh:
-            cfg = yaml.safe_load(fh) or {}
-        return cfg.get("vpn", {})
+        from scilex.settings.resolve import resolve_legacy_configs
+
+        main_config, api_config = resolve_legacy_configs()
+        vpn_config = main_config.get("vpn") or api_config.get("vpn") or {}
+        return vpn_config if isinstance(vpn_config, dict) else {}
     except Exception as e:
         logging.debug(f"VPN: could not load config ({e}) — VPN rotation disabled.")
         return {}

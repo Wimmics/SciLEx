@@ -8,10 +8,12 @@ with the same warning. Keys follow ``find_keys_file`` and the
 """
 
 import logging
+import os
 from pathlib import Path
 
 from scilex.settings.advanced import merge_advanced_config
 from scilex.settings.loader import (
+    USER_KEYS_PATH,
     _load_keys,
     _read_yaml,
     find_config_file,
@@ -101,3 +103,16 @@ def resolve_legacy_configs(
         SettingsError: If a ``scilex.yml`` or ``keys.yml`` is invalid.
     """
     return _resolve(config_path, keys_path)
+
+
+def keys_file_for_editing(fallback: Path) -> Path:
+    """Path of the keys file a UI should read and write, without any warning.
+
+    ``$SCILEX_KEYS`` > ``~/.config/scilex/keys.yml`` (when it exists) > ``fallback``
+    (the legacy ``api.config.yml``, which is also where a new file is created).
+    """
+    explicit = os.environ.get("SCILEX_KEYS")
+    if explicit:
+        return Path(explicit).expanduser()
+    user_path = USER_KEYS_PATH.expanduser()
+    return user_path if user_path.is_file() else fallback

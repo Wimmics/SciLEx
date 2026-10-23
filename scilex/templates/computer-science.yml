@@ -1,31 +1,12 @@
 # SciLEx domain template: computer-science
 # General computer science. DBLP and IEEE-style venues; conference papers and journals, citations fetched but filter relaxed for recent work.
-# Edit keywords, years and collect_name, then run: scilex-collect
-keywords:
-  - ["software engineering", "distributed systems", "databases"]
-  - ["framework", "architecture", "performance"]
-bonus_keywords: []
-years:
-  - 2022
-  - 2023
-  - 2024
-  - 2025
-apis:
-  - DBLP
-  - SemanticScholar
-  - OpenAlex
-  - Arxiv
-semantic_scholar_mode: regular
-collect_name: computer-science_review
-aggregate_get_citations: true
-quality_filters:
-  enable_itemtype_filter: true
-  allowed_item_types:
-    - conferencePaper
-    - journalArticle
-    - preprint
-  require_abstract: true
-  require_doi: false
-  apply_citation_filter: true
-  max_papers: 1000
-  validate_abstracts: false
+# Edit name, keywords and years, then run: scilex-collect
+name: computer-science_review
+search:
+  keywords:
+  - [software engineering, distributed systems, databases]
+  - [framework, architecture, performance]
+  years: [2022, 2023, 2024, 2025]
+  apis: [DBLP, SemanticScholar, OpenAlex, Arxiv]
+filters:
+  item_types: [conferencePaper, journalArticle, preprint]

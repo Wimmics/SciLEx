@@ -1,30 +1,15 @@
 # SciLEx domain template: clinical-medicine
 # Clinical and biomedical medicine. PubMed and PubMed Central lead; DOI required, citation filter on, journal articles only.
-# Edit keywords, years and collect_name, then run: scilex-collect
-keywords:
-  - ["randomized controlled trial", "cohort study", "systematic review"]
-  - ["treatment", "outcome", "patients"]
-bonus_keywords: []
-years:
-  - 2022
-  - 2023
-  - 2024
-  - 2025
-apis:
-  - PubMed
-  - PubMedCentral
-  - OpenAlex
-  - SemanticScholar
-semantic_scholar_mode: regular
-collect_name: clinical-medicine_review
-aggregate_get_citations: true
-quality_filters:
-  enable_itemtype_filter: true
-  allowed_item_types:
-    - journalArticle
-  require_abstract: true
-  require_doi: true
-  apply_citation_filter: true
-  max_papers: 800
-  validate_abstracts: true
-  min_author_count: 2
+# Edit name, keywords and years, then run: scilex-collect
+name: clinical-medicine_review
+search:
+  keywords:
+  - [randomized controlled trial, cohort study, systematic review]
+  - [treatment, outcome, patients]
+  years: [2022, 2023, 2024, 2025]
+  apis: [PubMed, PubMedCentral, OpenAlex, SemanticScholar]
+filters:
+  item_types: [journalArticle]
+  require: [abstract, doi, year]
+  abstract_quality: 60
+ranking: {max_papers: 800}

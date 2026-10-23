@@ -15,7 +15,7 @@ from scilex.constants import doi_to_url, is_valid, parse_archive_apis
 
 # Project root for config file paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-API_CONFIG_PATH = PROJECT_ROOT / "scilex" / "api.config.yml"
+API_CONFIG_PATH = PROJECT_ROOT / "scilex" / "api.config.yml"  # legacy location
 
 
 def get_available_collections(base_dir: str) -> dict[str, int | None]:
@@ -103,10 +103,13 @@ def select_collection(
 
 def load_local_api_config() -> dict:
     """Load locally stored API configuration for pre-filling sidebar fields."""
-    if not API_CONFIG_PATH.exists():
+    from scilex.settings.resolve import keys_file_for_editing
+
+    keys_path = keys_file_for_editing(API_CONFIG_PATH)
+    if not keys_path.exists():
         return {}
     try:
-        with API_CONFIG_PATH.open() as config_file:
+        with keys_path.open() as config_file:
             return yaml.safe_load(config_file) or {}
     except Exception:
         return {}
@@ -334,10 +337,12 @@ with tab1:
 
     # Load last-used config as defaults
     _prev_config: dict = {}
-    _prev_config_path = PROJECT_ROOT / "scilex" / "scilex.config.yml"
-    if _prev_config_path.exists():
-        with open(_prev_config_path) as _f:
-            _prev_config = yaml.safe_load(_f) or {}
+    try:
+        from scilex.settings.resolve import resolve_main_config
+
+        _prev_config = resolve_main_config()
+    except Exception:
+        _prev_config = {}
     _prev_qf = _prev_config.get("quality_filters", {})
 
     # Extract previous keywords as newline-separated text

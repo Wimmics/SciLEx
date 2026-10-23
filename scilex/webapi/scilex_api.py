@@ -292,14 +292,27 @@ def _collection_has_active_job(name: str) -> bool:
     )
 
 
+WEB_JOB_CONFIG_NAME = "_web_job_config.yml"
+
+
 def get_api_config_path() -> Path:
-    """Get path to API configuration file."""
-    return PROJECT_ROOT / "scilex" / "api.config.yml"
+    """Get the keys file used by the server.
+
+    ``$SCILEX_KEYS`` > ``~/.config/scilex/keys.yml`` > legacy ``api.config.yml``.
+    """
+    from scilex.settings.resolve import keys_file_for_editing
+
+    return keys_file_for_editing(PROJECT_ROOT / "scilex" / "api.config.yml")
 
 
-def get_main_config_path() -> Path:
-    """Get path to main SciLEx configuration file."""
-    return PROJECT_ROOT / "scilex" / "scilex.config.yml"
+def get_main_config_path(config: dict[str, Any] | None = None) -> Path:
+    """Get the file where a job writes its own (legacy-format) configuration.
+
+    It lives in the job's output directory, so jobs never depend on a
+    ``scilex.yml`` being present in the server's working directory.
+    """
+    base_dir = (config or {}).get("output_dir", output_dir)
+    return Path(base_dir) / WEB_JOB_CONFIG_NAME
 
 
 def load_api_config() -> dict[str, Any]:
@@ -322,12 +335,13 @@ def save_api_config(config: dict[str, Any]) -> None:
     os.chmod(config_path, 0o600)  # also tighten a pre-existing file
 
 
-def save_main_config(config: dict[str, Any]) -> None:
-    """Save main SciLEx configuration to file."""
-    config_path = get_main_config_path()
+def save_main_config(config: dict[str, Any]) -> Path:
+    """Write the job configuration to its file and return that path."""
+    config_path = get_main_config_path(config)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
+    return config_path
 
 
 def generate_job_id() -> str:
@@ -343,6 +357,7 @@ async def run_collection_task(
 ) -> None:
     """Run the collection task in background."""
     job = pipeline_jobs[job_id]
+    previous_config_env = os.environ.get("SCILEX_CONFIG")
 
     # Attach log handler to capture pipeline logs
     log_handler = JobLogHandler(job)
@@ -375,8 +390,9 @@ async def run_collection_task(
         job["phase"] = "collecting"
         job["message"] = "Configuration saved, starting API collection..."
 
-        # Ensure aggregate_collect can resolve runtime config from scilex/scilex.config.yml
-        save_main_config(main_config)
+        # Downstream steps resolve their config through SCILEX_CONFIG: point it
+        # at this job's own file (legacy format, accepted as an explicit path).
+        os.environ["SCILEX_CONFIG"] = str(save_main_config(main_config))
 
         # Progress callback: maps collection progress to 20-70% range
         def on_collection_progress(api_stats, completed, total):
@@ -530,6 +546,10 @@ async def run_collection_task(
             job["message"] = f"Error: {str(e)}"
     finally:
         root_logger.removeHandler(log_handler)
+        if previous_config_env is None:
+            os.environ.pop("SCILEX_CONFIG", None)
+        else:
+            os.environ["SCILEX_CONFIG"] = previous_config_env
 
 
 # ============================================================================
