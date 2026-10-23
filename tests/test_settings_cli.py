@@ -168,16 +168,18 @@ def test_migrate_missing_directory_returns_1(isolated):
 def test_vpn_config_from_new_format(isolated):
     block = {"enabled": True, "provider": "x"}
     _write(isolated / "scilex.yml", {**VALID, "collect": {"vpn": block}})
-    assert rotator._load_vpn_config() == block
+    main_config, api_config = resolve.resolve_legacy_configs()
+    assert rotator.vpn_config_from_configs(main_config, api_config) == block
 
 
 def test_vpn_config_legacy_api_config_fallback(isolated):
     _write(resolve.PACKAGE_DIR / "scilex.config.yml", LEGACY)
     _write(resolve.PACKAGE_DIR / "api.config.yml", {"vpn": {"enabled": True}})
-    assert rotator._load_vpn_config() == {"enabled": True}
+    main_config, api_config = resolve.resolve_legacy_configs()
+    assert rotator.vpn_config_from_configs(main_config, api_config) == {"enabled": True}
 
 
 def test_vpn_config_never_raises(isolated):
-    assert rotator._load_vpn_config() == {}  # nothing configured
-    _write(isolated / "scilex.yml", {**VALID, "bogus": 1})
-    assert rotator._load_vpn_config() == {}  # invalid configuration
+    assert rotator.vpn_config_from_configs({}, {}) == {}  # nothing configured
+    assert rotator.vpn_config_from_configs(None, None) == {}
+    assert rotator.vpn_config_from_configs({"vpn": "oops"}, {}) == {}

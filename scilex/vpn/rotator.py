@@ -4,6 +4,7 @@ Works on native Windows, native Linux (nordvpn CLI), and WSL2 (calls NordVPN.exe
 directly via the WSL2 interop path /mnt/c/Program Files/NordVPN/NordVPN.exe).
 """
 
+import copy
 import logging
 import os
 import platform
@@ -17,7 +18,7 @@ import urllib.request
 class VPNRotator:
     """Controls NordVPN IP rotation to bypass per-IP rate limits.
 
-    Configured via the ``vpn:`` section of ``api.config.yml``.  Use the
+    Configured via the ``collect.vpn`` section of ``scilex.yml``.  Use the
     module-level :func:`get_vpn_rotator` to obtain the shared singleton.
     """
 
@@ -250,32 +251,49 @@ class VPNRotator:
 # ---------------------------------------------------------------------------
 
 _instance: VPNRotator | None = None
+_instance_config: dict | None = None
 _instance_lock = threading.Lock()
 
 
-def get_vpn_rotator() -> VPNRotator:
-    """Return the process-wide VPNRotator singleton (thread-safe, lazy init)."""
-    global _instance
-    if _instance is None:
-        with _instance_lock:
-            if _instance is None:
-                _instance = VPNRotator(_load_vpn_config())
-    return _instance
+def _normalize_vpn_config(vpn_config) -> dict:
+    """Return ``vpn_config`` when it is a mapping, else an empty dict (disabled)."""
+    return vpn_config if isinstance(vpn_config, dict) else {}
 
 
-def _load_vpn_config() -> dict:
-    """Return the VPN block of the resolved configuration, never raising.
+def get_vpn_rotator(vpn_config: dict | None = None) -> VPNRotator:
+    """Return the shared VPNRotator for ``vpn_config`` (thread-safe, never raises).
 
-    Reads ``main_config["vpn"]`` (from ``collect.vpn`` in ``scilex.yml``) and falls
+    The singleton is rebuilt when the configuration differs from the one it was
+    created with, so two jobs in one process (web API) each get their own
+    settings. ``None`` or an empty mapping means rotation is disabled.
+
+    Args:
+        vpn_config: The ``vpn`` block of the resolved configuration.
+    """
+    global _instance, _instance_config
+    config = _normalize_vpn_config(vpn_config)
+    with _instance_lock:
+        if _instance is None or config != _instance_config:
+            try:
+                _instance = VPNRotator(config)
+            except Exception as error:
+                logging.warning(f"VPN: invalid configuration ({error}) - disabled.")
+                _instance = VPNRotator({})
+                config = {}
+            _instance_config = copy.deepcopy(config)
+        return _instance
+
+
+def vpn_config_from_configs(main_config, api_config=None) -> dict:
+    """Return the VPN block of a resolved configuration, never raising.
+
+    Reads ``main_config["vpn"]`` (``collect.vpn`` in ``scilex.yml``) and falls
     back to ``api_config["vpn"]`` for the legacy ``api.config.yml``. An empty
     dict disables rotation.
     """
     try:
-        from scilex.settings.resolve import resolve_legacy_configs
-
-        main_config, api_config = resolve_legacy_configs()
-        vpn_config = main_config.get("vpn") or api_config.get("vpn") or {}
-        return vpn_config if isinstance(vpn_config, dict) else {}
-    except Exception as e:
-        logging.debug(f"VPN: could not load config ({e}) — VPN rotation disabled.")
+        vpn_config = (main_config or {}).get("vpn") or (api_config or {}).get("vpn")
+        return _normalize_vpn_config(vpn_config)
+    except Exception as error:
+        logging.debug(f"VPN: could not read config ({error}) - rotation disabled.")
         return {}

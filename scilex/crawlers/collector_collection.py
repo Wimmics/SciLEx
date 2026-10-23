@@ -11,6 +11,7 @@ from tqdm.contrib.logging import logging_redirect_tqdm
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.constants import MISSING_VALUE
+from scilex.vpn.rotator import vpn_config_from_configs
 
 from .collectors import (
     Arxiv_collector,
@@ -64,6 +65,7 @@ def _run_job_collects_worker(
     collect_name,
     progress_queue,
     cancel_event=None,
+    vpn_config=None,
 ):
     """
     Thread worker function for one API.
@@ -77,6 +79,7 @@ def _run_job_collects_worker(
         collect_name: Collection name
         progress_queue: Queue for sending progress updates to main thread
         cancel_event: Optional threading.Event to signal cancellation
+        vpn_config: ``vpn`` block of the job configuration (None disables rotation)
     """
     from scilex.crawlers.circuit_breaker import CircuitBreakerRegistry
 
@@ -135,6 +138,8 @@ def _run_job_collects_worker(
                 current_coll = collector_class(data_query, repo, api_key, inst_token)
             else:
                 current_coll = collector_class(data_query, repo, api_key)
+
+            current_coll.vpn_config = vpn_config or {}
 
             # Apply user-configured rate limits (api.config.yml `rate_limits`)
             current_coll.load_rate_limit_from_config(api_config.get("rate_limits"))
@@ -490,6 +495,8 @@ class CollectCollection:
         # Extract output_dir with default
         output_dir = self.main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
 
+        vpn_config = vpn_config_from_configs(self.main_config, self.api_config)
+
         # Create one thread per API
         threads = []
         for api_name, api_jobs in jobs_by_api.items():
@@ -503,6 +510,7 @@ class CollectCollection:
                     self.main_config["collect_name"],
                     progress_queue,
                     self.cancel_event,
+                    vpn_config,
                 ),
                 name=f"Worker-{api_name}",
             )

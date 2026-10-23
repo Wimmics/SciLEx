@@ -143,11 +143,9 @@ class SciLExConfig:
                 "collection name or path is correct and the collection has "
                 "been started at least once."
             )
+        # The snapshot is complete (advanced options were merged when it was
+        # written): merging scilex.advanced.yml again would alter the original run.
         main_config = _load_yaml(config_path)
-
-        advanced_path = config_dir / "scilex.advanced.yml"
-        if advanced_path.is_file():
-            merge_advanced_config(main_config, _load_yaml(advanced_path))
 
         try:
             api_config = (

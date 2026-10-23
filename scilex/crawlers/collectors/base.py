@@ -73,6 +73,8 @@ class API_collector:
             ),  # Default to -1 (unlimited) if not in config
             data_query.get("since"),
         )
+        # ``vpn`` block of the job configuration, set by the collection worker
+        self.vpn_config: dict = {}
         self.rate_limit = 10  # Will be overridden by load_rate_limit_from_config()
         self.datadir = data_path
         self.collectId = data_query["id_collect"]
@@ -578,7 +580,7 @@ class API_collector:
         """Rotate the VPN IP after a persistent throttle. True when a retry is worthwhile."""
         from scilex.vpn.rotator import get_vpn_rotator
 
-        rotator = get_vpn_rotator()
+        rotator = get_vpn_rotator(self.vpn_config)
         if not rotator.should_rotate(self.api_name):
             return False
         logging.warning(
