@@ -557,6 +557,32 @@ def test_start_without_api_config_uses_server_side_keys(
     assert received == {"OpenAlex": {"api_key": "server-key"}}
 
 
+def test_job_keys_include_env_overrides_without_writing_them_to_file(
+    client, monkeypatch, mocked_pipeline
+):
+    client.post("/api-config", json={"api_name": "OpenAlex", "api_key": "file-key"})
+    monkeypatch.setenv("SCILEX_SEMANTICSCHOLAR_API_KEY", "env-key")
+    monkeypatch.setenv("SCILEX_CROSSREF_MAILTO", "me@x.org")
+    received = {}
+
+    class Recorder(FakeCollector):
+        def __init__(self, main_config, api_config, **kwargs):
+            received.update(api_config)
+            super().__init__(main_config, api_config, **kwargs)
+
+    monkeypatch.setattr(scilex_api, "CollectCollection", Recorder)
+    payload = _start_payload()
+    del payload["api_config"]
+    assert client.post("/pipelines/start", json=payload).status_code == 200
+    assert received["OpenAlex"] == {"api_key": "file-key"}
+    assert received["SemanticScholar"] == {"api_key": "env-key"}
+    assert received["CrossRef"] == {"mailto": "me@x.org"}
+
+    # Editing keys from the UI rewrites the file without the environment values
+    client.post("/api-config", json={"api_name": "OpenAlex", "api_key": "new-key"})
+    assert scilex_api.load_api_config() == {"OpenAlex": {"api_key": "new-key"}}
+
+
 def test_api_config_file_has_owner_only_permissions(client):
     client.post("/api-config", json={"api_name": "IEEE", "api_key": "secret"})
     path = scilex_api.get_api_config_path()

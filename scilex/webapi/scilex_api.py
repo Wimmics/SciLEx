@@ -314,6 +314,19 @@ def get_main_config_path(config: dict[str, Any] | None = None) -> Path:
     return Path(base_dir) / WEB_JOB_CONFIG_NAME
 
 
+def resolve_api_config() -> dict[str, Any]:
+    """Effective API keys for a job: keys file plus ``SCILEX_<API>_<FIELD>`` overrides.
+
+    Same overrides as the CLIs, applied on the file the UI edits. Unlike :func:`load_api_config` (the raw file the
+    UI edits and writes back), it includes values that only come from the
+    environment, so they never get copied into the file.
+    """
+    from scilex.settings.loader import _load_keys, keys_to_legacy
+
+    keys_path = get_api_config_path()  # the file the UI edits
+    return keys_to_legacy(_load_keys(keys_path if keys_path.is_file() else None, {}))
+
+
 def load_api_config() -> dict[str, Any]:
     """Load API configuration from file."""
     config_path = get_api_config_path()
@@ -769,7 +782,9 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
 
         # Keys stay server-side unless a client explicitly supplies its own
         api_config = (
-            request.api_config if request.api_config is not None else load_api_config()
+            request.api_config
+            if request.api_config is not None
+            else resolve_api_config()
         )
 
         # Prepare main configuration
