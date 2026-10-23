@@ -32,7 +32,12 @@ from scilex.pipeline_utils import (
     load_main_and_api_configs,
     resolve_collect_dir,
 )
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
+from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 from scilex.snowball.candidates import extract_candidates
 from scilex.snowball.fetcher import fetch_metadata_batch
 from scilex.snowball.filter import apply_snowball_filters
@@ -42,6 +47,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+@exit_on_config_error
 def main():
     """Entry point for snowball sampling."""
     parser = argparse.ArgumentParser(
@@ -150,6 +156,8 @@ def main():
         )
         print(f"\nSnowball sampling complete: {output_csv}")
 
+    except (SettingsError, ConfigFileNotFoundError):
+        raise  # reported by @exit_on_config_error
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
         sys.exit(1)

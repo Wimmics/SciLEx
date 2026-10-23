@@ -21,8 +21,13 @@ from scilex.constants import normalize_path_component
 from scilex.export_to_bibtex import BIBTEX_CITATIONS_FILENAME, BIBTEX_PLAIN_FILENAME
 from scilex.logging_config import setup_logging
 from scilex.rdf import convert_to_string
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
 from scilex.settings.resolve import resolve_legacy_configs, resolve_main_config
+from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -67,6 +72,7 @@ def export_citation_graph(
     )
 
 
+@exit_on_config_error
 def main():
     """Entry point for Turtle export."""
     parser = argparse.ArgumentParser(description="Export SciLEx BibTeX to RDF/Turtle")
@@ -154,6 +160,8 @@ def main():
             )
             print(f"Citation graph: {graph_path}")
 
+    except (SettingsError, ConfigFileNotFoundError):
+        raise  # reported by @exit_on_config_error
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
         sys.exit(1)

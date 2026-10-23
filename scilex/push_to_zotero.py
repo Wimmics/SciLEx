@@ -19,7 +19,11 @@ from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid, normalize_path_component
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
 from scilex.settings.resolve import resolve_legacy_configs
 from scilex.Zotero.zotero_api import (
     ZoteroAPI,
@@ -145,6 +149,7 @@ def push_new_items_to_zotero(
     return results
 
 
+@exit_on_config_error
 def main():
     """Main execution function."""
     parser = argparse.ArgumentParser(

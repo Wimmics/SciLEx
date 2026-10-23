@@ -24,6 +24,7 @@ from scilex.config_defaults import (
 )
 from scilex.settings.presets import PRESETS, get_preset
 from scilex.settings.schema import (
+    ConfigFileNotFoundError,
     KeysSettings,
     ScilexSettings,
     SettingsError,
@@ -72,7 +73,7 @@ def find_config_file(cli_path: str | Path | None = None) -> Path | None:
     if explicit:
         path = Path(explicit).expanduser()
         if not path.is_file():
-            raise FileNotFoundError(f"Configuration file not found: {path}")
+            raise ConfigFileNotFoundError(f"Configuration file not found: {path}")
         return path
     local = Path.cwd() / CONFIG_FILENAME
     return local if local.is_file() else None
@@ -97,7 +98,7 @@ def find_keys_file(cli_path: str | Path | None = None) -> Path | None:
     if explicit:
         path = Path(explicit).expanduser()
         if not path.is_file():
-            raise FileNotFoundError(f"Keys file not found: {path}")
+            raise ConfigFileNotFoundError(f"Keys file not found: {path}")
         return path
     user_path = USER_KEYS_PATH.expanduser()
     if user_path.is_file():
@@ -209,9 +210,10 @@ def _load_keys(keys_path: Path | None, provenance: dict[str, str]) -> KeysSettin
     try:
         return KeysSettings.model_validate(keys_raw)
     except ValidationError as exc:
-        raise SettingsError(
-            format_validation_error(exc, keys_raw, model=KeysSettings, prefix="keys.")
-        ) from exc
+        detail = format_validation_error(
+            exc, keys_raw, model=KeysSettings, prefix="keys."
+        )
+        raise SettingsError(f"{keys_path or 'keys'}: invalid keys\n{detail}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +242,7 @@ def load_settings(
     """
     resolved_config = find_config_file(config_path)
     if resolved_config is None:
-        raise FileNotFoundError(
+        raise ConfigFileNotFoundError(
             f"No {CONFIG_FILENAME} found (use --config, $SCILEX_CONFIG or create ./{CONFIG_FILENAME})"
         )
     resolved_keys = find_keys_file(keys_path)
@@ -272,7 +274,10 @@ def load_settings(
     try:
         settings = ScilexSettings.model_validate(merged)
     except ValidationError as exc:
-        raise SettingsError(format_validation_error(exc, merged)) from exc
+        detail = format_validation_error(exc, merged)
+        raise SettingsError(
+            f"{resolved_config}: invalid configuration\n{detail}"
+        ) from exc
 
     keys = _load_keys(resolved_keys, provenance)
     return LoadedSettings(

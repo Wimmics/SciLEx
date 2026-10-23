@@ -23,7 +23,12 @@ from scilex.pipeline_utils import (
     load_main_config,
     resolve_collect_dir,
 )
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
+from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 from scilex.summarize.report import generate_report
 from scilex.summarize.stats import compute_cluster_stats
 
@@ -31,6 +36,7 @@ setup_logging()
 logger = logging.getLogger(__name__)
 
 
+@exit_on_config_error
 def main():
     """Entry point for cluster summarization."""
     parser = argparse.ArgumentParser(
@@ -78,6 +84,8 @@ def main():
 
         print(f"\nSummary report: {report_path}")
 
+    except (SettingsError, ConfigFileNotFoundError):
+        raise  # reported by @exit_on_config_error
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
         sys.exit(1)

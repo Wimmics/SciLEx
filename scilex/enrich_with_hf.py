@@ -37,11 +37,17 @@ from scilex.pipeline.enrichment_hf import (  # noqa: F401  (re-exported)
     process_paper_for_csv,
     run_enrichment,
 )
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
+from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 
 logger = logging.getLogger(__name__)
 
 
+@exit_on_config_error
 def main():
     """Command-line entry point for CSV enrichment."""
     parser = argparse.ArgumentParser(
@@ -87,6 +93,8 @@ def main():
             collect_dir=args.collect_dir,
         )
         result = run_enrichment(config, options)
+    except (SettingsError, ConfigFileNotFoundError):
+        raise  # reported by @exit_on_config_error
     except FileNotFoundError as e:
         logger.error(f"Configuration error: {e}")
         sys.exit(1)

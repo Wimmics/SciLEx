@@ -22,6 +22,7 @@ from scilex.settings.loader import (
     load_settings,
     to_legacy,
 )
+from scilex.settings.schema import ConfigFileNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ def _resolve(
     if found is None:
         found = PACKAGE_DIR / LEGACY_MAIN_NAME
         if not found.is_file():
-            raise FileNotFoundError(
+            raise ConfigFileNotFoundError(
                 "No scilex.yml found (use --config, $SCILEX_CONFIG or create "
                 f"./scilex.yml) and no legacy file at {found}"
             )

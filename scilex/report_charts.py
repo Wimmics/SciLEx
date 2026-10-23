@@ -10,7 +10,11 @@ import matplotlib
 import numpy as np
 import pandas as pd
 
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -518,6 +522,7 @@ def plot_keyword_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+@exit_on_config_error
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate charts from an aggregated_results.csv collect directory.",

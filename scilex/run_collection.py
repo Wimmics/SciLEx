@@ -15,10 +15,15 @@ from scilex.config import SciLExConfig
 from scilex.config_defaults import DEFAULT_COLLECT_ENABLED, DEFAULT_OUTPUT_DIR
 from scilex.logging_config import log_section, setup_logging
 from scilex.pipeline.orchestrator import run_collection
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
 from scilex.since_utils import parse_since
 
 
+@exit_on_config_error
 def main():
     """Run collection — required for multiprocessing on macOS/Windows."""
     setup_logging()
@@ -64,7 +69,7 @@ def main():
     try:
         config = SciLExConfig.from_collection(args.resume)
     except FileNotFoundError as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
     main_config = config.main
     if args.since:

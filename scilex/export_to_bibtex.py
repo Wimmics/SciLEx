@@ -22,8 +22,13 @@ from scilex.constants import (
 )
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
 from scilex.settings.resolve import resolve_main_config
+from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 
 logger = logging.getLogger(__name__)
 
@@ -478,6 +483,7 @@ def export_to_bibtex(data: pd.DataFrame, config: dict) -> str:
     return output_file
 
 
+@exit_on_config_error
 def main():
     """Main entry point for BibTeX export."""
     setup_logging()
@@ -523,6 +529,8 @@ def main():
         logger.info(f"BibTeX export complete: {output_file}")
         print(f"\n✓ BibTeX file created: {output_file}")
 
+    except (SettingsError, ConfigFileNotFoundError):
+        raise  # reported by @exit_on_config_error
     except (FileNotFoundError, ValueError) as e:
         logger.error(f"Configuration or data error: {e}")
         sys.exit(1)

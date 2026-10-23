@@ -50,6 +50,10 @@ class SettingsError(ValueError):
     """Raised when a configuration file is invalid; the message is user-ready."""
 
 
+class ConfigFileNotFoundError(FileNotFoundError):
+    """Raised when a configuration or keys file cannot be found (message names it)."""
+
+
 class SearchSettings(BaseModel):
     """What to search for and where."""
 

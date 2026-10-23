@@ -35,7 +35,12 @@ from scilex.config_defaults import DEFAULT_AGGREGATED_FILENAME, DEFAULT_OUTPUT_D
 from scilex.constants import is_valid, normalize_doi, normalize_path_component
 from scilex.io_utils import write_aggregated_csv
 from scilex.logging_config import setup_logging
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
+from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 from scilex.snowball.fetcher import SS_FIELDS, convert_ss_paper
 
 logger = logging.getLogger(__name__)
@@ -302,11 +307,16 @@ def _load_configs() -> tuple[dict, dict]:
 
     try:
         return load_main_and_api_configs()
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError) as error:
+        if isinstance(error, ConfigFileNotFoundError) and (
+            os.environ.get("SCILEX_CONFIG") or os.environ.get("SCILEX_KEYS")
+        ):
+            raise  # an explicitly requested file is missing: do not hide it
         logger.warning("Configuration files not found, using defaults")
         return {}, {}
 
 
+@exit_on_config_error
 def main():
     """Entry point for ``scilex-seed``."""
     setup_logging()
@@ -363,6 +373,8 @@ def main():
             with_snowball=args.snowball,
         )
         print(f"\nSeed mode complete: {len(frame)} papers written to {output_path}")
+    except (SettingsError, ConfigFileNotFoundError):
+        raise  # reported by @exit_on_config_error
     except FileNotFoundError as error:
         logger.error(f"File not found: {error}")
         sys.exit(1)

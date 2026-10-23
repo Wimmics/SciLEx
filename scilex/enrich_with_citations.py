@@ -34,8 +34,13 @@ from scilex.export_to_bibtex import (
 )
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
 from scilex.settings.resolve import resolve_legacy_configs
+from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -46,6 +51,7 @@ def load_config() -> tuple[dict, dict]:
     return resolve_legacy_configs()
 
 
+@exit_on_config_error
 def main():
     """Entry point for citation enrichment."""
     parser = argparse.ArgumentParser(
@@ -187,6 +193,8 @@ def main():
         )
         print(f"\nBibTeX with citations: {output_file}")
 
+    except (SettingsError, ConfigFileNotFoundError):
+        raise  # reported by @exit_on_config_error
     except FileNotFoundError as e:
         logger.error(f"Configuration error: {e}")
         sys.exit(1)

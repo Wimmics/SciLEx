@@ -1,9 +1,11 @@
 """Command-line helpers: shared ``--config/--keys`` options and ``scilex config``."""
 
 import argparse
+import functools
 import json
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from scilex.settings.loader import _flatten, _read_yaml, find_config_file, load_settings
@@ -13,7 +15,7 @@ from scilex.settings.resolve import (
     is_legacy_format,
     resolve_legacy_configs,
 )
-from scilex.settings.schema import SettingsError
+from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 
 CONFIG_FILENAME = "scilex.yml"
 
@@ -47,6 +49,25 @@ def apply_config_arguments(args: argparse.Namespace) -> None:
         os.environ["SCILEX_KEYS"] = str(args.keys)
 
 
+def exit_on_config_error(main: Callable) -> Callable:
+    """Decorate a CLI ``main`` so an invalid or missing configuration exits cleanly.
+
+    ``SettingsError`` and ``ConfigFileNotFoundError`` become a readable message on
+    stderr and exit code 1 instead of a Python traceback. Other exceptions are
+    left untouched.
+    """
+
+    @functools.wraps(main)
+    def wrapper(*args, **kwargs):
+        try:
+            return main(*args, **kwargs)
+        except (SettingsError, ConfigFileNotFoundError) as error:
+            print(f"Error: {error}", file=sys.stderr)
+            sys.exit(1)
+
+    return wrapper
+
+
 # ---------------------------------------------------------------------------
 # ``scilex config show | migrate | check``
 # ---------------------------------------------------------------------------
@@ -69,7 +90,11 @@ def _read_main_file() -> tuple[Path | None, dict | None]:
 
 def config_show() -> int:
     """Print the effective configuration with the origin of every value."""
-    found, raw = _read_main_file()
+    try:
+        found, raw = _read_main_file()
+    except (FileNotFoundError, SettingsError) as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
     if found is not None and is_legacy_format(raw):
         print(
             f"{found} uses the legacy format; run `scilex config migrate` "

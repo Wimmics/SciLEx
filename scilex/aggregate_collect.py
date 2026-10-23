@@ -4,9 +4,14 @@ import sys
 
 from scilex.config import SciLExConfig
 from scilex.logging_config import log_section, setup_logging
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
 
 
+@exit_on_config_error
 def main():
     """CLI entry point for aggregation. Thin wrapper around run_aggregation()."""
     from scilex.pipeline.orchestrator import AggregationOptions, run_aggregation
@@ -108,7 +113,7 @@ def main():
     try:
         config = SciLExConfig.from_collection(args.collection)
     except FileNotFoundError as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
     # Log aggregation start

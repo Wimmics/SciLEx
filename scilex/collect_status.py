@@ -18,7 +18,11 @@ from itertools import product
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.crawlers.utils import load_yaml_config
-from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.cli import (
+    add_config_arguments,
+    apply_config_arguments,
+    exit_on_config_error,
+)
 from scilex.settings.resolve import resolve_main_config
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -290,6 +294,7 @@ def print_status(status: dict, verbose: bool = False) -> None:
 # ─── entry point ──────────────────────────────────────────────────────────────
 
 
+@exit_on_config_error
 def main():
     parser = argparse.ArgumentParser(
         description="Show collection completeness status",

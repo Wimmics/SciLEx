@@ -19,7 +19,11 @@ from scilex.config_defaults import (
     get_default_quality_filters,
 )
 from scilex.settings.advanced import merge_advanced_config
-from scilex.settings.schema import REQUIRE_CHOICES, default_settings_dict
+from scilex.settings.schema import (
+    REQUIRE_CHOICES,
+    ConfigFileNotFoundError,
+    default_settings_dict,
+)
 
 logger = logging.getLogger(__name__)
 _DEFAULT_NAME = "my_review"
@@ -242,7 +246,7 @@ def migrate_files(legacy_dir: str | Path) -> str:
     legacy_dir = Path(legacy_dir)
     main_path = legacy_dir / "scilex.config.yml"
     if not main_path.is_file():
-        raise FileNotFoundError(f"Configuration file not found: {main_path}")
+        raise ConfigFileNotFoundError(f"Configuration file not found: {main_path}")
     main_config = yaml.safe_load(main_path.read_text()) or {}
     advanced_path = legacy_dir / "scilex.advanced.yml"
     advanced = (
