@@ -39,9 +39,9 @@ search:
 
 filters:
   item_types: null              # null = tous ; sinon liste blanche (ex-enable_itemtype_filter + allowed_item_types)
-  always_keep: []               # types jamais filtrés (ex-enable_itemtype_bypass + bypass_item_types)
-  require: [abstract]           # parmi abstract, doi, year, open_access (ex-4 booléens require_*)
-  min_authors: 0
+  always_keep: [journalArticle, conferencePaper]  # types jamais filtrés (ex-enable_itemtype_bypass + bypass_item_types)
+  require: [abstract, year]     # parmi abstract, doi, year, open_access (ex-4 booléens require_*)
+  min_authors: 2
   abstract_words: [50, 1000]    # [min, max]
   abstract_quality: null        # score 0-100 ; null = pas de validation (ex-validate_abstracts + min_abstract_quality_score)
   check_year_range: true
@@ -71,7 +71,7 @@ collect:                        # options rares
 ### 3. Presets
 Précédence : défauts du code < preset < `scilex.yml` < options CLI.
 - *aucun preset* : reproduit exactement les défauts actuels de `config_defaults.py` (pas de changement de comportement).
-- `literature_review` : `require: [abstract]`, `citations: true`, `abstract_quality: 60`.
+- `literature_review` : `require: [abstract, year]`, `citations: true`, `abstract_quality: 60`.
 - `bibliometrics` : `require: []`, `citations: false`, `abstract_quality: null`, `ranking.max_papers: null`.
 
 ### 4. Validation stricte
@@ -98,6 +98,15 @@ programme avec un message lisible : chemin de la clé, valeur reçue, suggestion
 Nouveau paquet `scilex/settings/` : `schema.py` (modèles), `presets.py`, `loader.py`
 (découverte, fusion, env, `to_legacy()`), `migrate.py` (legacy → nouveau), `cli.py`.
 `SciLExConfig.from_files()` délègue au chargeur. `load_all_configs` devient un mince adaptateur.
+
+## Précisions issues de l'implémentation (C1, 8269b2ee)
+- Les défauts du schéma recopient `config_defaults.py` (`require: [abstract, year]`,
+  `always_keep: [journalArticle, conferencePaper]`, `min_authors: 2`) : sans preset, aucun changement.
+- `collect.vpn` → `main_config["vpn"]` ; le rotateur VPN lit encore `api_config` : C2 le rebranche.
+- HF : bloc émis si activé, sinon `{"enabled": False}` ; un ancien fichier sans `hf_enrichment` migre en `huggingface: true`.
+- `output_dir` vaut `output` (relatif au dossier de travail) au lieu d'un chemin absolu dans le package.
+- Les listes de types sont ignorées quand le drapeau correspondant est désactivé.
+- Les suggestions `difflib` comparent le dernier segment du chemin de la clé.
 
 ## Conséquences
 - Une revue = un dossier avec un `scilex.yml` versionnable ; les clés ne fuient plus dans un dépôt.

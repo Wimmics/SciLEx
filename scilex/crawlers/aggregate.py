@@ -371,6 +371,39 @@ def ArxivtoZoteroFormat(row):
     return record
 
 
+def BioRxivtoZoteroFormat(row):
+    """Convert a bioRxiv ``/details/`` entry to the internal Zotero-style record."""
+    record = new_record("BioRxiv", item_type="preprint")
+    record["rights"] = "open_access"
+    record["language"] = "en"
+    record["publisher"] = "bioRxiv"
+
+    fill_record(
+        record,
+        title=get_valid(row, "title"),
+        authors=get_valid(row, "authors"),  # already ';'-separated by the API
+        abstract=get_valid(row, "abstract"),
+        date=get_valid(row, "date"),
+        journalAbbreviation=get_valid(row, "category"),
+    )
+
+    raw_doi = get_valid(row, "doi")
+    if raw_doi is not None:
+        doi = clean_doi(raw_doi)
+        record["DOI"] = doi
+        record["archiveID"] = doi
+        record["url"] = f"https://www.biorxiv.org/content/{raw_doi}"
+        version = get_valid(row, "version") or "1"
+        record["pdf_url"] = (
+            f"https://www.biorxiv.org/content/{raw_doi}v{version}.full.pdf"
+        )
+
+    # Published in a journal: upgrade the item type
+    if get_valid(row, "published") is not None:
+        record["itemType"] = "journalArticle"
+    return record
+
+
 def _dblp_author_names(authors_field):
     """Return author names from DBLP's single-dict or list `author` entry."""
     author_entries = dig(authors_field, "author")
@@ -934,6 +967,7 @@ FORMAT_CONVERTERS = {
     "DBLP": DBLPtoZoteroFormat,
     "Istex": IstextoZoteroFormat,
     "Arxiv": ArxivtoZoteroFormat,
+    "BioRxiv": BioRxivtoZoteroFormat,
     "PubMed": PubMedtoZoteroFormat,
     "PubMedCentral": PubMedCentraltoZoteroFormat,
     "OpenAIRE": OpenAIREtoZoteroFormat,

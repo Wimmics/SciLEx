@@ -701,5 +701,37 @@
    "issue": "NA",
    "pdf_url": "NA"
   }
+ },
+ "BioRxiv": {
+  "input": {
+   "doi": "10.1101/2024.01.15.575123",
+   "title": "BioRxiv Title",
+   "authors": "Smith, J.; Doe, A.",
+   "abstract": "BioRxiv abstract",
+   "date": "2024-01-15",
+   "version": "2",
+   "category": "neuroscience",
+   "published": "NA"
+  },
+  "expected": {
+   "title": "BioRxiv Title",
+   "publisher": "bioRxiv",
+   "itemType": "preprint",
+   "authors": "Smith, J.; Doe, A.",
+   "language": "en",
+   "abstract": "BioRxiv abstract",
+   "archiveID": "10.1101/2024.01.15.575123",
+   "archive": "BioRxiv",
+   "date": "2024-01-15",
+   "DOI": "10.1101/2024.01.15.575123",
+   "url": "https://www.biorxiv.org/content/10.1101/2024.01.15.575123",
+   "rights": "open_access",
+   "pages": "NA",
+   "journalAbbreviation": "neuroscience",
+   "volume": "NA",
+   "serie": "NA",
+   "issue": "NA",
+   "pdf_url": "https://www.biorxiv.org/content/10.1101/2024.01.15.575123v2.full.pdf"
+  }
  }
 }
