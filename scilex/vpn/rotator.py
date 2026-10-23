@@ -12,7 +12,6 @@ import subprocess
 import threading
 import time
 import urllib.request
-from typing import Optional
 
 import yaml
 
@@ -35,18 +34,66 @@ class VPNRotator:
 
     # All countries available on NordVPN (as of 2025)
     ALL_COUNTRIES = [
-        "Albania", "Argentina", "Australia", "Austria", "Belgium",
-        "Bosnia and Herzegovina", "Brazil", "Bulgaria", "Canada", "Chile",
-        "Colombia", "Costa Rica", "Croatia", "Cyprus", "Czech Republic",
-        "Denmark", "Estonia", "Finland", "France", "Georgia", "Germany",
-        "Greece", "Hong Kong", "Hungary", "Iceland", "India", "Indonesia",
-        "Ireland", "Israel", "Italy", "Japan", "Latvia", "Luxembourg",
-        "Malaysia", "Mexico", "Moldova", "Netherlands", "New Zealand",
-        "North Macedonia", "Norway", "Poland", "Portugal", "Romania",
-        "Serbia", "Singapore", "Slovakia", "Slovenia", "South Africa",
-        "South Korea", "Spain", "Sweden", "Switzerland", "Taiwan", "Thailand",
-        "Turkey", "Ukraine", "United Arab Emirates", "United Kingdom",
-        "United States", "Vietnam",
+        "Albania",
+        "Argentina",
+        "Australia",
+        "Austria",
+        "Belgium",
+        "Bosnia and Herzegovina",
+        "Brazil",
+        "Bulgaria",
+        "Canada",
+        "Chile",
+        "Colombia",
+        "Costa Rica",
+        "Croatia",
+        "Cyprus",
+        "Czech Republic",
+        "Denmark",
+        "Estonia",
+        "Finland",
+        "France",
+        "Georgia",
+        "Germany",
+        "Greece",
+        "Hong Kong",
+        "Hungary",
+        "Iceland",
+        "India",
+        "Indonesia",
+        "Ireland",
+        "Israel",
+        "Italy",
+        "Japan",
+        "Latvia",
+        "Luxembourg",
+        "Malaysia",
+        "Mexico",
+        "Moldova",
+        "Netherlands",
+        "New Zealand",
+        "North Macedonia",
+        "Norway",
+        "Poland",
+        "Portugal",
+        "Romania",
+        "Serbia",
+        "Singapore",
+        "Slovakia",
+        "Slovenia",
+        "South Africa",
+        "South Korea",
+        "Spain",
+        "Sweden",
+        "Switzerland",
+        "Taiwan",
+        "Thailand",
+        "Turkey",
+        "Ukraine",
+        "United Arab Emirates",
+        "United Kingdom",
+        "United States",
+        "Vietnam",
     ]
 
     def __init__(self, config: dict):
@@ -60,12 +107,14 @@ class VPNRotator:
 
         self._rotation_count = 0
         self._lock = threading.Lock()
-        self._exe_path: Optional[str] = None
+        self._exe_path: str | None = None
 
         if self.enabled:
             self._exe_path = self._find_nordvpn_exe()
             if self._exe_path:
-                apis_str = ", ".join(sorted(self.rotate_on)) if self.rotate_on else "all APIs"
+                apis_str = (
+                    ", ".join(sorted(self.rotate_on)) if self.rotate_on else "all APIs"
+                )
                 logging.warning(
                     f"[VPN] Rotation enabled — exe: {self._exe_path} | "
                     f"APIs: {apis_str} | limit: {self.max_rotations} rotations/session"
@@ -174,11 +223,12 @@ class VPNRotator:
         except OSError:
             return False
 
-    def _find_nordvpn_exe(self) -> Optional[str]:
+    def _find_nordvpn_exe(self) -> str | None:
         candidates = self._WSL_EXE_PATHS if self._is_wsl2() else self._WIN_EXE_PATHS
         # Also allow native Linux nordvpn CLI
         if platform.system() == "Linux" and not self._is_wsl2():
             import shutil
+
             if shutil.which("nordvpn"):
                 return "nordvpn"
         for p in candidates:
@@ -187,7 +237,7 @@ class VPNRotator:
         return None
 
     @staticmethod
-    def _get_public_ip() -> Optional[str]:
+    def _get_public_ip() -> str | None:
         for url in ("https://api64.ipify.org", "https://api4.ipify.org"):
             try:
                 with urllib.request.urlopen(url, timeout=10) as resp:
@@ -201,7 +251,7 @@ class VPNRotator:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_instance: Optional[VPNRotator] = None
+_instance: VPNRotator | None = None
 _instance_lock = threading.Lock()
 
 

@@ -134,18 +134,20 @@ class CircuitBreaker:
                 self._state = CircuitState.OPEN
                 return
 
-            if self._state == CircuitState.CLOSED:
-                if self._failure_count >= self.failure_threshold:
-                    # Threshold reached, open circuit
-                    logging.warning(
-                        f"Circuit breaker '{self.name}': Failure threshold reached "
-                        f"({self._failure_count} consecutive failures), OPENING CIRCUIT"
-                    )
-                    logging.warning(
-                        f"Circuit breaker '{self.name}': Will retry after "
-                        f"{self.timeout_seconds}s timeout"
-                    )
-                    self._state = CircuitState.OPEN
+            if (
+                self._state == CircuitState.CLOSED
+                and self._failure_count >= self.failure_threshold
+            ):
+                # Threshold reached, open circuit
+                logging.warning(
+                    f"Circuit breaker '{self.name}': Failure threshold reached "
+                    f"({self._failure_count} consecutive failures), OPENING CIRCUIT"
+                )
+                logging.warning(
+                    f"Circuit breaker '{self.name}': Will retry after "
+                    f"{self.timeout_seconds}s timeout"
+                )
+                self._state = CircuitState.OPEN
 
     def reset(self):
         """Manually reset circuit breaker to closed state."""

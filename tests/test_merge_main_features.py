@@ -1,6 +1,7 @@
 """Tests for features merged from origin/main (bonus keywords, report, resume config)."""
 
 import datetime
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -44,8 +45,8 @@ def test_write_aggregation_report(tmp_path):
         {},
         df,
     )
-    assert "Aggregation Report" in open(md_path).read()
-    assert open(csv_path).read().startswith("stat,value")
+    assert "Aggregation Report" in Path(md_path).read_text()
+    assert Path(csv_path).read_text().startswith("stat,value")
 
 
 def test_config_from_collection(tmp_path):

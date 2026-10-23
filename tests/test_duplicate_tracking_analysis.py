@@ -68,7 +68,7 @@ class TestAnalyzeApiMetadataQuality:
     def test_field_completeness_structure(self):
         df = _make_df()
         result = analyze_api_metadata_quality(df)
-        for api, stats in result.items():
+        for _api, stats in result.items():
             assert "total_papers" in stats
             assert "field_completeness" in stats
 
