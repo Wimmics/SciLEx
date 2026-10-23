@@ -95,7 +95,9 @@ class TestParallelProcessPapers:
     def test_returns_tuple_dataframe_stats(self):
         paper = _make_hal_paper()
         papers_by_api = [(paper, "HAL", [])]
-        df, stats = parallel_process_papers(papers_by_api, batch_size=100, num_workers=1)
+        df, stats = parallel_process_papers(
+            papers_by_api, batch_size=100, num_workers=1
+        )
         assert isinstance(df, pd.DataFrame)
         assert isinstance(stats, dict)
 
@@ -137,3 +139,29 @@ class TestParallelProcessPapers:
         ]
         df, _ = parallel_process_papers(papers, batch_size=10, num_workers=1)
         assert len(df) == 1  # Only the paper with "deep learning" passes
+
+
+class TestConverterErrorReporting:
+    def test_converter_errors_logged_and_counted(self, caplog):
+        from unittest.mock import patch
+
+        def boom(_paper):
+            raise ValueError("bad record")
+
+        batch = [({"x": 1}, "HAL", ["kw"]), ({"x": 2}, "HAL", ["kw"])]
+        with (
+            patch.dict("scilex.crawlers.aggregate.FORMAT_CONVERTERS", {"HAL": boom}),
+            caplog.at_level("WARNING"),
+        ):
+            df, stats = parallel_process_papers(batch, batch_size=10, num_workers=1)
+        assert df.empty
+        assert stats["converter_errors"] == {"HAL": 2}
+        assert any(
+            r.levelname == "WARNING" and "HAL" in r.message and "2" in r.message
+            for r in caplog.records
+        )
+
+    def test_no_errors_gives_empty_mapping(self):
+        batch = [(_make_hal_paper(), "HAL", ["deep learning"])]
+        _, stats = parallel_process_papers(batch, batch_size=10, num_workers=1)
+        assert stats["converter_errors"] == {}

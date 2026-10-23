@@ -2,16 +2,18 @@
 Parallel aggregation module for paper processing.
 
 Processing stages:
-1. Parallel file loading (threading): Load JSON files, I/O bound
-2. Parallel batch processing (multiprocessing): Convert formats, apply filters
+1. Parallel file loading (ThreadPoolExecutor): Load JSON files, I/O bound
+2. Parallel batch processing (ThreadPoolExecutor): Convert formats, apply filters
 3. Deduplication (serial): DOI-based and normalized title matching (O(n))
 """
 
+import itertools
 import json
 import logging
 import os
 import re
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from multiprocessing import cpu_count
 
@@ -19,6 +21,8 @@ import pandas as pd
 from tqdm import tqdm
 
 from scilex.constants import is_valid
+from scilex.crawlers.aggregate import FORMAT_CONVERTERS
+from scilex.pipeline.text_filter import record_passes_text_filter
 
 _YEAR_RE = re.compile(r"\b(19\d{2}|20\d{2})\b")
 
@@ -166,8 +170,6 @@ def reconstruct_query_to_keywords_mapping(
             "OpenAlex": {...}
         }
     """
-    import itertools
-
     # Extract configuration
     keywords = config_used.get("keywords", [[]])
     years = config_used.get("years", [])
@@ -277,11 +279,8 @@ def _load_json_file(
 
         return (papers, api_name, keywords, len(papers))
 
-    except json.JSONDecodeError as e:
-        logging.error(f"JSON decode error in {file_path}: {e}")
-        return ([], api_name, keywords, 0)
-
     except Exception as e:
+        # Covers json.JSONDecodeError (a ValueError) as well as I/O errors.
         logging.error(f"Error loading {file_path}: {e}")
         return ([], api_name, keywords, 0)
 
@@ -318,8 +317,6 @@ def parallel_load_all_files(
 
     # Collect all file paths and metadata
     file_tasks = []
-
-    logging.info("Using config_used.yml for keyword mapping")
 
     # Step 1: Discover API directories and query indices from filesystem
     api_to_queries = discover_api_directories(dir_collect)
@@ -385,21 +382,23 @@ def parallel_load_all_files(
     papers_by_api = []
     total_papers = 0
 
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        with tqdm(total=n_files, desc="Loading JSON files", unit="file") as pbar:
-            for chunk_start in range(0, n_files, _SUBMIT_CHUNK):
-                chunk = file_tasks[chunk_start : chunk_start + _SUBMIT_CHUNK]
-                futures = [
-                    executor.submit(_load_json_file, fp, api, kw, year_range)
-                    for fp, api, kw in chunk
-                ]
-                for future in as_completed(futures):
-                    papers_list, api_name, keywords, num_papers = future.result()
-                    total_papers += num_papers
-                    for paper in papers_list:
-                        papers_by_api.append((paper, api_name, keywords))
-                    pbar.update(1)
-                # futures list goes out of scope here → GC can reclaim completed Future objects
+    with (
+        ThreadPoolExecutor(max_workers=num_workers) as executor,
+        tqdm(total=n_files, desc="Loading JSON files", unit="file") as pbar,
+    ):
+        for chunk_start in range(0, n_files, _SUBMIT_CHUNK):
+            chunk = file_tasks[chunk_start : chunk_start + _SUBMIT_CHUNK]
+            futures = [
+                executor.submit(_load_json_file, fp, api, kw, year_range)
+                for fp, api, kw in chunk
+            ]
+            for future in as_completed(futures):
+                papers_list, api_name, keywords, num_papers = future.result()
+                total_papers += num_papers
+                for paper in papers_list:
+                    papers_by_api.append((paper, api_name, keywords))
+                pbar.update(1)
+            # futures list goes out of scope here → GC can reclaim completed Future objects
 
     elapsed = time.time() - start_time
 
@@ -427,15 +426,14 @@ def parallel_load_all_files(
 # ============================================================================
 
 
-def _process_batch_worker(
-    args: tuple[list[tuple], str, list, dict | None, dict | None],
-) -> list[dict]:
-    """
-    Worker function to process a batch of papers (spawn-safe, module-level).
+def _process_batch(
+    args: tuple,
+) -> tuple[list[dict], Counter]:
+    """Convert and filter one batch, counting converter failures per API.
 
     Args:
         args: Tuple of (batch, keyword_groups, bonus_keywords,
-                        cached_abstracts, pre_filters)
+              cached_abstracts, pre_filters[, apply_text_filter]).
 
         cached_abstracts: optional DOI → abstract dict (cache-only mode).
         pre_filters: optional dict with early rejection criteria applied right
@@ -446,22 +444,20 @@ def _process_batch_worker(
                                               kept (conservative).
                        "allowed_item_types" – set[str] of allowed itemType
                                               values; empty set = no filter.
+        apply_text_filter: when False, papers are only converted (and
+                     pre-filtered), never keyword-filtered. Defaults to True.
 
     Returns:
-        List of processed paper dictionaries
+        Tuple of (processed paper dicts, per-API converter error counts)
     """
-    batch, keyword_groups, bonus_keywords, cached_abstracts, pre_filters = args
+    batch, keyword_groups, bonus_keywords, cached_abstracts, pre_filters, *rest = args
+    apply_text_filter = rest[0] if rest else True
 
     year_range: set[int] = (pre_filters or {}).get("year_range", set())
     allowed_item_types: set[str] = (pre_filters or {}).get("allowed_item_types", set())
 
-    # Import format converters registry (in worker to avoid pickling issues)
-    # Import helpers
-    from scilex.constants import is_valid
-    from scilex.crawlers.aggregate import FORMAT_CONVERTERS
-    from scilex.pipeline.text_filter import record_passes_text_filter
-
     results = []
+    converter_errors: Counter = Counter()
 
     for paper, api_name, keywords in batch:
         if api_name not in FORMAT_CONVERTERS:
@@ -513,8 +509,7 @@ def _process_batch_worker(
             else:
                 converted["collect_keywords"] = ""
 
-            # Apply text filtering
-            if record_passes_text_filter(
+            if not apply_text_filter or record_passes_text_filter(
                 converted,
                 keywords,
                 keyword_groups=keyword_groups,
@@ -523,10 +518,19 @@ def _process_batch_worker(
                 results.append(converted)
 
         except Exception as e:
+            converter_errors[api_name] += 1
             logging.debug(f"Error converting paper from {api_name}: {e}")
-            continue
 
-    return results
+    return results, converter_errors
+
+
+def _process_batch_worker(args: tuple) -> list[dict]:
+    """Process a batch of papers and return the kept paper dicts.
+
+    Thin wrapper around `_process_batch` that drops the error counters; see
+    that function for the layout of `args`.
+    """
+    return _process_batch(args)[0]
 
 
 def parallel_process_papers(
@@ -537,6 +541,7 @@ def parallel_process_papers(
     bonus_keywords: list | None = None,
     cached_abstracts: dict | None = None,
     pre_filters: dict | None = None,
+    apply_text_filter: bool = True,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Process papers in parallel batches (convert format + text filtering).
@@ -551,11 +556,13 @@ def parallel_process_papers(
         pre_filters: Optional dict with early rejection criteria (year_range,
                      allowed_item_types).  Applied before text filtering to
                      reduce the number of papers that reach expensive stages.
+        apply_text_filter: When False, papers are converted but not keyword-filtered.
 
     Returns:
         Tuple of:
         - DataFrame with processed papers
-        - Statistics dictionary
+        - Statistics dictionary (includes ``converter_errors``: API → number
+          of papers whose format conversion raised)
     """
     if num_workers is None:
         num_workers = max(1, cpu_count() - 1)
@@ -573,7 +580,14 @@ def parallel_process_papers(
     for i in range(0, len(papers_by_api), batch_size):
         batch = papers_by_api[i : i + batch_size]
         batches.append(
-            (batch, keyword_groups, bonus_keywords, cached_abstracts, pre_filters)
+            (
+                batch,
+                keyword_groups,
+                bonus_keywords,
+                cached_abstracts,
+                pre_filters,
+                apply_text_filter,
+            )
         )
 
     logging.info(f"Processing {len(papers_by_api):,} papers in {len(batches)} batches")
@@ -585,16 +599,24 @@ def parallel_process_papers(
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         results = list(
             tqdm(
-                executor.map(_process_batch_worker, batches),
+                executor.map(_process_batch, batches),
                 total=len(batches),
                 desc="Processing papers",
                 unit="batch",
             )
         )
 
-    # Flatten results
-    for batch_results in results:
+    # Flatten results and merge per-API converter error counts
+    converter_errors: Counter = Counter()
+    for batch_results, batch_errors in results:
         all_results.extend(batch_results)
+        converter_errors.update(batch_errors)
+
+    for api_name, n_errors in sorted(converter_errors.items()):
+        logging.warning(
+            f"{api_name}: {n_errors:,} paper(s) dropped because format conversion "
+            f"raised an error (run with LOG_LEVEL=DEBUG for details)"
+        )
 
     elapsed = time.time() - start_time
 
@@ -611,6 +633,7 @@ def parallel_process_papers(
         else 0,
         "elapsed_seconds": elapsed,
         "papers_per_second": len(papers_by_api) / elapsed if elapsed > 0 else 0,
+        "converter_errors": dict(converter_errors),
     }
 
     logging.info(f"Processed {len(papers_by_api):,} papers in {elapsed:.1f}s")
