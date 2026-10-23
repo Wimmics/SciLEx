@@ -216,8 +216,9 @@ def _build_context(
         progress_callback: Optional callback(phase, progress_pct, message).
 
     Returns:
-        The shared context. ``quality_filters`` is the config's own dict, so the
-        ``year_range`` auto-population done later is visible to the caller.
+        The shared context. ``quality_filters`` is a fresh dict (defaults merged
+        with the user's values, see ``SciLExConfig.quality_filters``): the
+        ``year_range`` auto-population done later is not visible to the caller.
     """
     main_config = config.main
     output_dir = main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
