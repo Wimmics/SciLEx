@@ -12,6 +12,8 @@ from scilex.constants import CitationFilterConfig, is_valid
 def calculate_paper_age_months(date_str):
     """Calculate paper age in months from publication date.
 
+    Year-only dates ("YYYY") are treated as mid-year (July 1st).
+
     Args:
         date_str: Publication date string (various formats)
 
@@ -22,8 +24,13 @@ def calculate_paper_age_months(date_str):
         return None
 
     try:
-        pub_date = date_parser.parse(str(date_str))
         now = datetime.now()
+        # Missing fields (month/day of a year-only date such as "2020") default
+        # to mid-year instead of today's month, so the age does not depend on
+        # when the pipeline runs.
+        pub_date = date_parser.parse(
+            str(date_str).strip(), default=datetime(now.year, 7, 1)
+        )
         months_diff = (now.year - pub_date.year) * 12 + (now.month - pub_date.month)
         return max(0, months_diff)
     except (ValueError, TypeError, date_parser.ParserError):
@@ -78,51 +85,37 @@ def apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="d
     """
     logging.info("Applying time-aware citation filtering...")
 
-    # Separate papers without DOI (they bypass citation filtering)
-    has_valid_doi = df["DOI"].apply(is_valid)
-    df_no_doi = df[~has_valid_doi].copy()
-    df_with_doi = df[has_valid_doi].copy()
-
-    no_doi_count = len(df_no_doi)
+    # Papers without DOI bypass citation filtering (citations couldn't be looked up).
+    # Work on a copy with a boolean mask so the original row order is preserved.
+    result = df.copy()
+    has_valid_doi = result["DOI"].apply(is_valid)
+    initial_with_doi = int(has_valid_doi.sum())
+    no_doi_count = len(result) - initial_with_doi
     if no_doi_count > 0:
         logging.info(
             f"  Papers without DOI: {no_doi_count:,} (bypassing citation filter)"
         )
 
-    if len(df_with_doi) == 0:
+    result["paper_age_months"] = result[date_col].apply(calculate_paper_age_months)
+
+    if initial_with_doi == 0:
         logging.info("  No papers with DOI - skipping citation filtering")
-        df["paper_age_months"] = df[date_col].apply(calculate_paper_age_months)
-        df["citation_threshold"] = 0
-        return df
+        result["citation_threshold"] = 0
+        return result.drop(columns=["paper_age_months"])
 
-    # Calculate age and required citations
-    df_with_doi["paper_age_months"] = df_with_doi[date_col].apply(
-        calculate_paper_age_months
+    result["citation_threshold"] = (
+        result["paper_age_months"]
+        .apply(calculate_required_citations)
+        .where(has_valid_doi, 0)
     )
-    df_with_doi["citation_threshold"] = df_with_doi["paper_age_months"].apply(
-        calculate_required_citations
+    citations = (
+        pd.to_numeric(result[citation_col], errors="coerce").fillna(0).astype(int)
     )
+    result[citation_col] = citations.where(has_valid_doi, 0)
 
-    # Convert citation count to numeric
-    df_with_doi[citation_col] = (
-        pd.to_numeric(df_with_doi[citation_col], errors="coerce").fillna(0).astype(int)
-    )
-
-    # Apply filtering to papers with DOI
-    initial_with_doi = len(df_with_doi)
-    df_filtered = df_with_doi[
-        df_with_doi[citation_col] >= df_with_doi["citation_threshold"]
-    ].copy()
-    removed_count = initial_with_doi - len(df_filtered)
-
-    # Merge filtered papers with DOI-less papers
-    if no_doi_count > 0:
-        df_no_doi["paper_age_months"] = df_no_doi[date_col].apply(
-            calculate_paper_age_months
-        )
-        df_no_doi["citation_threshold"] = 0
-        df_no_doi[citation_col] = 0
-        df_filtered = pd.concat([df_filtered, df_no_doi], ignore_index=True)
+    keep_mask = ~has_valid_doi | (result[citation_col] >= result["citation_threshold"])
+    removed_count = int((~keep_mask).sum())
+    df_filtered = result[keep_mask].reset_index(drop=True)
 
     initial_count = len(df)
 
