@@ -267,6 +267,17 @@ def to_file_dict(data: dict) -> dict:
     return ordered
 
 
+def _atomic_write(target: Path, text: str) -> None:
+    """Write ``text`` to ``target`` through a temporary file, cleaned on failure."""
+    temporary = target.with_name(target.name + ".tmp")
+    try:
+        temporary.write_text(text, encoding="utf-8")
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def save(review: Review, data: dict) -> Path:
     """Validate ``data`` and write it atomically to the review's ``scilex.yml``.
 
@@ -280,9 +291,7 @@ def save(review: Review, data: dict) -> Path:
         )
     text = yaml.safe_dump(to_file_dict(data), sort_keys=False, allow_unicode=True)
     target = review.config_path
-    temporary = target.with_name(target.name + ".tmp")
-    temporary.write_text(text, encoding="utf-8")
-    os.replace(temporary, target)
+    _atomic_write(target, text)
     return target
 
 
@@ -358,9 +367,7 @@ def write_text(review: Review, text: str) -> Path:
     if not check.valid:
         raise SettingsError("\n".join(check.problems))
     target = review.config_path
-    temporary = target.with_name(target.name + ".tmp")
-    temporary.write_text(text, encoding="utf-8")
-    os.replace(temporary, target)
+    _atomic_write(target, text)
     return target
 
 
@@ -384,11 +391,10 @@ def remove_unknown_keys(review: Review) -> list[str]:
         if isinstance(node, dict) and last in node:
             del node[last]
             removed.append(dotted)
-    temporary = review.config_path.with_name(review.config_path.name + ".tmp")
-    temporary.write_text(
-        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    _atomic_write(
+        review.config_path,
+        yaml.safe_dump(raw, sort_keys=False, allow_unicode=True),
     )
-    os.replace(temporary, review.config_path)
     return removed
 
 
