@@ -1,5 +1,7 @@
 """Tests for pure functions in scilex.crawlers.aggregate module."""
 
+import pandas as pd
+
 from scilex.constants import MISSING_VALUE
 from scilex.crawlers.aggregate import (
     ArxivtoZoteroFormat,
@@ -8,6 +10,7 @@ from scilex.crawlers.aggregate import (
     SpringertoZoteroFormat,
     clean_doi,
     getquality,
+    quality_scores,
     reconstruct_abstract_from_inverted_index,
     safe_get,
 )
@@ -426,3 +429,20 @@ class TestSpringerPdfUrl:
         row = _minimal_springer_row(url=[])
         result = SpringertoZoteroFormat(row)
         assert result["pdf_url"] == MISSING_VALUE
+
+
+class TestQualityScores:
+    def test_matches_getquality_row_by_row(self):
+        df = pd.DataFrame(
+            [
+                {"DOI": "10.1", "title": "T", "volume": "1", "issue": "2", "url": "NA"},
+                {"DOI": "NA", "title": "", "volume": "1", "issue": None, "url": "u"},
+                {"DOI": None, "title": "T", "volume": "NA", "issue": "3", "url": "u"},
+            ]
+        )
+        expected = [getquality(row, df.columns.tolist()) for _, row in df.iterrows()]
+        assert quality_scores(df).tolist() == expected
+
+    def test_without_volume_issue_columns(self):
+        df = pd.DataFrame([{"title": "T", "abstract": "A"}])
+        assert quality_scores(df).tolist() == [8]

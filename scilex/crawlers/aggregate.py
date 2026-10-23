@@ -10,6 +10,8 @@ Created on Fri Feb 10 10:57:49 2023
 
 import contextlib
 
+import pandas as pd
+
 from scilex.constants import MISSING_VALUE, is_valid, strip_doi_prefix
 from scilex.crawlers.converter_utils import (
     dig,
@@ -109,6 +111,22 @@ def clean_doi(doi_value):
     return strip_doi_prefix(doi_value) or MISSING_VALUE
 
 
+# Field importance weights for the metadata quality score.
+_CRITICAL_QUALITY_FIELDS = frozenset({"DOI", "title", "authors", "date"})
+_IMPORTANT_QUALITY_FIELDS = frozenset(
+    {"abstract", "journalAbbreviation", "volume", "issue", "publisher"}
+)
+
+
+def _quality_weight(column: str) -> int:
+    """Return 5 for critical fields, 3 for important ones, 1 for the rest."""
+    if column in _CRITICAL_QUALITY_FIELDS:
+        return 5
+    if column in _IMPORTANT_QUALITY_FIELDS:
+        return 3
+    return 1
+
+
 def getquality(df_row, column_names):
     """Calculate quality score based on weighted field importance.
 
@@ -120,40 +138,28 @@ def getquality(df_row, column_names):
     Special rules:
     - Bonus for having both volume and issue (+1 point)
     """
-    # Define field importance weights
-    critical_fields = {"DOI", "title", "authors", "date"}
-    important_fields = {
-        "abstract",
-        "journalAbbreviation",
-        "volume",
-        "issue",
-        "publisher",
-    }
-    # All other fields get weight 1
-
-    quality = 0
-    has_volume = False
-    has_issue = False
-    for col in column_names:
-        value = df_row.get(col)
-        if is_valid(value):
-            # Apply weighted scoring
-            if col in critical_fields:
-                quality += 5
-            elif col in important_fields:
-                quality += 3
-                if col == "volume":
-                    has_volume = True
-                elif col == "issue":
-                    has_issue = True
-            else:
-                quality += 1
-
-    # Apply bonuses
-    if has_volume and has_issue:
+    valid_columns = {col for col in column_names if is_valid(df_row.get(col))}
+    quality = sum(_quality_weight(col) for col in valid_columns)
+    if {"volume", "issue"} <= valid_columns:
         quality += 1  # Bonus for complete bibliographic info
-
     return quality
+
+
+def quality_scores(df: pd.DataFrame) -> pd.Series:
+    """Vectorized ``getquality`` over every row and column of ``df``.
+
+    Args:
+        df: Aggregated papers.
+
+    Returns:
+        Integer quality score per row, aligned on ``df.index``.
+    """
+    valid = df.apply(lambda column: column.map(is_valid)).astype(bool)
+    weights = pd.Series({col: _quality_weight(col) for col in df.columns}, dtype=int)
+    scores = valid.mul(weights, axis=1).sum(axis=1)
+    if "volume" in valid.columns and "issue" in valid.columns:
+        scores += (valid["volume"] & valid["issue"]).astype(int)
+    return scores.astype(int)
 
 
 def _apply_semantic_scholar_venue(record, venue):
