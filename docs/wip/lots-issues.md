@@ -14,13 +14,13 @@ Coordination : scilex-90 (refactor, ADR 0003 config) lancera C2 après nos lots 
 | 0 | lot-0-bibtex2rdf | ../SciLEx-wt/lot-0 | dans dev |
 | D | lot-d-new-apis | ../SciLEx-wt/lot-d | dans dev |
 | A | lot-a-data-quality | ../SciLEx-wt/lot-a | dans dev (CORE réel, SJR vide : Cloudflare) |
-| B | lot-b-pipeline-ux | ../SciLEx-wt/lot-b | agent en cours |
-| C | lot-c-ai-research | ../SciLEx-wt/lot-c | agent en cours |
+| B | lot-b-pipeline-ux | (supprimé) | dans dev |
+| C | lot-c-ai-research | (supprimé) | dans dev |
 
 ## Règle découverte
 Les nouvelles clés ne vont PAS dans `get_default_quality_filters()` / `QUALITY_FILTER_SCHEMA`
 (invariant legacy ↔ scilex/settings testé par scilex-90) : constante `DEFAULT_*` + `.get(clé, défaut)`.
 
 ## Prochaine étape
-Fusionner B et C (merge dev dans chaque branche, tests, ff-only), puis prévenir scilex-90 (C2) et scilex-86 (/simplify).
-Push / PR : à confirmer avec l'utilisateur.
+Tous les lots sont dans dev (1682 tests verts), worktrees supprimés. scilex-90 (C2) et scilex-86 (/simplify) prévenus.
+Reste : push / PR / fermeture des issues, à confirmer avec l'utilisateur.
