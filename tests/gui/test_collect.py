@@ -236,8 +236,30 @@ async def test_page_does_not_scan_disk_on_every_tick(ctx, tmp_path, monkeypatch)
         await user.open(f"/review/{review.id}/collect")
         await user.should_see("Collect")
         count_after_render = len(calls)
-        await user.should_see("Not run in this session", retries=10)
+        await user.should_see("Collect", retries=10)
         time.sleep(1.3)
         await user.should_see("Collect")
     assert count_after_render == 1
     assert len(calls) == 1
+
+
+@pytest.mark.anyio
+async def test_placeholder_keywords_warning(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/collect")
+        await user.should_see(marker="placeholder-warning")
+        await user.should_see(marker="run")
+
+
+@pytest.mark.anyio
+async def test_screening_kept_notice_when_decisions_exist(ctx, tmp_path):
+    from scilex.gui.services.screening import Decision, save_decisions
+
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    review.collection_dir.mkdir(parents=True)
+    key = "doi:10.1/abc"
+    save_decisions(review, {key: Decision(paper_key=key, decision="include")})
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/collect")
+        await user.should_see(marker="screening-kept-notice")

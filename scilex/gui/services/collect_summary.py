@@ -113,6 +113,22 @@ def preflight_line(config: SciLExConfig) -> str:
     )
 
 
+def placeholder_keywords(config: SciLExConfig) -> list[str]:
+    """Return the configured keywords that are still the blank template's examples."""
+    from scilex.init_templates import skeleton_text
+
+    skeleton = yaml.safe_load(skeleton_text("x")) or {}
+    placeholders = {
+        str(term).lower()
+        for group in skeleton.get("search", {}).get("keywords", [])
+        for term in group
+    }
+    configured = [
+        str(term) for group in config.main.get("keywords", []) for term in group or []
+    ]
+    return [term for term in configured if term.lower() in placeholders]
+
+
 @dataclass(frozen=True)
 class ResumeInfo:
     """An interrupted collection that can be resumed."""

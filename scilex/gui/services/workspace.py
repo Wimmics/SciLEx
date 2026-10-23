@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -85,6 +86,35 @@ def resolve_folder(folder: str | Path) -> Path:
     return path.resolve()
 
 
+def _load_settings_without_keys(config_path: Path):
+    """Load ``scilex.yml`` even when the keys file is missing.
+
+    Keys are only needed to run jobs; opening a review must not depend on
+    them (e.g. ``$SCILEX_KEYS`` pointing to a file that does not exist).
+    """
+    try:
+        return load_settings(config_path=config_path).settings
+    except FileNotFoundError:
+        if not config_path.is_file():
+            raise
+    with tempfile.TemporaryDirectory() as tmp:
+        empty_keys = Path(tmp) / "keys.yml"
+        empty_keys.write_text("{}\n", encoding="utf-8")
+        return load_settings(config_path=config_path, keys_path=empty_keys).settings
+
+
+def _raw_review_name(folder: Path) -> str:
+    """Return the ``name:`` of a possibly invalid scilex.yml, else the folder name."""
+    try:
+        data = yaml.safe_load((folder / CONFIG_FILENAME).read_text(encoding="utf-8"))
+        name = data.get("name") if isinstance(data, dict) else None
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    except (OSError, yaml.YAMLError, UnicodeDecodeError):
+        pass
+    return folder.name
+
+
 def read_review(folder: Path) -> Review:
     """Validate ``folder/scilex.yml`` and describe the review.
 
@@ -99,7 +129,7 @@ def read_review(folder: Path) -> Review:
     config_path = folder / CONFIG_FILENAME
     if not config_path.is_file():
         raise FileNotFoundError(f"No {CONFIG_FILENAME} in {folder}")
-    settings = load_settings(config_path=config_path).settings
+    settings = _load_settings_without_keys(config_path)
     output_root = Path(settings.output_dir).expanduser()
     if not output_root.is_absolute():
         output_root = folder / output_root
@@ -160,7 +190,7 @@ class Workspace:
                 reviews.append(
                     Review(
                         folder=folder,
-                        name=folder.name,
+                        name=_raw_review_name(folder),
                         output_root=folder / "output",
                         error=str(exc),
                     )
@@ -201,6 +231,18 @@ class Workspace:
         config_path = resolve_folder(folder) / CONFIG_FILENAME
         if config_path.exists():
             raise FileExistsError(f"{config_path} already exists")
+        try:
+            return self._write_and_open(config_path, name, template)
+        except BaseException:
+            # Roll back the file this call wrote so a retry does not hit
+            # "already exists" on a review that was never registered.
+            with contextlib.suppress(OSError):
+                config_path.unlink()
+            raise
+
+    def _write_and_open(
+        self, config_path: Path, name: str, template: str | None
+    ) -> Review:
         if template:
             apply_template(template, config_path)
             # Replace only the name line so the template's comments survive.

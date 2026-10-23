@@ -60,7 +60,11 @@ def _review_card(ctx: AppContext, review: Review) -> None:
         .on("click", lambda: ui.navigate.to(f"/review/{review.id}"))
         .mark(f"review-{review.id}")
     ):
-        ui.label(review.name).classes("text-lg font-bold")
+        with ui.row().classes("w-full items-start no-wrap gap-1"):
+            ui.label(review.name).classes(
+                "text-lg font-bold grow min-w-0 break-words"
+            ).style("overflow-wrap: anywhere").tooltip(review.name)
+            _card_menu(ctx, review)
         ui.label(str(review.folder)).classes("text-xs text-gray-500 break-all")
         if review.error:
             ui.label("scilex.yml is invalid: open to fix it").classes(
@@ -72,6 +76,43 @@ def _review_card(ctx: AppContext, review: Review) -> None:
             ui.label("Results available").classes("text-sm text-positive")
         else:
             ui.label("Not collected yet").classes("text-sm text-gray-500")
+
+
+def _card_menu(ctx: AppContext, review: Review) -> None:
+    """Small menu (⋮) of a card: forget the review or copy its folder path."""
+
+    def forget() -> None:
+        ctx.workspace.forget_review(review.folder)
+        confirm.close()
+        ui.navigate.to("/")
+
+    with ui.dialog() as confirm, ui.card():
+        ui.label(f"Remove '{review.name}' from the list?").classes("font-bold")
+        ui.label(
+            "The files stay on disk; you can add the folder back with 'Open a folder'."
+        ).classes("text-sm")
+        with ui.row().classes("w-full justify-end"):
+            ui.button("Cancel", on_click=confirm.close).props("flat")
+            ui.button("Remove", on_click=forget).props("color=negative").mark(
+                f"forget-confirm-{review.id}"
+            )
+
+    def copy_path() -> None:
+        ui.clipboard.write(str(review.folder))
+        ui.notify("Folder path copied")
+
+    # The card navigates on click: the menu button must not trigger it.
+    with (
+        ui.button(icon="more_vert")
+        .props("flat dense round")
+        .on("click.stop")
+        .mark(f"forget-{review.id}"),
+        ui.menu(),
+    ):
+        ui.menu_item("Remove from list", on_click=confirm.open).mark(
+            f"forget-item-{review.id}"
+        )
+        ui.menu_item("Show folder path", on_click=copy_path)
 
 
 def _folder_input(ctx: AppContext, label: str) -> ui.input:

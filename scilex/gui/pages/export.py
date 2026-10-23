@@ -5,7 +5,7 @@ from __future__ import annotations
 from nicegui import ui
 
 from scilex.gui.components.errors import show_error
-from scilex.gui.components.job_panel import JobPanel
+from scilex.gui.components.job_panel import BusyNotice, JobPanel
 from scilex.gui.services import exports
 from scilex.gui.services.jobs import Job, JobConflictError
 from scilex.gui.services.workspace import Review, Workspace
@@ -91,9 +91,10 @@ def render(ctx: AppContext, review: Review) -> None:
                 with ui.column().classes("gap-0 w-96"):
                     ui.label(label).classes("font-bold")
                     ui.label(text).classes("text-sm text-gray-500")
-                buttons[fmt] = ui.button(f"Export {label}", icon="download").mark(
-                    f"export-{fmt}"
-                )
+                buttons[fmt] = ui.button(
+                    f"Export {label}",
+                    icon="cloud_upload" if fmt == exports.ZOTERO else "download",
+                ).mark(f"export-{fmt}")
                 if fmt == exports.ZOTERO and not zotero_ready:
                     ui.label(
                         str(config_error)
@@ -106,11 +107,13 @@ def render(ctx: AppContext, review: Review) -> None:
                     ).mark("export-zotero-keys")
                     buttons[fmt].set_enabled(False)
 
+    busy_notice = BusyNotice(ctx)
     result_box = ui.column().classes("gap-1 w-full")
     history_box = ui.column().classes("gap-1 w-full")
 
     def update_buttons(job: Job | None) -> None:
         busy = ctx.runner.active_job() is not None
+        busy_notice.update(job)
         for fmt, button in buttons.items():
             if fmt == exports.ZOTERO and not zotero_ready:
                 continue

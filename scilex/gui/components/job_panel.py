@@ -22,6 +22,36 @@ STATUS_LABELS = {
 }
 
 
+class BusyNotice:
+    """One line explaining why buttons are disabled: another job is running.
+
+    The label is created once; ``update`` only changes its text and visibility,
+    so it is safe to call on every tick.
+    """
+
+    def __init__(self, ctx: AppContext):
+        """Draw the (initially hidden) line at the current position."""
+        self.ctx = ctx
+        self._names: dict[str, str] = {}
+        self.label = ui.label().classes("text-sm text-warning").mark("busy-notice")
+        self.label.set_visibility(False)
+
+    def _review_name(self, review_id: str) -> str:
+        if review_id not in self._names:
+            review = self.ctx.workspace.get(review_id)
+            self._names[review_id] = review.name if review else review_id
+        return self._names[review_id]
+
+    def update(self, own_job: Job | None = None) -> None:
+        """Show the notice when a job other than ``own_job`` is active."""
+        active = self.ctx.runner.active_job()
+        busy = active is not None and active is not own_job
+        self.label.set_visibility(busy)
+        if busy:
+            kind = "collection" if active.kind == "pipeline" else active.kind
+            self.label.text = f"Another job is running: {kind} on {self._review_name(active.review_id)}"
+
+
 class JobPanel:
     """Live view of ``runner.latest_for(review.id, kind)``, refreshed every 0.5 s.
 
@@ -47,7 +77,9 @@ class JobPanel:
         self.progress = ui.linear_progress(value=0, show_value=False).classes("w-full")
         self.message = ui.label().classes("text-sm")
         self.log_view = (
-            ui.log(max_lines=LOG_LINES_SHOWN).classes("w-full h-64 text-xs")
+            ui.log(max_lines=LOG_LINES_SHOWN)
+            .classes("w-full max-w-full h-64 text-xs")
+            .style("width: 100%")
             if show_logs
             else None
         )
@@ -79,9 +111,13 @@ class JobPanel:
         if self.on_change is not None:
             self.on_change(job)
         if job is None:
-            self.status.text = "Not run in this session."
+            # Nothing to report: keep the elements (markers) but show nothing.
+            self.status.text = ""
+            self.status.set_visibility(False)
+            self.message.text = ""
             self.progress.set_visibility(False)
             return
+        self.status.set_visibility(True)
         self.progress.set_visibility(True)
         self.status.text = STATUS_LABELS.get(job.status, job.status)
         self.progress.value = job.progress / 100

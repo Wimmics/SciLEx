@@ -268,7 +268,7 @@ def render(ctx: AppContext, review: Review) -> None:
                 put(path, parts)  # shown as a validation error
 
         ui.input(
-            label + " (comma separated)",
+            (label + " (comma separated)").strip(),
             value=", ".join(str(v) for v in get(path) or []),
             on_change=changed,
         ).props("dense outlined").classes("w-64").mark(f"field-{'.'.join(path)}")
@@ -310,7 +310,7 @@ def render(ctx: AppContext, review: Review) -> None:
             except yaml.YAMLError:
                 put(path, raw)  # reported as "not a valid mapping"
 
-        ui.textarea(label + " (YAML)", value=text, on_change=changed).props(
+        ui.textarea((label + " (YAML)").strip(), value=text, on_change=changed).props(
             "dense outlined"
         ).classes("w-96").mark(f"field-{'.'.join(path)}")
 
@@ -338,7 +338,8 @@ def render(ctx: AppContext, review: Review) -> None:
         with ui.column().classes("gap-0"):
             if spec.kind != "bool":
                 caption(path, label)
-            builders[spec.kind](path, spec, label)
+            # The caption above already names the field: no second floating label.
+            builders[spec.kind](path, spec, label if spec.kind == "bool" else "")
             error_slot(path)
             if spec.kind == "bool":
                 help_text = editor.FIELD_HELP.get(".".join(path))
@@ -430,7 +431,12 @@ def render(ctx: AppContext, review: Review) -> None:
         ui.label("Years").classes("font-bold mt-2")
         years = get(("search", "years"))
         as_range = editor.years_as_range(years)
-        year_state = {"mode": "range" if as_range or not years else "list"}
+        # Follow the shape written in the file (list vs "YYYY-YYYY"), so a raw
+        # edit does not flip the toggle.
+        shape = editor.years_shape(review)
+        if shape is None:
+            shape = "range" if as_range or not years else "list"
+        year_state = {"mode": shape}
         today_year = date.today().year
         start_end = list(as_range or (today_year - 2, today_year))
 

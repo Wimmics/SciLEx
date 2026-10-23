@@ -172,3 +172,36 @@ def test_failed_write_leaves_no_tmp_and_original_intact(review, monkeypatch):
         config_editor.save(review, config_editor.load_editable(review))
     assert review.config_path.read_text(encoding="utf-8") == original
     assert not list(review.config_path.parent.glob("*.tmp"))
+
+
+def test_remove_unknown_keys_keeps_comments(review):
+    write_config(
+        review,
+        "# top comment\n"
+        "name: demo\n"
+        "bogus:\n"
+        "  child: 1\n"
+        "  other: 2\n"
+        "# about search\n"
+        "search:\n"
+        "  keywords: [[a]]  # inline\n"
+        "  years: [2020]\n"
+        "  apis: [OpenAlex]\n"
+        "  nope: 3\n",
+    )
+    removed = config_editor.remove_unknown_keys(review)
+    text = review.config_path.read_text()
+    assert set(removed) == {"bogus", "search.nope"}
+    assert "# top comment" in text
+    assert "# about search" in text
+    assert "# inline" in text
+    assert "bogus" not in text and "nope" not in text and "child" not in text
+    assert config_editor.check_text(text).valid
+
+
+def test_years_shape_follows_the_file(review):
+    base = "name: demo\nsearch:\n  keywords: [[a]]\n  apis: [OpenAlex]\n  years: "
+    write_config(review, base + '"2020-2023"\n')
+    assert config_editor.years_shape(review) == "range"
+    write_config(review, base + "[2020, 2021, 2022]\n")
+    assert config_editor.years_shape(review) == "list"
