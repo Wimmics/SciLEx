@@ -17,14 +17,16 @@ import pandas as pd
 import yaml
 
 from scilex.abstract_validation import (
-    filter_by_abstract_quality,
+    SCORING_COLUMNS,
     validate_dataframe_abstracts,
 )
 from scilex.config import SciLExConfig
 from scilex.config_defaults import (
     DEFAULT_AGGREGATED_FILENAME,
     DEFAULT_OUTPUT_DIR,
+    MAX_ABSTRACT_WORDS,
     MIN_ABSTRACT_QUALITY_SCORE,
+    MIN_ABSTRACT_WORDS,
 )
 from scilex.constants import normalize_path_component
 from scilex.crawlers.collector_collection import CollectCollection
@@ -362,25 +364,27 @@ def run_aggregation(
     else:
         logging.info("ItemType filtering: DISABLED (all itemTypes allowed)")
 
+    generate_quality_report = quality_filters.get("generate_quality_report", True)
+
     # Track duplicate sources
     if quality_filters.get("track_duplicate_sources", True):
         logging.info("Analyzing duplicate sources and API overlap...")
         analyze_and_report_duplicates(
             df_clean,
-            generate_report=quality_filters.get("generate_quality_report", True),
+            generate_report=generate_quality_report,
         )
 
-    if quality_filters.get("generate_quality_report", True):
+    if generate_quality_report:
         logging.info("Generating itemType distribution report...")
-        itemtype_report = generate_itemtype_distribution_report(df_clean)
-        print(itemtype_report)
+        logging.info(generate_itemtype_distribution_report(df_clean))
 
     # Calculate quality scores
     logging.info("Calculating quality scores...")
     from scilex.crawlers.aggregate import getquality
 
+    quality_columns = df_clean.columns.tolist()
     df_clean["quality_score"] = df_clean.apply(
-        lambda row: getquality(row, df_clean.columns.tolist()), axis=1
+        lambda row: getquality(row, quality_columns), axis=1
     )
 
     if progress_callback:
@@ -407,9 +411,8 @@ def run_aggregation(
 
     if quality_filters and len(df_non_bypass) > 0:
         logging.info("Applying quality filters to non-bypass papers...")
-        generate_report = quality_filters.get("generate_quality_report", True)
         df_filtered, _quality_report = apply_quality_filters(
-            df_non_bypass, quality_filters, generate_report
+            df_non_bypass, quality_filters, generate_quality_report
         )
         logging.info(
             f"After quality filtering: {len(df_filtered)} papers remaining "
@@ -433,12 +436,12 @@ def run_aggregation(
         df_clean = df_bypass
 
     # Reports
-    if quality_filters.get("generate_quality_report", True):
+    if generate_quality_report:
         completeness_report = generate_data_completeness_report(df_clean)
         logging.info(completeness_report)
 
     keywords = main_config.get("keywords", [])
-    if keywords and quality_filters.get("generate_quality_report", True):
+    if keywords and generate_quality_report:
         keyword_report = generate_keyword_validation_report(
             df_clean,
             keywords,
@@ -452,14 +455,18 @@ def run_aggregation(
         min_quality_score = quality_filters.get(
             "min_abstract_quality_score", MIN_ABSTRACT_QUALITY_SCORE
         )
-        df_clean, _abstract_stats = validate_dataframe_abstracts(
+        # Score every abstract once, then filter on the same acceptability mask
+        df_scored, _abstract_stats = validate_dataframe_abstracts(
             df_clean,
             min_quality_score=min_quality_score,
-            generate_report=quality_filters.get("generate_quality_report", True),
+            generate_report=generate_quality_report,
+            min_words=quality_filters.get("min_abstract_words", MIN_ABSTRACT_WORDS),
+            max_words=quality_filters.get("max_abstract_words", MAX_ABSTRACT_WORDS),
         )
-        df_clean = filter_by_abstract_quality(
-            df_clean, min_quality_score=min_quality_score
-        )
+        if "abstract_quality_acceptable" in df_scored.columns:
+            df_clean = df_scored[df_scored["abstract_quality_acceptable"]].drop(
+                columns=SCORING_COLUMNS
+            )
         logging.info(
             f"After abstract quality filtering: {len(df_clean)} papers remaining"
         )

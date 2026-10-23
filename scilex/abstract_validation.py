@@ -390,80 +390,78 @@ def validate_dataframe_abstracts(
     abstract_column: str = "abstract",
     min_quality_score: int = 50,
     generate_report: bool = True,
+    min_words: int = 30,
+    max_words: int = 1000,
 ) -> tuple[pd.DataFrame, dict]:
     """
     Validate abstract quality for all records in DataFrame.
+
+    Each abstract is scored once. A paper is "acceptable" when
+    ``AbstractQualityScore.is_acceptable(min_quality_score)`` holds (score at
+    or above the threshold and no critical issue); this single definition is
+    used both for the statistics and for the ``abstract_quality_acceptable``
+    column consumed by :func:`filter_by_abstract_quality`.
 
     Args:
         df: DataFrame with paper records
         abstract_column: Name of abstract column
         min_quality_score: Minimum acceptable quality score
         generate_report: Whether to generate report
+        min_words: Minimum abstract word count (configured threshold)
+        max_words: Maximum abstract word count (0 for no limit)
 
     Returns:
-        (df_with_scores, report_dict): DataFrame with quality info and statistics
+        (df_with_scores, report_dict): DataFrame with the columns
+        ``abstract_quality_score``, ``abstract_quality_issues`` and
+        ``abstract_quality_acceptable``, and statistics.
     """
     if len(df) == 0 or abstract_column not in df.columns:
         return df, {}
 
+    qualities = [
+        validate_abstract_quality(abstract, min_words=min_words, max_words=max_words)
+        for abstract in df[abstract_column]
+    ]
+    scores = [quality.get_score() for quality in qualities]
+    acceptable = [quality.is_acceptable(min_quality_score) for quality in qualities]
+
     df_result = df.copy()
+    df_result["abstract_quality_score"] = scores
+    df_result["abstract_quality_issues"] = [
+        "; ".join(issue.issue_type for issue in quality.issues) for quality in qualities
+    ]
+    df_result["abstract_quality_acceptable"] = acceptable
 
-    # Add quality columns
-    df_result["abstract_quality_score"] = 0
-    df_result["abstract_quality_issues"] = ""
-
-    # Statistics
     stats = {
         "total": len(df),
-        "acceptable": 0,
-        "poor_quality": 0,
+        "acceptable": sum(acceptable),
+        "poor_quality": len(acceptable) - sum(acceptable),
         "truncated": 0,
         "too_short": 0,
         "too_long": 0,
         "boilerplate": 0,
         "encoding_issues": 0,
         "language_issues": 0,
-        "average_score": 0.0,
+        "average_score": sum(scores) / len(scores),
     }
 
-    scores = []
-
-    for idx, row in df_result.iterrows():
-        abstract = row.get(abstract_column)
-        quality = validate_abstract_quality(abstract)
-
-        df_result.loc[idx, "abstract_quality_score"] = quality.get_score()
-        df_result.loc[idx, "abstract_quality_issues"] = "; ".join(
-            [f"{issue.issue_type}" for issue in quality.issues]
-        )
-
-        scores.append(quality.get_score())
-
-        # Update statistics
-        if quality.is_acceptable(min_quality_score):
-            stats["acceptable"] += 1
-        else:
-            stats["poor_quality"] += 1
-
+    issue_to_stat = {
+        "TRUNCATED": "truncated",
+        "TOO_SHORT": "too_short",
+        "TOO_LONG": "too_long",
+        "BOILERPLATE": "boilerplate",
+        "ENCODING": "encoding_issues",
+        "FORMATTING": "encoding_issues",
+        "LANGUAGE": "language_issues",
+    }
+    for quality in qualities:
         for issue in quality.issues:
-            if issue.issue_type == "TRUNCATED":
-                stats["truncated"] += 1
-            elif issue.issue_type == "TOO_SHORT":
-                stats["too_short"] += 1
-            elif issue.issue_type == "TOO_LONG":
-                stats["too_long"] += 1
-            elif issue.issue_type == "BOILERPLATE":
-                stats["boilerplate"] += 1
-            elif issue.issue_type in ("ENCODING", "FORMATTING"):
-                stats["encoding_issues"] += 1
-            elif issue.issue_type == "LANGUAGE":
-                stats["language_issues"] += 1
-
-    stats["average_score"] = sum(scores) / len(scores) if scores else 0.0
+            stat_key = issue_to_stat.get(issue.issue_type)
+            if stat_key:
+                stats[stat_key] += 1
 
     if generate_report:
-        report_str = _generate_abstract_quality_report(stats)
-        logging.info(report_str)
+        logging.info(_generate_abstract_quality_report(stats))
 
     return df_result, stats
 
@@ -508,8 +506,19 @@ def _generate_abstract_quality_report(stats: dict) -> str:
     return "\n".join(report_lines)
 
 
+SCORING_COLUMNS = [
+    "abstract_quality_score",
+    "abstract_quality_issues",
+    "abstract_quality_acceptable",
+]
+
+
 def filter_by_abstract_quality(
-    df: pd.DataFrame, min_quality_score: int = 50, abstract_column: str = "abstract"
+    df: pd.DataFrame,
+    min_quality_score: int = 50,
+    abstract_column: str = "abstract",
+    min_words: int = 30,
+    max_words: int = 1000,
 ) -> pd.DataFrame:
     """
     Filter DataFrame to keep only papers with acceptable abstract quality.
@@ -518,26 +527,28 @@ def filter_by_abstract_quality(
         df: DataFrame with paper records
         min_quality_score: Minimum acceptable quality score
         abstract_column: Name of abstract column
+        min_words: Minimum abstract word count
+        max_words: Maximum abstract word count (0 for no limit)
 
     Returns:
-        Filtered DataFrame
+        Filtered DataFrame (without the temporary scoring columns)
     """
     if len(df) == 0:
         return df
 
-    # Validate abstracts
     df_with_scores, _ = validate_dataframe_abstracts(
-        df, abstract_column, min_quality_score, generate_report=False
+        df,
+        abstract_column,
+        min_quality_score,
+        generate_report=False,
+        min_words=min_words,
+        max_words=max_words,
     )
+    if "abstract_quality_acceptable" not in df_with_scores.columns:
+        return df  # no abstract column: nothing to validate
 
-    # Filter
-    df_filtered = df_with_scores[
-        df_with_scores["abstract_quality_score"] >= min_quality_score
-    ].copy()
-
-    # Remove temporary columns
-    df_filtered = df_filtered.drop(
-        columns=["abstract_quality_score", "abstract_quality_issues"], errors="ignore"
+    df_filtered = df_with_scores[df_with_scores["abstract_quality_acceptable"]].drop(
+        columns=SCORING_COLUMNS
     )
 
     removed = len(df) - len(df_filtered)
