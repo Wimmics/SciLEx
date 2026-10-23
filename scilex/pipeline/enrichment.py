@@ -57,6 +57,18 @@ def fill_missing_urls_from_doi(df):
     return df, stats
 
 
+def _needs_citation_fallback(value):
+    """True if a citation count is unset (None/NaN/empty string) or zero."""
+    numeric = pd.to_numeric(value, errors="coerce")
+    return bool(pd.isna(numeric) or numeric == 0)
+
+
+def _count_unset_citations(df):
+    """Number of rows whose ``nb_citation`` is unset or zero."""
+    numeric = pd.to_numeric(df["nb_citation"], errors="coerce")
+    return int((numeric.isna() | (numeric == 0)).sum())
+
+
 def use_semantic_scholar_citations_fallback(df):
     """Use Semantic Scholar citation data as fallback when OpenCitations data is missing.
 
@@ -78,12 +90,12 @@ def use_semantic_scholar_citations_fallback(df):
     if has_ss_data == 0:
         return df
 
-    initial_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
+    initial_zero_count = _count_unset_citations(df)
 
     df["nb_citation"] = df.apply(
         lambda row: (
             row["ss_citation_count"]
-            if (pd.isna(row["nb_citation"]) or row["nb_citation"] == 0)
+            if _needs_citation_fallback(row["nb_citation"])
             and pd.notna(row["ss_citation_count"])
             else row["nb_citation"]
         ),
@@ -93,14 +105,14 @@ def use_semantic_scholar_citations_fallback(df):
     df["nb_cited"] = df.apply(
         lambda row: (
             row["ss_reference_count"]
-            if (pd.isna(row["nb_cited"]) or row["nb_cited"] == 0)
+            if _needs_citation_fallback(row["nb_cited"])
             and pd.notna(row["ss_reference_count"])
             else row["nb_cited"]
         ),
         axis=1,
     )
 
-    final_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
+    final_zero_count = _count_unset_citations(df)
     improved_count = initial_zero_count - final_zero_count
 
     improved_pct = (improved_count / has_ss_data * 100) if has_ss_data > 0 else 0.0
@@ -135,19 +147,19 @@ def use_openalex_citations_fallback(df):
     if has_oa_data == 0:
         return df
 
-    initial_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
+    initial_zero_count = _count_unset_citations(df)
 
     df["nb_citation"] = df.apply(
         lambda row: (
             row["oa_citation_count"]
-            if (pd.isna(row["nb_citation"]) or row["nb_citation"] == 0)
+            if _needs_citation_fallback(row["nb_citation"])
             and pd.notna(row["oa_citation_count"])
             else row["nb_citation"]
         ),
         axis=1,
     )
 
-    final_zero_count = ((df["nb_citation"] == 0) | df["nb_citation"].isna()).sum()
+    final_zero_count = _count_unset_citations(df)
     improved_count = initial_zero_count - final_zero_count
 
     improved_pct = (improved_count / has_oa_data * 100) if has_oa_data > 0 else 0.0
