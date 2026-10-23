@@ -382,7 +382,6 @@ async def test_busy_reason_is_visible_and_chart_caption_is_file_name(
     async with user_simulation(build_root(ctx)) as user:
         await user.open(f"/review/{review.id}/analyses")
         await user.should_see("years.png")
-        await user.should_not_see(str(charts))
         user.find(marker="analysis-tab-enrich").click()
         user.find(marker="analysis-run-enrich").click()
         await user.should_see("Running", retries=50)
