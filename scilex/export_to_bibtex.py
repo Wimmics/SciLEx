@@ -8,6 +8,7 @@ Supports DOI-based citation keys and direct PDF download links.
 import argparse
 import logging
 import os
+import re
 import sys
 
 import pandas as pd
@@ -55,6 +56,10 @@ BIBTEX_SPECIAL_CHARS = {
     "^": r"\textasciicircum{}",
     "\\": r"\textbackslash{}",
 }
+
+_SPECIAL_CHARS_PATTERN = re.compile(
+    "[" + "".join(re.escape(char) for char in BIBTEX_SPECIAL_CHARS) + "]"
+)
 
 
 def load_config(collect_name: str | None = None, output_dir: str | None = None) -> dict:
@@ -147,11 +152,36 @@ def escape_bibtex(text: str) -> str:
     if not is_valid(text):
         return ""
 
-    text = str(text)
-    for char, escaped in BIBTEX_SPECIAL_CHARS.items():
-        text = text.replace(char, escaped)
+    # Single pass: sequential str.replace would re-escape the backslashes
+    # introduced by earlier replacements.
+    return _SPECIAL_CHARS_PATTERN.sub(
+        lambda match: BIBTEX_SPECIAL_CHARS[match.group()], str(text)
+    )
 
-    return text
+
+def _escape_url(url) -> str:
+    """Escape a URL-like value for a BibTeX field.
+
+    Only ``%``, ``#`` and unbalanced braces are escaped; ``_`` and ``~`` are
+    legal in URLs and stay untouched.
+    """
+    if not is_valid(url):
+        return ""
+
+    chars = list(str(url))
+    open_brace_positions = []
+    for position, char in enumerate(chars):
+        if char == "{":
+            open_brace_positions.append(position)
+        elif char == "}":
+            if open_brace_positions:
+                open_brace_positions.pop()
+            else:
+                chars[position] = r"\}"
+    for position in open_brace_positions:
+        chars[position] = r"\{"
+
+    return "".join(chars).replace("%", r"\%").replace("#", r"\#")
 
 
 def format_authors(authors_str: str) -> str:
@@ -220,8 +250,6 @@ def extract_year(date_str: str) -> str:
     date_str = str(date_str).strip()
 
     # Extract first 4 consecutive digits (year)
-    import re
-
     match = re.search(r"\d{4}", date_str)
     if match:
         return match.group(0)
@@ -285,12 +313,8 @@ def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
 
 
 def _format_keywords(tags_str) -> str:
-    """Format HF tags as a comma-separated BibTeX keywords value."""
-    return ", ".join(parse_tags(tags_str))
-
-
-def _plain(value) -> str:
-    return str(value)
+    """Format HF tags as a comma-separated, escaped BibTeX keywords value."""
+    return ", ".join(escape_bibtex(tag) for tag in parse_tags(tags_str))
 
 
 # (bibtex_field, row_field, formatter, allowed_entry_types or None for all).
@@ -306,16 +330,16 @@ _ENTRY_FIELDS = [
     ("publisher", "publisher", lambda v: escape_bibtex(v), _PUBLISHER_TYPES),
     ("series", "serie", lambda v: escape_bibtex(str(v)), None),
     ("doi", "DOI", lambda v: escape_bibtex(str(v)), None),
-    ("url", "url", _plain, None),
-    ("file", "pdf_url", _plain, None),
+    ("url", "url", _escape_url, None),
+    ("file", "pdf_url", _escape_url, None),
     ("abstract", "abstract", lambda v: escape_bibtex(str(v)), None),
     ("language", "language", lambda v: escape_bibtex(str(v)), None),
     ("copyright", "rights", lambda v: escape_bibtex(str(v)), None),
     ("archiveprefix", "archive", lambda v: escape_bibtex(str(v)), None),
     ("eprint", "archiveID", lambda v: escape_bibtex(str(v)), None),
     ("keywords", "tags", _format_keywords, None),
-    ("note", "hf_url", lambda v: f"HuggingFace: {v}", None),
-    ("howpublished", "github_repo", _plain, None),
+    ("note", "hf_url", lambda v: f"HuggingFace: {_escape_url(v)}", None),
+    ("howpublished", "github_repo", _escape_url, None),
 ]
 
 
@@ -339,7 +363,11 @@ def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
 
     # BibTeX requires author or organization
     authors_str = safe_get(row, "authors")
-    authors = format_authors(authors_str) if is_valid(authors_str) else "Unknown"
+    authors = (
+        escape_bibtex(format_authors(authors_str))
+        if is_valid(authors_str)
+        else "Unknown"
+    )
     lines.append(f"  author = {{{authors}}},")
 
     year = extract_year(safe_get(row, "date"))

@@ -1,9 +1,11 @@
 """Tests for scilex.export_to_bibtex module - all pure functions."""
 
 import pandas as pd
+import pytest
 
 from scilex.export_to_bibtex import (
     ITEMTYPE_TO_BIBTEX,
+    _escape_url,
     escape_bibtex,
     extract_year,
     format_authors,
@@ -66,25 +68,23 @@ class TestParseTags:
 # escape_bibtex
 # -------------------------------------------------------------------------
 class TestEscapeBibtex:
-    def test_ampersand_escaped(self):
-        result = escape_bibtex("A & B")
-        assert "&" not in result or "\\&" in result or "textbackslash" in result
-
-    def test_percent_escaped(self):
-        result = escape_bibtex("100%")
-        assert "%" not in result or "\\%" in result or "textbackslash" in result
-
-    def test_hash_escaped(self):
-        result = escape_bibtex("C#")
-        assert "#" not in result or "\\#" in result or "textbackslash" in result
-
-    def test_underscore_escaped(self):
-        result = escape_bibtex("my_var")
-        assert result != "my_var"  # underscore should be transformed
-
-    def test_dollar_escaped(self):
-        result = escape_bibtex("$10")
-        assert result != "$10"  # dollar should be transformed
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("A & B", r"A \& B"),
+            ("100%", r"100\%"),
+            ("C#", r"C\#"),
+            ("my_var", r"my\_var"),
+            ("$10", r"\$10"),
+            ("{x}", r"\{x\}"),
+            ("a\\b", r"a\textbackslash{}b"),
+            ("~", r"\textasciitilde{}"),
+            ("^", r"\textasciicircum{}"),
+            ("50% R&D", r"50\% R\&D"),
+        ],
+    )
+    def test_exact_escaping(self, raw, expected):
+        assert escape_bibtex(raw) == expected
 
     def test_na_returns_empty(self):
         assert escape_bibtex("NA") == ""
@@ -95,10 +95,49 @@ class TestEscapeBibtex:
     def test_normal_text_unchanged(self):
         assert escape_bibtex("Normal text here") == "Normal text here"
 
-    def test_tilde_escaped(self):
-        result = escape_bibtex("~")
-        assert result != "~"  # tilde should be transformed
-        assert "tilde" in result.lower() or "textbackslash" in result
+
+class TestEscapeUrl:
+    def test_percent_and_hash_escaped(self):
+        assert _escape_url("http://a.org/x%20y#frag") == r"http://a.org/x\%20y\#frag"
+
+    def test_underscore_and_tilde_untouched(self):
+        assert _escape_url("http://a.org/~u/a_b") == "http://a.org/~u/a_b"
+
+    def test_balanced_braces_untouched(self):
+        assert _escape_url("http://a.org/{x}") == "http://a.org/{x}"
+
+    def test_unbalanced_braces_escaped(self):
+        assert _escape_url("http://a.org/}x{") == r"http://a.org/\}x\{"
+
+    def test_missing_returns_empty(self):
+        assert _escape_url("NA") == ""
+
+
+class TestEntryEscaping:
+    def _entry(self, **fields):
+        row = pd.Series({"itemType": "journalArticle", "title": "T", **fields})
+        return format_bibtex_entry(row, "k")
+
+    def test_keywords_escaped(self):
+        assert r"keywords = {R&D}" not in self._entry(tags="R&D;a_b")
+        assert r"keywords = {R\&D, a\_b}" in self._entry(tags="R&D;a_b")
+
+    def test_authors_escaped(self):
+        assert r"author = {Smith \& Sons and A\_B}" in self._entry(
+            authors="Smith & Sons;A_B"
+        )
+
+    def test_url_fields_escaped_minimally(self):
+        entry = self._entry(
+            url="http://a.org/p_1?q=50%&r#x",
+            pdf_url="http://a.org/f%20.pdf",
+            hf_url="http://hf.co/a#b",
+            github_repo="http://gh.com/a_b/~c#d",
+        )
+        assert r"url = {http://a.org/p_1?q=50\%&r\#x}" in entry
+        assert r"file = {http://a.org/f\%20.pdf}" in entry
+        assert r"note = {HuggingFace: http://hf.co/a\#b}" in entry
+        assert r"howpublished = {http://gh.com/a_b/~c\#d}" in entry
 
 
 # -------------------------------------------------------------------------
