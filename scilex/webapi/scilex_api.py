@@ -181,7 +181,6 @@ class PipelineRequest(BaseModel):
 
     collection_config: CollectionConfig
     api_config: dict[str, dict[str, Any]] | None = None  # None: use server-side file
-    filter_config: FilterConfig | None = None
     quality_filters: QualityFilters | None = None
 
 
