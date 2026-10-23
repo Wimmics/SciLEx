@@ -176,20 +176,22 @@ Get keys from:
 
 ### Rate Limits
 
-Conservative defaults in `scilex/api.config.yml`:
+Built-in defaults (`DEFAULT_RATE_LIMITS` in `scilex/config_defaults.py`, requests per second, with an API key where it matters).
+Override any of them in the `rate_limits` section of `~/.config/scilex/keys.yml`:
 ```yaml
 rate_limits:
   SemanticScholar: 1.0
   OpenAlex: 10.0
-  IEEE: 10.0
-  Elsevier: 6.0
-  Springer: 1.5
-  Arxiv: 3.0
+  IEEE: 2.0
+  Elsevier: 9.0      # 2.0 without key
+  Springer: 1.67
+  Arxiv: 0.33
   HAL: 10.0
-  DBLP: 10.0
-  Istex: 10.0
-  OpenAIRE: 5.0
-  ORKG: 2.0
+  DBLP: 1.0
+  Istex: 5.0
+  PubMed: 10.0       # 3.0 without key
+  OpenAIRE: 1.0      # 0.2 without token
+  ORKG: 0.5
 ```
 
 ## Coverage by Field

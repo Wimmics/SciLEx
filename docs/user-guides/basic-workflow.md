@@ -12,33 +12,31 @@ Standard workflow for collecting and aggregating papers.
 
 ### Configure Search
 
-Edit `src/scilex.config.yml`:
+Create `scilex.yml` in the folder of your review (`scilex init`, or by hand):
 
 ```yaml
-keywords:
-  - ["machine learning"]
-  - []
-
-years: [2023, 2024]
-
-apis:
-  - SemanticScholar
-  - OpenAlex
-
-fields: ["title", "abstract"]
+name: my_review
+search:
+  keywords:
+    - [machine learning]
+  years: [2023, 2024]
+  apis: [SemanticScholar, OpenAlex]
 ```
+
+Validate it with `scilex config check`. API keys go in `~/.config/scilex/keys.yml` (see the
+[Configuration Reference](../reference/configuration.md)).
 
 ### Run Collection
 
 ```bash
-uv run python src/run_collecte.py
+uv run scilex-collect
 ```
 
-Results saved to `output/collect_YYYYMMDD_HHMMSS/`
+Results saved to `output/<name>/` (`name` from `scilex.yml`).
 
 Output structure:
 ```
-output/collect_20241113_143022/
+output/my_review/
 ├── config_used.yml
 ├── SemanticScholar/
 │   ├── 0/              # Query 0: keyword[0] + year[0]
@@ -56,7 +54,7 @@ Re-running collection skips already completed queries. Safe to re-run without wa
 ### Basic Aggregation
 
 ```bash
-uv run python src/aggregate_collect.py
+uv run scilex-aggregate
 ```
 
 Process:
@@ -69,16 +67,13 @@ Process:
 
 ### With Citations
 
-Enable in `src/scilex.config.yml`:
-```yaml
-aggregate_get_citations: true
-```
+Enabled by default (`citations.fetch: true` in `scilex.yml`). Use `scilex-aggregate --skip-citations` to skip it for one run.
 
-Then run aggregation. Citations are fetched from cache → Semantic Scholar → OpenCitations.
+Citations are fetched from cache → Semantic Scholar → OpenCitations.
 
 ### Output
 
-CSV saved to `output/collect_*/aggregated_data.csv`
+CSV saved to `output/<name>/aggregated_results.csv`
 
 Columns:
 - `title`, `authors`, `year`, `DOI`, `abstract`
@@ -92,18 +87,19 @@ Columns:
 
 ### Configure
 
-Edit `scilex/api.config.yml`:
+Edit `~/.config/scilex/keys.yml`:
 
 ```yaml
-zotero:
+Zotero:
   api_key: "your-key"
-  user_mode: "user"  # or "group"
+  user_id: "your-user-id"
+  user_mode: user  # or "group"
 ```
 
 ### Run Export
 
 ```bash
-uv run python src/push_to_Zotero_collect.py
+uv run scilex-push-zotero
 ```
 
 Papers uploaded in batches. Duplicates skipped by URL.
@@ -124,33 +120,27 @@ Check logs to see papers filtered at each step.
 ## Complete Example
 
 ```yaml
-# src/scilex.config.yml
-keywords:
-  - ["knowledge graph"]
-  - ["LLM", "large language model"]
+# scilex.yml
+name: kg_llm
+search:
+  keywords:
+    - [knowledge graph]
+    - [LLM, large language model]
+  years: [2023, 2024]
+  apis: [SemanticScholar, OpenAlex]
 
-years: [2023, 2024]
+filters:
+  item_types: [journalArticle, conferencePaper]
 
-apis:
-  - SemanticScholar
-  - OpenAlex
-
-aggregate_get_citations: true
-
-quality_filters:
-  enable_itemtype_filter: true
-  allowed_item_types:
-    - journalArticle
-    - conferencePaper
-  apply_relevance_ranking: true
+ranking:
   max_papers: 300
 ```
 
 Run:
 ```bash
-uv run python src/run_collecte.py
-uv run python src/aggregate_collect.py
-uv run python src/push_to_Zotero_collect.py
+uv run scilex-collect
+uv run scilex-aggregate
+uv run scilex-push-zotero
 ```
 
 ## Analyze Results
@@ -158,7 +148,7 @@ uv run python src/push_to_Zotero_collect.py
 ```python
 import pandas as pd
 
-df = pd.read_csv('output/collect_*/aggregated_data.csv', delimiter=';')
+df = pd.read_csv('output/my_review/aggregated_results.csv', delimiter=';')
 
 print(f"Total papers: {len(df)}")
 print(f"\nPapers by year:")
@@ -171,13 +161,13 @@ print(df.nlargest(10, 'nb_citation')[['title', 'nb_citation']])
 
 ```bash
 # Default (clean output)
-uv run python src/run_collecte.py
+uv run scilex-collect
 
 # Detailed progress
-LOG_LEVEL=INFO uv run python src/run_collecte.py
+LOG_LEVEL=INFO uv run scilex-collect
 
 # Full debugging
-LOG_LEVEL=DEBUG uv run python src/run_collecte.py
+LOG_LEVEL=DEBUG uv run scilex-collect
 ```
 
 ## Next Steps

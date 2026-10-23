@@ -62,8 +62,8 @@ Error: IEEE API key validation failed
 ```
 
 **Solution**:
-1. Check your API key is correct in `scilex/api.config.yml`
-2. Verify the key name matches the expected snake_case form (e.g., `sem_scholar`, not `semantic_scholar`)
+1. Check your API key is correct in `~/.config/scilex/keys.yml` (`scilex config show` displays the effective values, secrets masked)
+2. Verify the section name matches the API name exactly (e.g., `SemanticScholar`, `IEEE`)
 3. Remove any extra spaces or quotes
 4. Verify key is active on API provider's dashboard
 5. Check if key has expired
@@ -77,10 +77,10 @@ HTTP 429: Too Many Requests
 
 **Solution**:
 ```yaml
-# Lower rate limits in scilex/api.config.yml
+# Lower rate limits in ~/.config/scilex/keys.yml
 rate_limits:
   SemanticScholar: 0.5  # Reduce from 1.0
-  IEEE: 5.0  # Reduce from 10.0
+  IEEE: 1.0  # Reduce from 2.0
 ```
 
 ### Connection Timeout
@@ -155,7 +155,7 @@ pip install --upgrade certifi
 1. Check if it's actually making progress (logs update slowly for large queries)
 2. Enable debug logging:
    ```bash
-   LOG_LEVEL=DEBUG uv run python src/run_collecte.py
+   LOG_LEVEL=DEBUG uv run scilex-collect
    ```
 3. Check API rate limits aren't too low
 4. Try with fewer APIs first
@@ -183,15 +183,15 @@ mkdir -p output
 1. Check dual keyword logic:
    ```yaml
    # If only one group is needed:
-   keywords:
-     - ["your", "keywords"]
-     - []  # Keep second group empty
+   search:
+     keywords:
+       - [your, keywords]  # one group only
    ```
 2. Disable strict filters:
    ```yaml
-   quality_filters:
-     apply_citation_filter: false
-     enable_itemtype_filter: false
+   filters:
+     citations: false
+     item_types: null
    ```
 3. Check the aggregation report for which filter removed papers
 
@@ -205,7 +205,7 @@ MemoryError: Unable to allocate array
 **Solution**:
 ```bash
 # Use parallel mode with batching (default)
-uv run python src/aggregate_collect.py
+uv run scilex-aggregate
 
 # Or reduce the year range and re-collect
 ```
@@ -217,10 +217,11 @@ uv run python src/aggregate_collect.py
 **Solution**:
 ```bash
 # Ensure parallel mode is used (default)
-uv run python src/aggregate_collect.py
+uv run scilex-aggregate
 
-# Skip citations if not needed - edit src/scilex.config.yml:
-# aggregate_get_citations: false
+# Skip citations if not needed:
+uv run scilex-aggregate --skip-citations
+# or set citations.fetch: false in scilex.yml
 ```
 
 ## Zotero Issues
@@ -230,8 +231,8 @@ uv run python src/aggregate_collect.py
 **Problem**: Papers don't appear in Zotero
 
 **Solution**:
-1. Check API key in `scilex/api.config.yml`
-2. Verify `user_mode` is set correctly (`"user"` or `"group"`)
+1. Check the `Zotero` section of `~/.config/scilex/keys.yml`
+2. Verify `user_mode` is set correctly (`user` or `group`)
 3. Check that the target Zotero collection exists
 4. Check Zotero storage quota
 
@@ -259,7 +260,8 @@ yaml.scanner.ScannerError: mapping values are not allowed here
 1. Check indentation (use spaces, not tabs)
 2. Check special characters are quoted:
    ```yaml
-   keywords: ["term: with colon"]  # Use quotes
+   search:
+     keywords: [["term: with colon"]]  # Use quotes
    ```
 3. Validate YAML online
 
@@ -267,16 +269,17 @@ yaml.scanner.ScannerError: mapping values are not allowed here
 
 **Problem**:
 ```
-FileNotFoundError: scilex.config.yml not found
+FileNotFoundError: No scilex.yml found
 ```
 
 **Solution**:
 ```bash
-# Check that src/scilex.config.yml exists
-ls src/scilex.config.yml
+# Run from the folder that contains scilex.yml, or point to it
+ls scilex.yml
+scilex-collect --config /path/to/scilex.yml
 
-# Edit to match your needs
-nano src/scilex.config.yml
+# Or create one
+scilex init
 ```
 
 ## Data Quality Issues
@@ -311,7 +314,7 @@ nano src/scilex.config.yml
 ### Enable Debug Logging
 
 ```bash
-LOG_LEVEL=DEBUG uv run python src/run_collecte.py
+LOG_LEVEL=DEBUG uv run scilex-collect
 ```
 
 ### Check Logs
@@ -328,8 +331,8 @@ uv run python "src/API tests/OpenAlexAPI.py"
 ### Verify Configuration
 
 ```bash
-# Check YAML syntax
-uv run python -c "import yaml; yaml.safe_load(open('src/scilex.config.yml'))"
+# Check syntax and values of scilex.yml and keys.yml
+uv run scilex config check
 ```
 
 ## Getting Help
