@@ -25,5 +25,16 @@ Mandat utilisateur (2026-10-23) : enchaîner les lots 1 à 5 sans redemander ; a
 - Guide utilisateur à jour (122fbd53).
 - Vague 2 en cours : Configure éditeur brut (YAML cassé, clés inconnues) ; Analyses onglet Citations + annulation ; relecture de code en lecture seule.
 
-## Ensuite
-Fusion vague 2, corrections de la relecture, rebuild de l'app, agent testeur headless, ff de dev.
+## Pause (2026-10-23) — état exact
+- `dev` = `gui-integration` = ca29f0ff : lots 1-5 + relecture + corrections du test navigateur ; 1982 tests OK, ruff OK.
+- Test « humain » (agent Sonnet, Chrome headless, faux HOME) : tous les écrans OK de bout en bout ; bugs trouvés tous corrigés (mots-clés en groupes, citations « réussies » à tort, création à moitié faite, commentaires perdus, -150 % du rapport de filtrage, UX/cosmétique).
+- Non vérifié visuellement après correction : largeur du log, colonnes du tableau Screen, noms longs sur les cartes, libellés doublés.
+- Limite acceptée : Citations termine en échec si aucun article n'a de références (petit corpus).
+- `dist/SciLEx.app` date d'avant les corrections du test (à reconstruire).
+
+## Reprise (dans l'ordre)
+1. `scripts/build_gui.sh` (l'app doit être fermée) → self-test (vérifie aussi les 6 pages).
+2. Agent Sonnet testeur : passe de vérification courte des correctifs visuels + parcours complet (même brief, port 8766, faux HOME).
+3. Supprimer le worktree `../SciLEx-integration` et la branche `gui-integration` une fois dev à jour.
+4. Commits en français antérieurs (lot 0, 56d9b2d8…8b0544b8) : reformuler en anglais seulement si l'utilisateur le demande, avant tout push.
+5. Push + CI multi-OS (avec accord).
