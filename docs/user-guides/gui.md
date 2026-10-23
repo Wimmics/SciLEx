@@ -5,10 +5,8 @@ It works on the same files as the CLI: a review is a folder containing a `scilex
 and API keys live in `~/.config/scilex/keys.yml`. You can switch between the app and
 the `scilex-*` commands at any time.
 
-> Status: early version (foundation). Available: create or open a review, run the
-> collection and aggregation with progress and cancellation. Coming next: configuration
-> and API key editors, paper screening, export, analyses. Until then, edit `scilex.yml`
-> and `keys.yml` with a text editor.
+Screens of a review: ① Configure, ② Collect, ③ Screen, ④ Export, ⑤ Analyses, plus
+API keys. Screen, Export and Analyses unlock once a collection has been aggregated.
 
 ## Install
 
@@ -32,17 +30,72 @@ uv run scilex-gui --browser  # same UI in a browser tab (useful for debugging)
 
 ## First steps
 
-1. **New review**: choose a folder (created if needed), a name and optionally a
-   template (machine learning, bioinformatics…). The app writes `scilex.yml` there.
-   Or **Open a folder** that already contains a `scilex.yml`.
-2. Edit `scilex.yml` in that folder (keywords, years, APIs). See
-   [the configuration reference](../reference/configuration.md).
-3. In the review, open **② Collect** and click **Run**. Progress and logs are shown;
-   **Cancel** stops the collection at the next query.
-4. Results are written to `<folder>/output/<name>/aggregated_results.csv`, exactly as
-   with `scilex-collect` followed by `scilex-aggregate`.
+1. **New review**: choose a folder (created if needed; a relative name such as `Test`
+   is created in your home folder), a name and optionally a template. The app writes
+   `scilex.yml` there. Or **Open a folder** that already contains a `scilex.yml`.
+2. **API keys** (once for all reviews), then **① Configure**, **② Collect**,
+   **③ Screen**, **④ Export**, and optionally **⑤ Analyses**.
 
-Only one collection runs at a time in the app.
+Only one job (collection, export, analysis) runs at a time in the app.
+
+## ① Configure
+
+Edits the review's `scilex.yml` without a text editor. The **Search** section holds the
+name, the keyword groups (a paper must contain at least one term of *each* group), the
+years, the sources and the maximum number of papers per query. Other sections (filters,
+citations, ranking…) fold out, with help on hover and a badge showing where each value
+comes from (file or preset). Errors are shown live and block saving. Only values that
+differ from the defaults are written, and comments in the file are lost when saving from
+the form. **Edit scilex.yml directly** opens the raw file (comments kept); use it to
+repair a file the form cannot load.
+
+## API keys
+
+Keys are global: shared by all reviews and stored in one file whose path is shown
+(`$SCILEX_KEYS`, else `~/.config/scilex/keys.yml`, readable by you only). Type each key
+(the eye icon shows it), add several for rotation if needed, click **Test** to check it,
+then **Save**. Zotero, the Unpaywall and CrossRef e-mails and the rate limits
+(**Advanced**) are set here too. An environment variable `SCILEX_<API>_<FIELD>` takes
+precedence over the file; a warning says so.
+
+## ② Collect
+
+Check the summary line (APIs, years, keyword groups), then click **Run**. A table shows
+each API's progress, papers, errors and state; the aggregation steps follow. **Only
+papers since** (YYYY-MM-DD) collects recent papers only. If a collection was
+interrupted, **Resume interrupted collection** continues where it stopped. At the end, a
+summary (collected, after deduplication, kept) and the PRISMA and aggregation reports are
+available. **Cancel** stops the collection at the next query; the aggregation cannot be
+interrupted. Results go to `<folder>/output/<name>/aggregated_results.csv`, exactly as
+with `scilex-collect` then `scilex-aggregate`.
+
+## ③ Screen
+
+Lists the aggregated papers by relevance score. Select a paper to read its abstract and
+open its DOI, then click **Include**, **Exclude** or **Maybe**, or press **I**, **E**,
+**M**; the arrows (or **J**/**K**) move between papers. A note can go with each decision.
+Decisions are saved at once to `output/<name>/screening.csv` and survive a new
+aggregation; decisions on papers that disappeared are listed as *orphans* and can be
+forgotten. A note typed without a decision is not kept.
+
+## ④ Export
+
+Choose the papers: only those marked *included* while screening, or all of them. Four
+formats: BibTeX, CSV (`;`-separated, with the screening decision and note), RDF/Turtle,
+and Zotero (a collection named after the review; duplicates skipped). Each export is
+written to the review's `exports/` folder, with the scope and a timestamp in its name;
+the path is shown at the end with a button to reveal it, and previous exports are listed.
+The Zotero button stays disabled until the Zotero key and library id are set in
+**API keys**.
+
+## ⑤ Analyses
+
+Tabs: charts, keyword suggestions, HuggingFace enrichment, citations, snowball, citation
+graph and community summaries. Each tab describes the analysis, offers its main options
+and a **Run** button; progress and logs are shown live. Results (images, Markdown
+reports, tables) are read from the collection folder and shown again when the tab opens.
+Snowball and the graph need the citation data (**Citations** tab); keyword suggestions
+and summaries need the graph to have run first.
 
 ## Troubleshooting
 
