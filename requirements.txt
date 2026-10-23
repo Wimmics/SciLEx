@@ -17,7 +17,7 @@ attrs==25.4.0
     #   referencing
 beautifulsoup4==4.13.4
     # via scilex
-bibtexparser==1.4.3
+bibtexparser==2.1.0
     # via scilex
 blinker==1.9.0
     # via streamlit
@@ -87,6 +87,8 @@ idna==3.10
     #   requests
 iniconfig==2.3.0
     # via pytest
+isodate==0.7.2 ; python_full_version < '3.11'
+    # via rdflib
 jinja2==3.1.6
     # via
     #   altair
@@ -105,6 +107,12 @@ matplotlib==3.10.9
     # via scilex
 narwhals==2.17.0
     # via altair
+networkx==3.4.2 ; python_full_version < '3.11'
+    # via scilex
+networkx==3.6.1 ; python_full_version == '3.11.*'
+    # via scilex
+networkx==3.7 ; python_full_version >= '3.12'
+    # via scilex
 numpy==2.2.6 ; python_full_version < '3.11'
     # via
     #   contourpy
@@ -152,10 +160,12 @@ pydeck==0.9.1
     # via streamlit
 pygments==2.19.2
     # via pytest
+pylatexenc==2.11
+    # via bibtexparser
 pyparsing==3.2.3
     # via
-    #   bibtexparser
     #   matplotlib
+    #   rdflib
 pytest==8.4.2
     # via pytest-cov
 pytest-cov==7.0.0
@@ -173,6 +183,8 @@ pyyaml==6.0.2
 rapidfuzz==3.14.3
     # via scilex
 ratelimit==2.2.1
+    # via scilex
+rdflib==7.6.0
     # via scilex
 referencing==0.37.0
     # via

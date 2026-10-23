@@ -107,8 +107,7 @@ class Arxiv_collector(API_collector):
         return [cat.attrib["term"] for cat in categories]
 
     def construct_search_query(self):
-        """
-        Constructs a search query for the API from the keyword sets.
+        """Constructs a search query for the API from the keyword sets.
         The format will be:
         ti:"NLP" OR ti:"Natural Language Processing" OR abs:"NLP" OR abs:"Natural Language Processing"
         AND

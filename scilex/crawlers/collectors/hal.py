@@ -8,8 +8,7 @@ class HAL_collector(API_collector):
     """Collector for fetching publication metadata from the HAL API."""
 
     def __init__(self, filter_param, data_path, api_key):
-        """
-        Initializes the HAL collector with the given parameters.
+        """Initializes the HAL collector with the given parameters.
 
         Args:
             filter_param (Filter_param): The parameters for filtering results (years, keywords, etc.).
@@ -23,8 +22,7 @@ class HAL_collector(API_collector):
         self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
-        """
-        Parses the results from a response for a specific page.
+        """Parses the results from a response for a specific page.
 
         Args:
             response (requests.Response): The API response object containing the results.
@@ -58,8 +56,7 @@ class HAL_collector(API_collector):
         return page_data
 
     def get_configurated_url(self):
-        """
-        Constructs the API URL with the search query and filters based on the year and pagination.
+        """Constructs the API URL with the search query and filters based on the year and pagination.
 
         Returns:
             str: The formatted API URL for the request.

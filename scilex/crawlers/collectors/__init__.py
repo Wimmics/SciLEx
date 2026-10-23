@@ -1,5 +1,4 @@
-"""
-Collectors package for SciLEx.
+"""Collectors package for SciLEx.
 
 This module provides API collectors for various academic paper databases.
 """

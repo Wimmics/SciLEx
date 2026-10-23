@@ -53,9 +53,10 @@ def test_golden_full_article():
         "  copyright = {CC-BY},\n"
         "  archiveprefix = {OpenAlex},\n"
         "  eprint = {W123},\n"
-        "  keywords = {TASK:NER, PTM:BERT},\n"
-        "  note = {HuggingFace: https://huggingface.co/x},\n"
-        "  howpublished = {https://github.com/a/b}\n"
+        "  hfurl = {https://huggingface.co/x},\n"
+        "  howpublished = {https://github.com/a/b},\n"
+        "  task = {NER},\n"
+        "  ptm = {BERT}\n"
         "}"
     )
 

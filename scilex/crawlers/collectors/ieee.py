@@ -6,13 +6,10 @@ from .base import API_collector
 
 
 class IEEE_collector(API_collector):
-    """
-    Collector for fetching publication metadata from the IEEE Xplore API.
-    """
+    """Collector for fetching publication metadata from the IEEE Xplore API."""
 
     def __init__(self, filter_param, data_path, api_key):
-        """
-        Initializes the IEEE collector with the given parameters.
+        """Initializes the IEEE collector with the given parameters.
 
         Args:
             filter_param (Filter_param): The parameters for filtering results (years, keywords, etc.).
@@ -32,8 +29,7 @@ class IEEE_collector(API_collector):
         self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
-        """
-        Parses the results from a response for a specific page.
+        """Parses the results from a response for a specific page.
 
         Args:
             response (requests.Response): The API response object containing the results.
@@ -98,8 +94,7 @@ class IEEE_collector(API_collector):
         return page_data
 
     def get_configurated_url(self):
-        """
-        Constructs the configured API URL with query parameters based on filters.
+        """Constructs the configured API URL with query parameters based on filters.
 
         Returns:
             str: The formatted API URL with the constructed query parameters.

@@ -1,0 +1,197 @@
+"""Convert the legacy configuration files to the new ``scilex.yml`` format."""
+
+import copy
+from pathlib import Path
+
+import yaml
+
+from scilex.config import _merge_advanced_config
+from scilex.config_defaults import (
+    DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
+    DEFAULT_RELEVANCE_WEIGHTS,
+    get_default_quality_filters,
+)
+from scilex.settings.schema import REQUIRE_CHOICES, default_settings_dict
+
+_DEFAULT_NAME = "my_review"
+
+
+def _set_if_different(
+    target: dict, section: str, key: str, value, defaults: dict
+) -> None:
+    """Store ``value`` under ``target[section][key]`` unless it equals the default."""
+    if value != defaults[section][key]:
+        target.setdefault(section, {})[key] = value
+
+
+def _huggingface_block(hf_legacy: dict | None, defaults: dict):
+    """Translate the legacy ``hf_enrichment`` block (None when it is the default)."""
+    default_block = defaults["enrichment"]["huggingface"]
+    if hf_legacy is None:
+        # Legacy consumers treat a missing block as enabled.
+        return True
+    if not hf_legacy.get("enabled", True):
+        return None
+    extras = {
+        key: value
+        for key, value in hf_legacy.items()
+        if key != "enabled" and key in default_block and value != default_block[key]
+    }
+    return {"enabled": True, **extras} if extras else True
+
+
+def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -> dict:
+    """Translate legacy configuration dicts to the new format.
+
+    Values equal to the defaults are omitted so the result stays short.
+
+    Args:
+        main_config: Content of ``scilex.config.yml``.
+        advanced_config: Content of ``scilex.advanced.yml`` (optional).
+
+    Returns:
+        A dict ready to be dumped as ``scilex.yml``.
+    """
+    merged = copy.deepcopy(main_config)
+    _merge_advanced_config(merged, advanced_config)
+    defaults = default_settings_dict()
+    qf = {**get_default_quality_filters(), **(merged.get("quality_filters") or {})}
+
+    result: dict = {"name": merged.get("collect_name", _DEFAULT_NAME)}
+    if "output_dir" in merged:
+        result["output_dir"] = merged["output_dir"]
+
+    search: dict = {
+        "keywords": merged.get("keywords", []),
+        "years": merged.get("years", []),
+        "apis": merged.get("apis", []),
+    }
+    if merged.get("bonus_keywords"):
+        search["bonus_keywords"] = merged["bonus_keywords"]
+    max_articles = merged.get("max_articles_per_query")
+    if max_articles is not None and max_articles != -1:
+        search["max_articles_per_query"] = max_articles
+    mode = merged.get("semantic_scholar_mode", "regular")
+    if mode != defaults["search"]["semantic_scholar_mode"]:
+        search["semantic_scholar_mode"] = mode
+    result["search"] = search
+
+    filters: dict = {}
+    wanted = {
+        "item_types": (
+            list(qf["allowed_item_types"]) if qf["enable_itemtype_filter"] else None
+        ),
+        "always_keep": (
+            list(qf["bypass_item_types"]) if qf["enable_itemtype_bypass"] else []
+        ),
+        "require": [name for name in REQUIRE_CHOICES if qf[f"require_{name}"]],
+        "min_authors": qf["min_author_count"],
+        "abstract_words": [qf["min_abstract_words"], qf["max_abstract_words"]],
+        "abstract_quality": (
+            qf["min_abstract_quality_score"] if qf["validate_abstracts"] else None
+        ),
+        "check_year_range": qf["validate_year_range"],
+        "citations": qf["apply_citation_filter"],
+    }
+    for key, value in wanted.items():
+        _set_if_different(filters, "filters", key, value, defaults)
+    result.update(filters)
+
+    citations: dict = {}
+    _set_if_different(
+        citations,
+        "citations",
+        "fetch",
+        merged.get("aggregate_get_citations", True),
+        defaults,
+    )
+    fallbacks = [
+        name
+        for name, flag in (
+            ("semantic_scholar", qf["use_semantic_scholar_citations"]),
+            ("openalex", qf["use_openalex_citations"]),
+        )
+        if flag
+    ]
+    _set_if_different(citations, "citations", "fallbacks", fallbacks, defaults)
+    result.update(citations)
+
+    ranking: dict = {}
+    _set_if_different(
+        ranking, "ranking", "enabled", qf["apply_relevance_ranking"], defaults
+    )
+    _set_if_different(ranking, "ranking", "max_papers", qf["max_papers"], defaults)
+    weights = {
+        key: value
+        for key, value in qf["relevance_weights"].items()
+        if DEFAULT_RELEVANCE_WEIGHTS.get(key) != value
+    }
+    if weights:
+        ranking.setdefault("ranking", {})["weights"] = weights
+    legacy_types = qf["itemtype_relevance_weights"]
+    itemtype_weights = {
+        key: bool(legacy_types.get(key, False))
+        for key in DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS
+        if bool(legacy_types.get(key, False)) != DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS[key]
+    }
+    itemtype_weights.update(
+        {
+            k: bool(v)
+            for k, v in legacy_types.items()
+            if k not in DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS
+        }
+    )
+    if itemtype_weights:
+        ranking.setdefault("ranking", {})["itemtype_weights"] = itemtype_weights
+    result.update(ranking)
+
+    huggingface = _huggingface_block(merged.get("hf_enrichment"), defaults)
+    if huggingface is not None:
+        result["enrichment"] = {"huggingface": huggingface}
+
+    report: dict = {}
+    _set_if_different(
+        report, "report", "quality_report", qf["generate_quality_report"], defaults
+    )
+    _set_if_different(
+        report, "report", "track_duplicates", qf["track_duplicate_sources"], defaults
+    )
+    result.update(report)
+
+    collect: dict = {}
+    if merged.get("collect") is False:
+        collect["enabled"] = False
+    if merged.get("vpn"):
+        collect["vpn"] = merged["vpn"]
+    if collect:
+        result["collect"] = collect
+    return result
+
+
+def migrate_files(legacy_dir: str | Path) -> str:
+    """Convert ``scilex.config.yml`` (+ optional advanced file) to ``scilex.yml`` text.
+
+    Args:
+        legacy_dir: Directory holding the legacy files.
+
+    Returns:
+        YAML text of the new-format configuration.
+
+    Raises:
+        FileNotFoundError: If ``scilex.config.yml`` is missing.
+    """
+    legacy_dir = Path(legacy_dir)
+    main_path = legacy_dir / "scilex.config.yml"
+    if not main_path.is_file():
+        raise FileNotFoundError(f"Configuration file not found: {main_path}")
+    main_config = yaml.safe_load(main_path.read_text()) or {}
+    advanced_path = legacy_dir / "scilex.advanced.yml"
+    advanced = (
+        (yaml.safe_load(advanced_path.read_text()) or {})
+        if advanced_path.is_file()
+        else None
+    )
+    new_format = legacy_to_settings(main_config, advanced)
+    return yaml.safe_dump(
+        new_format, sort_keys=False, default_flow_style=None, allow_unicode=True
+    )

@@ -14,7 +14,7 @@ import sys
 import pandas as pd
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
-from scilex.constants import is_valid, normalize_path_component
+from scilex.constants import is_valid, normalize_doi, normalize_path_component
 from scilex.crawlers.utils import load_all_configs
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
@@ -61,6 +61,10 @@ _SPECIAL_CHARS_PATTERN = re.compile(
 )
 
 
+BIBTEX_PLAIN_FILENAME = "aggregated_results.bib"
+BIBTEX_CITATIONS_FILENAME = "aggregated_results_with_citations.bib"
+
+
 def load_config(collect_name: str | None = None, output_dir: str | None = None) -> dict:
     """Load scilex.config.yml configuration, with optional CLI overrides.
 
@@ -100,6 +104,39 @@ def parse_tags(tags_str: str) -> list[str]:
 
     tags = [tag.strip() for tag in str(tags_str).split(";")]
     return [t for t in tags if t]  # Remove empty strings
+
+
+# HuggingFace tag prefixes -> dedicated BibTeX fields (read by the RDF exporter).
+TAG_PREFIX_TO_FIELD: dict[str, str] = {
+    "TASK:": "task",
+    "PTM:": "ptm",
+    "ARCHI:": "archi",
+    "DATASET:": "hfdataset",
+    "FRAMEWORK:": "framework",
+    "GITHUB_STARS:": "githubstars",
+    "CITED_BY_DATASET:": "citingdatasets",
+}
+
+
+def classify_tags(tags_list: list[str]) -> dict[str, list[str]]:
+    """Split tags into HuggingFace fields by prefix; unprefixed tags go to "keywords".
+
+    Args:
+        tags_list: List of tag strings, possibly prefixed (e.g. "TASK:NER").
+
+    Returns:
+        Dict mapping BibTeX field names to lists of stripped tag values.
+    """
+    result: dict[str, list[str]] = {"keywords": []}
+    result.update({field_name: [] for field_name in TAG_PREFIX_TO_FIELD.values()})
+    for tag in tags_list:
+        for prefix, field_name in TAG_PREFIX_TO_FIELD.items():
+            if tag.startswith(prefix):
+                result[field_name].append(tag[len(prefix) :])
+                break
+        else:
+            result["keywords"].append(tag)
+    return result
 
 
 def escape_bibtex(text: str) -> str:
@@ -291,9 +328,16 @@ def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
     return final_key
 
 
-def _format_keywords(tags_str) -> str:
-    """Format HF tags as a comma-separated, escaped BibTeX keywords value."""
-    return ", ".join(escape_bibtex(tag) for tag in parse_tags(tags_str))
+def _tag_field_lines(tags_str) -> list[str]:
+    """Build BibTeX lines for tags: one field per HF prefix, then plain keywords."""
+    classified = classify_tags(parse_tags(tags_str))
+    lines = []
+    for field_name in [*TAG_PREFIX_TO_FIELD.values(), "keywords"]:
+        values = classified[field_name]
+        if values:
+            joined = ", ".join(escape_bibtex(value) for value in values)
+            lines.append(f"  {field_name} = {{{joined}}},")
+    return lines
 
 
 # (bibtex_field, row_field, formatter, allowed_entry_types or None for all).
@@ -308,7 +352,7 @@ _ENTRY_FIELDS = [
     ("pages", "pages", format_pages, None),
     ("publisher", "publisher", lambda v: escape_bibtex(v), _PUBLISHER_TYPES),
     ("series", "serie", lambda v: escape_bibtex(str(v)), None),
-    ("doi", "DOI", lambda v: escape_bibtex(str(v)), None),
+    ("doi", "DOI", lambda v: escape_bibtex(normalize_doi(v) or str(v)), None),
     ("url", "url", _escape_url, None),
     ("file", "pdf_url", _escape_url, None),
     ("abstract", "abstract", lambda v: escape_bibtex(str(v)), None),
@@ -316,19 +360,27 @@ _ENTRY_FIELDS = [
     ("copyright", "rights", lambda v: escape_bibtex(str(v)), None),
     ("archiveprefix", "archive", lambda v: escape_bibtex(str(v)), None),
     ("eprint", "archiveID", lambda v: escape_bibtex(str(v)), None),
-    ("keywords", "tags", _format_keywords, None),
-    ("note", "hf_url", lambda v: f"HuggingFace: {_escape_url(v)}", None),
+    ("hfurl", "hf_url", _escape_url, None),
     ("howpublished", "github_repo", _escape_url, None),
+    # SciLEx internal fields, consumed by the RDF exporter
+    ("relevancescore", "relevance_score", str, None),
+    ("citationcount", "nb_citation", str, None),
 ]
 
 
-def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
-    """
-    Generate complete BibTeX entry for a paper.
+def format_bibtex_entry(
+    row: pd.Series,
+    citation_key: str,
+    references: list[str] | None = None,
+    cited_by: list[str] | None = None,
+) -> str:
+    """Generate complete BibTeX entry for a paper.
 
     Args:
         row: Paper data row
         citation_key: Citation key for the entry
+        references: Optional cited DOIs (outgoing), exported as ``bibo:cites`` in RDF
+        cited_by: Optional citing DOIs (incoming), exported as ``bibo:citedBy`` in RDF
 
     Returns:
         Formatted BibTeX entry string
@@ -364,6 +416,15 @@ def format_bibtex_entry(row: pd.Series, citation_key: str) -> str:
         if formatted:
             lines.append(f"  {bibtex_field} = {{{formatted}}},")
 
+    tags_str = safe_get(row, "tags")
+    if is_valid(tags_str):
+        lines.extend(_tag_field_lines(tags_str))
+
+    if references:
+        lines.append(f"  references = {{{', '.join(references)}}},")
+    if cited_by:
+        lines.append(f"  cited_by = {{{', '.join(cited_by)}}},")
+
     # Close entry (remove trailing comma from last line)
     lines[-1] = lines[-1].rstrip(",")
     lines.append("}")
@@ -388,7 +449,7 @@ def export_to_bibtex(data: pd.DataFrame, config: dict) -> str:
     )
 
     # Output file path
-    output_file = os.path.join(dir_collect, "aggregated_results.bib")
+    output_file = os.path.join(dir_collect, BIBTEX_PLAIN_FILENAME)
 
     logger.info(f"Exporting {len(data)} papers to BibTeX")
     logger.info(f"Output file: {output_file}")
