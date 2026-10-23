@@ -34,7 +34,9 @@ developer-guides/adding-collectors
 :maxdepth: 2
 :caption: Reference
 
+reference/configuration
 reference/api-comparison
+reference/bibtex-export
 ```
 
 ## Supported APIs
@@ -74,22 +76,23 @@ Query multiple academic databases in parallel with automatic rate limiting.
 ## Basic Usage
 
 ```bash
-# 1. Configure search
-cp src/scilex.config.yml src/scilex.config.yml.bak  # back up existing
-nano src/scilex.config.yml
+# 1. Create the review configuration (scilex.yml in your working folder)
+scilex init
 
-# 2. Set up API keys
-cp src/api.config.yml.example scilex/api.config.yml
-nano scilex/api.config.yml
+# 2. Set up API keys (shared by all reviews)
+mkdir -p ~/.config/scilex
+cp keys.yml.example ~/.config/scilex/keys.yml
+nano ~/.config/scilex/keys.yml
 
-# 3. Run collection
-uv run python src/run_collecte.py
+# 3. Validate, then collect
+scilex config check
+scilex-collect
 
 # 4. Aggregate results
-uv run python src/aggregate_collect.py
+scilex-aggregate
 
 # 5. Export to Zotero (optional)
-uv run python src/push_to_Zotero_collect.py
+scilex-push-zotero
 ```
 
 ## System Requirements

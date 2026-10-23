@@ -4,8 +4,8 @@
 
 ```bash
 uv sync --extra dev
-cp scilex/api.config.yml.example scilex/api.config.yml
-cp scilex/scilex.config.yml.example scilex/scilex.config.yml
+mkdir -p ~/.config/scilex && cp keys.yml.example ~/.config/scilex/keys.yml   # API keys (optional for tests)
+cp scilex.yml.example scilex.yml                                              # a review config, only to run the CLI
 uv run python -m pytest tests/
 ```
 

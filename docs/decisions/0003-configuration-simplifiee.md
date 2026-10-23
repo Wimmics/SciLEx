@@ -88,7 +88,7 @@ programme avec un message lisible : chemin de la clé, valeur reçue, suggestion
 - `--resume` / `--collection` continuent de lire `config_used.yml`.
 
 ### 6. Commandes
-- `scilex init` : assistant interactif, écrit un `scilex.yml` court (et `keys.yml` si absent).
+- `scilex init` : assistant interactif, écrit un `scilex.yml` court ; si `keys.yml` est absent, indique où le créer (aucune clé n'est copiée).
 - `scilex config show` : config effective, avec la provenance de chaque valeur (défaut/preset/fichier/CLI).
 - `scilex config migrate [--from DIR] [--write]` : convertit l'ancien format ; sans `--write`, affiche le résultat.
 - `scilex config check` : valide sans rien lancer.
