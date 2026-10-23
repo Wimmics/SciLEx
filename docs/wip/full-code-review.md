@@ -3,8 +3,12 @@
 Démarré : 2026-10-23. Branche : `dev`. Base : 972 tests verts, 1 skip. Politique : ADR 0001.
 
 ## Prochaine étape
-Vague 1 (fichiers hors fusion) en cours ; fusion origin/main en cours (worktree `../SciLEx-merge`).
-Vague 2 après fusion.
+Vague 2 en cours (6 agents en worktree). Ensuite : découpage de `run_aggregation`,
+API `run_enrichment` en cœur (lèvera la limite « un job web à la fois »), mise à jour de CLAUDE.md.
+
+## Piège
+Les worktrees d'agents (`isolation: worktree`) partent d'`origin/main`, pas de `dev` :
+chaque brief commence par `git reset --hard dev`.
 
 ## Constats principaux (review du 2026-10-23)
 ### Bugs
@@ -29,6 +33,6 @@ Vague 2 après fusion.
 ## État
 - [x] Lint autofix (adab616b)
 - [x] Review (6 zones)
-- [ ] Fusion origin/main
-- [ ] Vague 1
+- [x] Fusion origin/main (b363563b) — fonctionnalités portées dans `scilex/pipeline/`
+- [x] Vague 1 : BibTeX, citations (cache/tools), HuggingFace, API web — 1151 tests
 - [ ] Vague 2
