@@ -50,6 +50,7 @@ class Job:
     message: str = ""
     logs: list[str] = field(default_factory=list)
     api_stats: dict = field(default_factory=dict)
+    aggregation_phase: str | None = None  # last phase of the aggregation callback
     error: str | None = None
     result: Any = None  # value returned by a task body, for the page to display
     started_at: datetime = field(default_factory=datetime.now)
@@ -144,13 +145,38 @@ class JobRunner:
         return job
 
     def start_pipeline(
-        self, review: Review, config: SciLExConfig, *, skip_citations: bool = False
+        self,
+        review: Review,
+        config: SciLExConfig,
+        *,
+        skip_citations: bool = False,
+        since: str | None = None,
+        resume: bool = False,
     ) -> Job:
         """Run collection then aggregation for ``review`` in a background thread.
 
+        Args:
+            review: The review to run.
+            config: Its loaded configuration.
+            skip_citations: Skip the citation counts in the aggregation.
+            since: ``YYYY-MM-DD``; only collect papers since that date
+                (like ``scilex-collect --since``).
+            resume: Resume the interrupted collection from its saved
+                configuration (like ``scilex-collect --resume``).
+
         Raises:
             JobConflictError: If another job is still active.
+            ValueError: If ``since`` is not a valid date.
+            FileNotFoundError: If ``resume`` is set but nothing can be resumed.
         """
+        from scilex.gui.services.collect_summary import resume_config
+        from scilex.since_utils import parse_since
+
+        if resume:
+            config = resume_config(review.collection_dir, config)
+        if since:
+            parse_since(since)
+            config.main["since"] = since
         job = self._new_job(review, PIPELINE)
 
         def body() -> str:
@@ -243,6 +269,7 @@ class JobRunner:
         job.message = "Aggregating results…"
 
         def on_progress(phase, percent, message):
+            job.aggregation_phase = phase
             job.progress = _scale(percent / 100, AGGREGATE_RANGE)
             job.message = message
 
