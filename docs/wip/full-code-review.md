@@ -42,6 +42,6 @@ chaque brief commence par `git reset --hard dev`.
 - [x] Config C2 fusionné (b910a1a7, 1737 tests) : resolve.py point unique, --config/--keys sur 14 CLI, scilex init/config, VPN, webapi
 - [x] Lot docs/README fusionné (ce84d309, fb6b78ea) ; CLAUDE.md local mis à jour (gitignoré)
 - [x] run_enrichment (17094a5d) ; scilex-86 parallélise _enrich_rows
-- [ ] Découpe run_aggregation en cours (agent Sonnet, test de caractérisation d'abord)
-- [ ] Revue finale
+- [x] Découpe run_aggregation (eabf1772) + correctifs bypass/rapport vide (888fa63f, 80eea6d6) ; HF parallèle par scilex-86
+- [ ] Revue finale en cours (agent Sonnet, lecture seule)
 - Ouvert (choix) : webapi crée encore scilex/api.config.yml si ~/.config/scilex/keys.yml absent ; seuils CitationFilterConfig non configurables
