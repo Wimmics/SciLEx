@@ -24,7 +24,9 @@ from scilex.config import SciLExConfig
 from scilex.config_defaults import (
     DEFAULT_AGGREGATED_FILENAME,
     DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
+    DEFAULT_DOI_RECOVERY_MIN_SIMILARITY,
     DEFAULT_OUTPUT_DIR,
+    DEFAULT_RECOVER_MISSING_DOIS,
     MAX_ABSTRACT_WORDS,
     MIN_ABSTRACT_QUALITY_SCORE,
     MIN_ABSTRACT_WORDS,
@@ -335,6 +337,22 @@ def run_aggregation(
 
     if progress_callback:
         progress_callback("filtering", 30, "Applying filters...")
+
+    # =========================================================================
+    # STEP -1 (opt-in): Recover missing DOIs via CrossRef
+    # =========================================================================
+    if quality_filters.get("recover_missing_dois", DEFAULT_RECOVER_MISSING_DOIS):
+        from scilex.pipeline.doi_recovery import recover_missing_dois
+
+        logging.info("\n=== DOI Recovery (CrossRef) ===")
+        df_clean, _doi_stats = recover_missing_dois(
+            df_clean,
+            min_similarity=quality_filters.get(
+                "doi_recovery_min_similarity", DEFAULT_DOI_RECOVERY_MIN_SIMILARITY
+            ),
+            mailto=(api_config or {}).get("CrossRef", {}).get("mailto"),
+            cache_path=os.path.join(dir_collect, "doi_recovery_cache.json"),
+        )
 
     # =========================================================================
     # STEP 0: Fill Missing URLs from DOIs
