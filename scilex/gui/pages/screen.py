@@ -156,7 +156,6 @@ class ScreenPage:
                         "filter": True,
                         "resizable": True,
                     },
-                    "autoSizeStrategy": {"type": "fitGridWidth"},
                     "tooltipShowDelay": 500,
                 }
             )
