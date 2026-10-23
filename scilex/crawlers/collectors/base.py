@@ -16,6 +16,10 @@ from scilex.crawlers.circuit_breaker import (
 )
 from scilex.crawlers.utils import sanitize_secrets
 
+# Marker files written in each query directory (see CollectCollection._query_is_complete)
+COMPLETE_FILE_NAME = "_complete"  # query fully collected
+STATE_FILE_NAME = "_state"  # query started but not finished
+
 
 class Filter_param:
     def __init__(self, year, keywords, max_articles_per_query=-1):
@@ -59,7 +63,6 @@ class API_collector:
         self.total_art = int(data_query["total_art"])
         self.lastpage = int(data_query["last_page"])
         self.nb_art_collected = int(data_query["coll_art"])
-        self.big_collect = 0
         self.max_by_page = 100
         self.api_url = ""
         self.state = data_query["state"]
@@ -199,9 +202,6 @@ class API_collector:
     def get_collectId(self):
         return self.collectId
 
-    def set_collectId(self, collectId):
-        self.collectId = collectId
-
     def set_state(self, complete):
         self.state = complete
 
@@ -256,9 +256,6 @@ class API_collector:
     def get_collectDir(self):
         return self.get_apiDir() + "/" + str(self.get_collectId())
 
-    def get_fileCollect(self):
-        return self.get_dataDir() + "/collect_dict.json"
-
     def get_url(self):
         return self.api_url
 
@@ -267,9 +264,6 @@ class API_collector:
 
     def get_max_by_page(self):
         return self.max_by_page
-
-    def get_ratelimit(self):
-        return self.rate_limit
 
     def get_auth_headers(self):
         """Return HTTP headers for authentication. Override in subclasses that need auth headers."""
@@ -476,17 +470,85 @@ class API_collector:
             )
             time.sleep(wait_time)
 
-    def toZotero():
-        pass
+    def _get_api_endpoints(self):
+        """URL templates to paginate through, in order (each has one ``{}`` offset slot).
+
+        Most APIs have a single endpoint. Override for APIs that must be queried
+        on several endpoints (e.g. Springer meta + openaccess); pages of all
+        endpoints are saved under consecutive page numbers.
+        """
+        return [self.get_configurated_url()]
+
+    def _post_process_page(self, page_data):
+        """Hook to clean a parsed page before it is counted and saved.
+
+        The pagination decision still uses the raw result count of the page.
+        """
+        return page_data
+
+    def _mark_incomplete(self):
+        """Record that a collection run started in this query directory."""
+        self.createCollectDir()
+        marker = os.path.join(self.get_collectDir(), STATE_FILE_NAME)
+        with open(marker, "w") as marker_file:
+            marker_file.write("incomplete")
+
+    def _mark_complete(self):
+        """Write the completion marker consumed by ``CollectCollection``."""
+        self.createCollectDir()
+        collect_dir = self.get_collectDir()
+        with open(os.path.join(collect_dir, COMPLETE_FILE_NAME), "w") as marker_file:
+            marker_file.write("1")
+        state_file = os.path.join(collect_dir, STATE_FILE_NAME)
+        if os.path.exists(state_file):
+            os.remove(state_file)
+
+    @staticmethod
+    def _throttle_status(exc):
+        """Return 429/409 when ``exc`` is a persistent throttle error, else None."""
+        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        return status_code if status_code in API_collector.THROTTLE_STATUS else None
+
+    def _try_vpn_rotation(self, throttle_code, page):
+        """Rotate the VPN IP after a persistent throttle. True when a retry is worthwhile."""
+        from scilex.vpn.rotator import get_vpn_rotator
+
+        rotator = get_vpn_rotator()
+        if not rotator.should_rotate(self.api_name):
+            return False
+        logging.warning(
+            f"[VPN] {self.api_name} Q{self.collectId} page {page}: "
+            f"persistent {throttle_code} — triggering IP rotation "
+            f"(rotation {rotator.rotation_count + 1}/{rotator.max_rotations})"
+        )
+        if rotator.rotate():
+            logging.warning(
+                f"[VPN] {self.api_name} Q{self.collectId}: retrying page {page} with new IP"
+            )
+            return True
+        logging.warning(
+            f"[VPN] {self.api_name} Q{self.collectId}: "
+            f"rotation failed — giving up on this query"
+        )
+        return False
+
+    def _max_articles_reached(self):
+        max_articles = self.filter_param.get_max_articles_per_query()
+        return max_articles > 0 and self.nb_art_collected >= max_articles
 
     def runCollect(self):
-        """
-        Runs the collection process for DBLP and Springer publications.
+        """Collect every page of the query and save them to disk.
 
-        This method retrieves publication data in pages until all results
-        are collected or a specified limit is reached.
-        """
+        Pages are fetched until the API reports no more results or
+        ``max_articles_per_query`` is reached (both mean the query is done,
+        ``state`` = 1). Any failure leaves ``state`` = 0 so the query is resumed
+        on the next run. Buffered pages are always flushed to disk, even when
+        the loop ends on an exception.
 
+        Returns:
+            dict: ``state``, ``last_page``, ``total_art``, ``coll_art``,
+            ``update_date`` and ``id_collect``.
+        """
         state_data = {
             "state": self.state,
             "last_page": self.lastpage,
@@ -495,272 +557,115 @@ class API_collector:
             "update_date": str(date.today()),
             "id_collect": self.collectId,
         }
-        # self.getCollectId()  # Retrieve the collection identifier
 
-        # Check if the collection has already been completed
         if self.state == 1:
             logging.info("Collection already completed.")
-            return  # Exit if collection is complete
+            return state_data
 
-        page = int(self.get_lastpage()) + 1  # Start from the next page
-        has_more_pages = True
-        logging.debug(f"Starting collection from page {page}")
-        # Determine if there are fewer than 10,000 results based on collection size
-        fewer_than_10k_results = self.big_collect == 0
-        _first_results_logged = False
+        endpoints = self._get_api_endpoints()
+        if len(endpoints) > 1 and self.lastpage > 0:
+            # Pages of several endpoints share one numbering, so a partial run
+            # cannot be resumed mid-way: start over (page files are overwritten).
+            logging.info(
+                f"{self.api_name} Q{self.collectId}: restarting multi-endpoint "
+                f"collection from scratch"
+            )
+            self.set_lastpage(0)
+            self.nb_art_collected = 0
+            state_data["last_page"] = 0
+            state_data["coll_art"] = 0
 
-        # Import here to avoid circular imports
-        from .arxiv import Arxiv_collector
-        from .springer import Springer_collector
+        self._mark_incomplete()
+        completed = False
+        try:
+            completed = all(
+                self._collect_endpoint(endpoint, state_data, resume=len(endpoints) == 1)
+                for endpoint in endpoints
+            )
+        finally:
+            self._flush_buffer()
 
-        if isinstance(self, Springer_collector):
-            # If this is a Springer collector, use the 'collect_from_endpoints' method
-            logging.info("Running collection for Springer data.")
-
-            try:
-                combined_results = (
-                    self.collect_from_endpoints()
-                )  # Collect results from Springer endpoints
-
-                for page_data in combined_results:
-                    # PRE-CHECK: Stop if we've already collected enough articles
-                    max_articles = self.filter_param.get_max_articles_per_query()
-                    if max_articles > 0 and self.nb_art_collected >= max_articles:
-                        logging.info(
-                            f"Reached max_articles_per_query limit ({max_articles}). "
-                            f"Already collected {self.nb_art_collected} articles. Skipping remaining pages."
-                        )
-                        break
-
-                    # Save each page's results
-                    self.savePageResults(page_data, page)
-                    self.nb_art_collected += len(page_data["results"])
-
-                    # Update the last page collected
-                    self.set_lastpage(int(page) + 1)
-
-                    # Check if more pages are available based on results
-                    if (
-                        len(page_data["results"]) > 0
-                        and "total" in page_data
-                        and page_data["total"] > 0
-                    ):
-                        # Calculate expected pages based on total results
-                        expected_pages = math.ceil(
-                            page_data["total"] / self.get_max_by_page()
-                        )
-                        has_more_pages = page < expected_pages
-
-                        # Check if we've collected enough articles
-                        max_articles = self.filter_param.get_max_articles_per_query()
-                        if max_articles > 0 and self.nb_art_collected >= max_articles:
-                            logging.debug(
-                                f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
-                                f"No more pages needed."
-                            )
-                            has_more_pages = False
-                    else:
-                        has_more_pages = False
-
-                    page = self.get_lastpage()  # Update the current page number
-
-                    # Check if total results are within the limit
-                    fewer_than_10k_results = page_data["total"] <= 10000
-                    logging.debug(
-                        f"Processed page {page}: {len(page_data['results'])} results. Total found: {page_data['total']}"
-                    )
-
-            except Exception as e:
-                # Log additional context about the error
-                logging.error(
-                    f"Error processing results on page {page} from Springer API: {str(e)}"
-                )
-                has_more_pages = False  # Stop collecting if there's an error
-
-        else:
-            # If this is a DBLP collector, follow the normal process
-
-            while has_more_pages and fewer_than_10k_results:
-                # PRE-CHECK: Stop if we've already collected enough articles
-                max_articles = self.filter_param.get_max_articles_per_query()
-                if max_articles > 0 and self.nb_art_collected >= max_articles:
-                    logging.info(
-                        f"Reached max_articles_per_query limit ({max_articles}). "
-                        f"Already collected {self.nb_art_collected} articles. Stopping before page {page}."
-                    )
-                    break
-
-                offset = self.get_offset(page)  # Calculate the current offset
-
-                url = self.get_configurated_url().format(
-                    offset
-                )  # Construct the API URL
-
-                logging.debug(f"Fetching data from URL: {url}")
-
-                try:
-                    response = self.api_call_decorator(
-                        url, headers=self.get_auth_headers()
-                    )
-                except Exception as api_exc:
-                    self.createCollectDir()
-                    self._flush_buffer()
-                    exc_str = str(api_exc)
-                    is_throttle = "429" in exc_str or "409" in exc_str
-
-                    if is_throttle:
-                        throttle_code = "409" if "409" in exc_str else "429"
-                        # Before giving up, try rotating the VPN IP so the next
-                        # attempt comes from a fresh address.
-                        from scilex.vpn.rotator import get_vpn_rotator
-
-                        rotator = get_vpn_rotator()
-                        if rotator.should_rotate(self.api_name):
-                            logging.warning(
-                                f"[VPN] {self.api_name} Q{self.collectId} page {page}: "
-                                f"persistent {throttle_code} — triggering IP rotation "
-                                f"(rotation {rotator.rotation_count + 1}/{rotator.max_rotations})"
-                            )
-                            if rotator.rotate():
-                                logging.warning(
-                                    f"[VPN] {self.api_name} Q{self.collectId}: "
-                                    f"retrying page {page} with new IP"
-                                )
-                                continue  # Back to top of while loop, same page, new IP
-                            logging.warning(
-                                f"[VPN] {self.api_name} Q{self.collectId}: "
-                                f"rotation failed — giving up on this query"
-                            )
-
-                        # VPN rotation unavailable or failed — record and give up.
-                        CircuitBreakerRegistry().get_breaker(
-                            self.api_name
-                        ).record_failure()
-                        if page == 1 and self.nb_art_collected == 0:
-                            logging.warning(
-                                f"{self.api_name}: persistent {throttle_code} on first page "
-                                f"of query {self.collectId} — marking complete to avoid resume loop."
-                            )
-                        else:
-                            logging.warning(
-                                f"{self.api_name}: persistent {throttle_code} on page {page} "
-                                f"of query {self.collectId} after {self.nb_art_collected} results "
-                                f"— marking complete (partial)."
-                            )
-                        state_data["state"] = 1
-                    else:
-                        logging.error(
-                            f"{self.api_name} API call failed for page {page} "
-                            f"(query {self.collectId}): {api_exc}"
-                        )
-                        state_data["state"] = 0
-                    return state_data
-                logging.debug(f"{self.api_name} API call completed for page {page}")
-                try:
-                    page_data = self.parsePageResults(
-                        response, page
-                    )  # Parse the response
-
-                    # Log API usage statistics
-                    self.log_api_usage(
-                        response, page, len(page_data.get("results", []))
-                    )
-
-                    self.nb_art_collected += int(len(page_data["results"]))
-                    nb_res = len(page_data["results"])
-
-                    if not _first_results_logged and nb_res > 0:
-                        kw_str = " + ".join(f'"{k}"' for k in self.get_keywords())
-                        logging.info(
-                            f"[{self.api_name}] Q{self.collectId} ({kw_str}, {self.get_year()}): "
-                            f"page {page} → {nb_res} results, {page_data['total']} total"
-                        )
-                        _first_results_logged = True
-
-                    # Determine if more pages are available based on results returned
-                    if nb_res != 0 and "total" in page_data and page_data["total"] > 0:
-                        # Calculate expected pages based on total results
-                        expected_pages = math.ceil(
-                            page_data["total"] / self.get_max_by_page()
-                        )
-
-                        # Check if we should fetch more pages based on total
-                        has_more_pages = page < expected_pages
-
-                        # Check if we've collected enough articles
-                        max_articles = self.filter_param.get_max_articles_per_query()
-                        if max_articles > 0 and self.nb_art_collected >= max_articles:
-                            logging.debug(
-                                f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
-                                f"No more pages needed."
-                            )
-                            has_more_pages = False
-                    else:
-                        has_more_pages = False
-
-                    if isinstance(self, Arxiv_collector):
-                        page_data["results"] = [
-                            x for x in page_data["results"] if x is not None
-                        ]
-                    logging.debug(f"Articles collected so far: {self.nb_art_collected}")
-                    # Save the page results for future use
-                    self.savePageResults(page_data, page)
-                    # Update the last page collected
-                    self.set_lastpage(int(page) + 1)
-
-                    # print("MAX ART >", self.get_max_by_page())
-                    page = self.get_lastpage()  # Update the current page number
-
-                    state_data["last_page"] = page
-                    state_data["total_art"] = page_data["total"]
-                    state_data["coll_art"] = state_data["coll_art"] + len(
-                        page_data["results"]
-                    )
-
-                    # Check if the total number of results is within the limit
-                    # fewer_than_10k_results = page_data["total"] <= 10000
-
-                    logging.debug(
-                        f"Processed page {page}: {len(page_data['results'])} results. Total found: {page_data['total']}"
-                    )
-
-                except Exception as e:
-                    # Log additional context about the error
-                    logging.error(
-                        f"Error processing results on page {page} from URL '{url}': {str(e)}. "
-                        f"Response type: {type(response)}."
-                    )
-                    has_more_pages = False  # Stop collecting if there's an error
-                    state_data["state"] = 0
-                    state_data["last_page"] = page
-                    self._flush_buffer()  # Flush before early return (Phase 1)
-                    return state_data
-
-        # Final log messages based on the collection status
-
-        if not has_more_pages:
+        if completed:
             logging.debug("No more pages to collect. Marking collection as complete.")
             state_data["state"] = 1
-            # Write completion sentinel so resume logic knows this query is fully done
-            self.createCollectDir()
-            try:
-                with open(os.path.join(self.get_collectDir(), "_complete"), "w") as _f:
-                    _f.write("1")
-            except OSError:
-                pass
-        else:
-            time_needed = page_data["total"] / self.get_max_by_page() / 60 / 60
-            logging.info(
-                f"Total extraction will need approximately {time_needed:.2f} hours."
-            )
-
-        # Flush any remaining buffered results
-        self._flush_buffer()
-
+            self._mark_complete()
         return state_data
 
-    def add_offset_param(self, page):
-        return self.get_configurated_url().format((page - 1) * self.get_max_by_page())
+    def _collect_endpoint(self, endpoint_url, state_data, resume):
+        """Paginate through one endpoint. Return True when it was fully collected."""
+        endpoint_page = self.get_lastpage() + 1 if resume else 1
+        first_results_logged = False
+
+        while True:
+            if self._max_articles_reached():
+                logging.info(
+                    f"Reached max_articles_per_query limit "
+                    f"({self.filter_param.get_max_articles_per_query()}). "
+                    f"Already collected {self.nb_art_collected} articles. Stopping."
+                )
+                return True
+
+            page = self.get_lastpage() + 1  # Page file number (1-based)
+            url = endpoint_url.format(self.get_offset(endpoint_page))
+            logging.debug(f"Fetching data from URL: {self._sanitize_url(url)}")
+
+            try:
+                response = self.api_call_decorator(url, headers=self.get_auth_headers())
+            except Exception as api_exc:
+                throttle_code = self._throttle_status(api_exc)
+                if throttle_code and self._try_vpn_rotation(throttle_code, page):
+                    continue  # Same page, new IP
+                logging.error(
+                    f"{self.api_name} API call failed for page {page} "
+                    f"(query {self.collectId}): {sanitize_secrets(api_exc)}. "
+                    f"The query stays incomplete and will be resumed on the next run."
+                )
+                return False
+
+            try:
+                page_data = self.parsePageResults(response, page)
+                self.log_api_usage(response, page, len(page_data.get("results", [])))
+                raw_count = len(page_data["results"])
+                page_data = self._post_process_page(page_data)
+                nb_results = len(page_data["results"])
+                total = page_data["total"]
+            except Exception as parse_exc:
+                logging.error(
+                    f"Error processing results on page {page} from "
+                    f"{self.api_name} (query {self.collectId}): "
+                    f"{sanitize_secrets(parse_exc)}. Response type: {type(response)}."
+                )
+                return False
+
+            self.nb_art_collected += nb_results
+            if not first_results_logged and nb_results > 0:
+                kw_str = " + ".join(f'"{k}"' for k in self.get_keywords())
+                logging.info(
+                    f"[{self.api_name}] Q{self.collectId} ({kw_str}, {self.get_year()}): "
+                    f"page {page} → {nb_results} results, {total} total"
+                )
+                first_results_logged = True
+
+            has_more_pages = (
+                raw_count != 0
+                and total > 0
+                and endpoint_page < math.ceil(total / self.get_max_by_page())
+            )
+
+            self.savePageResults(page_data, page)
+            self.set_lastpage(page)
+            endpoint_page += 1
+
+            state_data["last_page"] = page
+            state_data["total_art"] = total
+            state_data["coll_art"] = self.nb_art_collected
+            logging.debug(
+                f"Processed page {page}: {nb_results} results. Total found: {total}. "
+                f"Collected so far: {self.nb_art_collected}"
+            )
+
+            if not has_more_pages:
+                return True
 
     def get_offset(self, page):
         return (page - 1) * self.get_max_by_page()

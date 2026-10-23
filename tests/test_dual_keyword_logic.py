@@ -142,7 +142,7 @@ class TestDualKeywordLogic:
     def test_springer_uses_and_logic(self):
         """Test Springer uses AND operator between keywords."""
         collector = Springer_collector(self.data_query, "/tmp/test", "fake_api_key")
-        urls = collector.get_configurated_url()  # Returns list of URLs
+        urls = collector._get_api_endpoints()  # meta + openaccess URL templates
 
         # Check first URL (meta)
         parsed = urllib.parse.urlparse(urls[0])

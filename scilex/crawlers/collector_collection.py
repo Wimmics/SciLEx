@@ -26,6 +26,7 @@ from .collectors import (
     SemanticScholar_collector,
     Springer_collector,
 )
+from .collectors.base import COMPLETE_FILE_NAME, STATE_FILE_NAME
 from .utils import sanitize_secrets
 
 api_collectors = {
@@ -126,6 +127,7 @@ def _run_job_collects_worker(
         kw_str = " + ".join(f'"{k}"' for k in data_query.get("keyword", [])) or "?"
         year = data_query.get("year", "?")
 
+        current_coll = None
         try:
             # Initialize collector
             if api_name == "Elsevier" and inst_token:
@@ -181,6 +183,16 @@ def _run_job_collects_worker(
                     "error": sanitized_error,
                 }
             )
+        finally:
+            # Always flush buffered pages and release the HTTP connection pool
+            if current_coll is not None:
+                try:
+                    current_coll.close_session()
+                except Exception as close_exc:
+                    logging.warning(
+                        f"[{api_name}] Q{query_id}: close_session failed: "
+                        f"{_sanitize_error_message(str(close_exc))}"
+                    )
 
     # Note: Rate limiting is handled per-API by individual collectors
     # using configured rate limits from api.config.yml
@@ -228,36 +240,6 @@ class CollectCollection:
 
         logger.debug("API key validation passed")
         return True
-
-    def run_job_collects(self, collect_list):
-        for idx in range(len(collect_list)):
-            coll = collect_list[idx]
-            data_query = coll["query"]
-            collector = api_collectors[coll["api"]]
-            api_key = None
-            inst_token = None  # For Elsevier institutional token
-
-            if coll["api"] in self.api_config:
-                api_key = self.api_config[coll["api"]]["api_key"]
-                # Check for institutional token (Elsevier only)
-                if (
-                    coll["api"] == "Elsevier"
-                    and "inst_token" in self.api_config[coll["api"]]
-                ):
-                    inst_token = self.api_config[coll["api"]]["inst_token"]
-                    logging.info("Using institutional token for Elsevier API")
-
-            repo = self.get_current_repo()
-
-            # Initialize collector with institutional token if applicable
-            if coll["api"] == "Elsevier" and inst_token:
-                current_coll = collector(data_query, repo, api_key, inst_token)
-            else:
-                current_coll = collector(data_query, repo, api_key)
-            current_coll.runCollect()
-
-            # Note: Removed fixed 2-second delay - rate limiting is now handled per-API
-            # by individual collectors using configured rate limits from api.config.yml
 
     def get_current_repo(self):
         output_dir = self.main_config.get("output_dir", DEFAULT_OUTPUT_DIR)
@@ -312,32 +294,19 @@ class CollectCollection:
         # Get max_articles_per_query from config (default to -1 = unlimited)
         max_articles_per_query = self.main_config.get("max_articles_per_query", -1)
 
-        if two_list_k:
-            queries = []
-            for keyword_group, year, api in combinations:
-                query = {
-                    "keyword": keyword_group,
-                    "year": year,
-                    "api": api,
-                    "max_articles_per_query": max_articles_per_query,
-                }
-                # Add semantic_scholar_mode for SemanticScholar API
-                if api == "SemanticScholar":
-                    query["semantic_scholar_mode"] = semantic_scholar_mode
-                queries.append(query)
-        else:
-            queries = []
-            for keyword_group, year, api in combinations:
-                query = {
-                    "keyword": [keyword_group],
-                    "year": year,
-                    "api": api,
-                    "max_articles_per_query": max_articles_per_query,
-                }
-                # Add semantic_scholar_mode for SemanticScholar API
-                if api == "SemanticScholar":
-                    query["semantic_scholar_mode"] = semantic_scholar_mode
-                queries.append(query)
+        queries = []
+        for keyword_group, year, api in combinations:
+            query = {
+                # Two keyword lists give [kw_a, kw_b] pairs; a single list gives [kw]
+                "keyword": keyword_group if two_list_k else [keyword_group],
+                "year": year,
+                "api": api,
+                "max_articles_per_query": max_articles_per_query,
+            }
+            # Add semantic_scholar_mode for SemanticScholar API
+            if api == "SemanticScholar":
+                query["semantic_scholar_mode"] = semantic_scholar_mode
+            queries.append(query)
         logger.debug(
             f"Generated {len(queries)} total queries across {len(self.main_config['apis'])} APIs"
         )
@@ -380,11 +349,17 @@ class CollectCollection:
 
     def _query_is_complete(self, repo, api, query_idx):
         """
-        Check if a query is fully complete by looking for the _complete sentinel file.
+        Check whether a query was fully collected.
 
-        A sentinel is written by runCollect only when all pages were fetched
-        successfully. Directories with page files but no sentinel are partially
-        collected and will be resumed rather than skipped.
+        ``runCollect`` writes ``_state`` ("incomplete") when it starts and
+        replaces it with ``_complete`` once every page was fetched (or
+        ``max_articles_per_query`` was reached). A directory with ``_state`` but
+        no ``_complete`` is a partial/failed run and is resumed.
+
+        Backward compatibility: a directory from an older SciLEx version has
+        neither marker. If it holds page files it is treated as complete, so
+        old collections are not re-collected. (A run killed before ``_state``
+        existed cannot be told apart from those.)
 
         Args:
             repo: Collection directory path
@@ -392,10 +367,14 @@ class CollectCollection:
             query_idx: Query index (e.g., 0, 1, 2)
 
         Returns:
-            bool: True only if the _complete sentinel file is present
+            bool: True when the query must not be collected again
         """
         query_dir = os.path.join(repo, api, str(query_idx))
-        return os.path.isfile(os.path.join(query_dir, "_complete"))
+        if os.path.isfile(os.path.join(query_dir, COMPLETE_FILE_NAME)):
+            return True
+        if os.path.isfile(os.path.join(query_dir, STATE_FILE_NAME)):
+            return False
+        return self._get_last_collected_page(repo, api, query_idx) > 0
 
     def _get_last_collected_page(self, repo, api, query_idx):
         """
@@ -627,17 +606,3 @@ class CollectCollection:
                     f"[{api_name}] Complete: {stats['articles']} papers from {stats['completed']} queries"
                 )
             print("=" * 60 + "\n")
-
-        # FIRST ATTEMPT > not ordered by api > could lead to ratelimit overload
-        # random.shuffle(jobs_list)
-        # coll_coll=[]
-        # for job in jobs_list:
-        #    data_query=job["query"]
-        #    collector=api_collectors[job["api"]]
-        #    api_key=None
-        #    if(job["api"] in self.api_config.keys()):
-        #        api_key = self.api_config[job["api"]]["api_key"]
-        #    repo=self.get_current_repo()
-        #    coll_coll.append(collector(data_query, repo,api_key))
-
-        # result=pool.map_async(self.job_collect, coll_coll)

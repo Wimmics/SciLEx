@@ -70,6 +70,11 @@ class Arxiv_collector(API_collector):
         logging.debug(f"Parsed {len(page_data['results'])} results from page {page}.")
         return page_data
 
+    def _post_process_page(self, page_data):
+        """Drop entries outside the requested year (parsed as ``None``)."""
+        page_data["results"] = [x for x in page_data["results"] if x is not None]
+        return page_data
+
     def extract_authors(self, entry):
         """Extracts authors from the entry and returns a list."""
         authors = entry.xpath('*[local-name()="author"]')
@@ -118,8 +123,8 @@ class Arxiv_collector(API_collector):
             group_keywords = []
 
             # Add 'ti' (title) and 'abs' (abstract) queries for each keyword
-            group_keywords += [f'ti:%22{urllib.parse.quote(keyword)}%22']
-            group_keywords += [f'abs:%22{urllib.parse.quote(keyword)}%22']
+            group_keywords += [f"ti:%22{urllib.parse.quote(keyword)}%22"]
+            group_keywords += [f"abs:%22{urllib.parse.quote(keyword)}%22"]
 
             formatted_keyword_groups.append(f"({'+OR+'.join(group_keywords)})")
 

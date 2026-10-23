@@ -1,8 +1,6 @@
 import logging
 from datetime import date
 
-from scilex.constants import CircuitBreakerConfig
-
 from .base import API_collector
 
 
@@ -34,30 +32,12 @@ class Elsevier_collector(API_collector):
                 "Initialized Elsevier collector WITHOUT institutional token (standard access)"
             )
 
-    def api_call_decorator(
-        self, configurated_url, max_retries=CircuitBreakerConfig.MAX_RETRIES, headers=None
-    ):
-        """
-        API call with Elsevier-specific headers and optional institutional token.
-        Calls parent decorator with circuit breaker and retry logic.
-
-        Args:
-            configurated_url: The URL to call
-            max_retries: Maximum number of retry attempts (default from CircuitBreakerConfig)
-
-        Returns:
-            Response object from the API
-        """
+    def get_auth_headers(self):
+        """Elsevier authenticates with headers (API key and optional institutional token)."""
         headers = {"X-ELS-APIKey": self.get_apikey(), "Accept": "application/json"}
-
-        # Add institutional token if available (provides better access)
         if self.inst_token:
             headers["X-ELS-Insttoken"] = self.inst_token
-            logging.debug("Using institutional token for Elsevier API request")
-
-        return super().api_call_decorator(
-            configurated_url, max_retries=max_retries, headers=headers
-        )
+        return headers
 
     def parsePageResults(self, response, page):
         """Parse the JSON response from Elsevier API and return structured data."""
@@ -75,6 +55,8 @@ class Elsevier_collector(API_collector):
         results = page_with_results["search-results"]
         total = results["opensearch:totalResults"]
         page_data["total_nb"] = int(total)
+        # Generic pagination reads "total"; without it only page 1 was collected.
+        page_data["total"] = page_data["total_nb"]
         if page_data["total_nb"] > 0:
             for result in results["entry"]:
                 page_data["results"].append(result)
@@ -99,7 +81,9 @@ class Elsevier_collector(API_collector):
 
         # Join the current group's keywords with ' OR ' and wrap in TITLE()
 
-        search_query = "TITLE-ABS(" + " AND ".join(f'"{kw}"' for kw in self.get_keywords()) + ")"
+        search_query = (
+            "TITLE-ABS(" + " AND ".join(f'"{kw}"' for kw in self.get_keywords()) + ")"
+        )
 
         # Join all formatted keyword groups with ' AND '
         # search_query = ' AND '.join(formatted_keyword_groups)

@@ -197,14 +197,24 @@ class TestQueryIsComplete:
         result = coll._query_is_complete(str(tmp_path), "SemanticScholar", 0)
         assert result is False
 
-    def test_dir_with_pages_but_no_sentinel_returns_false(self, tmp_path):
-        # Partial collection: has page files but no _complete sentinel → not done
+    def test_dir_with_pages_and_state_but_no_sentinel_returns_false(self, tmp_path):
+        # Partial/failed run: runCollect wrote _state, never _complete → resume
+        query_dir = tmp_path / "SemanticScholar" / "0"
+        query_dir.mkdir(parents=True)
+        (query_dir / "page_1").write_text("{}")
+        (query_dir / "_state").write_text("incomplete")
+        coll = _make_collection()
+        result = coll._query_is_complete(str(tmp_path), "SemanticScholar", 0)
+        assert result is False
+
+    def test_legacy_dir_with_pages_and_no_marker_is_complete(self, tmp_path):
+        # Collections from older versions have neither marker: keep them
         query_dir = tmp_path / "SemanticScholar" / "0"
         query_dir.mkdir(parents=True)
         (query_dir / "page_1").write_text("{}")
         coll = _make_collection()
         result = coll._query_is_complete(str(tmp_path), "SemanticScholar", 0)
-        assert result is False
+        assert result is True
 
     def test_dir_with_sentinel_returns_true(self, tmp_path):
         # Complete collection: has _complete sentinel

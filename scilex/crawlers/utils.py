@@ -1,4 +1,3 @@
-import logging
 import os
 import re
 
@@ -64,25 +63,3 @@ def load_all_configs(config_files):
         key: load_yaml_config(os.path.join(package_dir, path))
         for key, path in config_files.items()
     }
-
-
-def api_collector_decorator(api_name):
-    """
-    Decorator to handle logging and exception management for API collectors.
-
-    Args:
-        api_name (str): The name of the API being collected.
-    """
-
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            logging.info(f"-------{api_name} Collection Process Started-------")
-            try:
-                func(*args, **kwargs)
-                logging.info(f"{api_name} Collection Completed Successfully.")
-            except Exception as e:
-                logging.error(f"{api_name} Collection Failed: {str(e)}")
-
-        return wrapper
-
-    return decorator
