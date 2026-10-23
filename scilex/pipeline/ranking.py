@@ -73,8 +73,11 @@ def calculate_relevance_score(
     if config is None:
         config = {}
 
-    quality_filters = config.get("quality_filters", {})
-    weights = quality_filters.get("relevance_weights", DEFAULT_RELEVANCE_WEIGHTS)
+    quality_filters = config.get("quality_filters") or {}
+    weights = {
+        **DEFAULT_RELEVANCE_WEIGHTS,
+        **(quality_filters.get("relevance_weights") or {}),
+    }
 
     # 1. Keyword relevance (normalize to 0-10)
     keyword_matches = count_keyword_matches(row, keyword_groups, bonus_keywords)
@@ -102,10 +105,10 @@ def calculate_relevance_score(
             citation_score = min(math.log(1 + float(citation_count)) * 2.17, 10)
 
     final_score = (
-        keyword_score * weights.get("keywords", 0.45)
-        + quality_score * weights.get("quality", 0.25)
-        + itemtype_score * weights.get("itemtype", 0.20)
-        + citation_score * weights.get("citations", 0.10)
+        keyword_score * weights["keywords"]
+        + quality_score * weights["quality"]
+        + itemtype_score * weights["itemtype"]
+        + citation_score * weights["citations"]
     )
 
     return round(final_score, 2)
