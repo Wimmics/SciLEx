@@ -11,14 +11,17 @@ import requests
 
 from scilex.crawlers.circuit_breaker import CircuitBreakerOpenError
 from scilex.crawlers.collectors.base import API_collector
+from scilex.crawlers.collectors.elsevier import Elsevier_collector
+from scilex.crawlers.collectors.ieee import IEEE_collector
+from scilex.crawlers.collectors.springer import Springer_collector
 
 
 # -------------------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------------------
-def _make_collector(api_name="TestAPI", tmp_path=None):
-    """Instantiate API_collector without __init__ filesystem/HTTP side effects."""
-    collector = API_collector.__new__(API_collector)
+def _make_collector(api_name="TestAPI", tmp_path=None, collector_class=API_collector):
+    """Instantiate a collector without __init__ filesystem/HTTP side effects."""
+    collector = collector_class.__new__(collector_class)
     collector.api_name = api_name
     collector.api_key = "test-key"
     collector.rate_limit = 0  # Disable rate limiting
@@ -119,18 +122,18 @@ class TestGetAuthRecoveryActions:
         assert "permissions" in result or "whitelist" in result
 
     def test_403_elsevier_specific_guidance(self):
-        collector = _make_collector("Elsevier")
+        collector = _make_collector("Elsevier", collector_class=Elsevier_collector)
         result = collector._get_auth_recovery_actions(403)
         assert "Elsevier" in result
         assert "inst_token" in result
 
     def test_403_ieee_specific_guidance(self):
-        collector = _make_collector("IEEE")
+        collector = _make_collector("IEEE", collector_class=IEEE_collector)
         result = collector._get_auth_recovery_actions(403)
         assert "IEEE" in result
 
     def test_403_springer_specific_guidance(self):
-        collector = _make_collector("Springer")
+        collector = _make_collector("Springer", collector_class=Springer_collector)
         result = collector._get_auth_recovery_actions(403)
         assert "Springer" in result
 

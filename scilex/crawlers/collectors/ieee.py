@@ -125,3 +125,9 @@ class IEEE_collector(API_collector):
             + str(self.get_year())
             + "&start_record={}"
         )
+
+    def auth_failure_hints(self):
+        return [
+            "3. IEEE-specific: Check your API key quota (200 requests/day limit)",
+            "4. IEEE-specific: Visit https://developer.ieee.org/ to verify key status",
+        ]

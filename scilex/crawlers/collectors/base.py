@@ -39,10 +39,6 @@ class Filter_param:
         # Optional lower bound date (ISO string) for incremental re-collection
         self.since = since
 
-    def get_dict_param(self):
-        # Return the instance's dictionary representation
-        return self.__dict__
-
     def get_year(self):
         return self.year
 
@@ -219,11 +215,19 @@ class API_collector:
         if not os.path.isdir(self.get_collectDir()):
             os.makedirs(self.get_collectDir())
 
+    def _state_snapshot(self) -> dict:
+        """Return the collection progress dict that ``runCollect`` reports."""
+        return {
+            "state": self.state,
+            "last_page": self.lastpage,
+            "total_art": self.total_art,
+            "coll_art": self.nb_art_collected,
+            "update_date": str(date.today()),
+            "id_collect": self.collectId,
+        }
+
     def get_collectId(self):
         return self.collectId
-
-    def set_state(self, complete):
-        self.state = complete
 
     def savePageResults(self, global_data, page):
         """
@@ -319,6 +323,14 @@ class API_collector:
         """Return HTTP headers for authentication. Override in subclasses that need auth headers."""
         return None
 
+    def auth_failure_hints(self) -> list[str]:
+        """Return API-specific numbered hints shown after an HTTP 403.
+
+        Subclasses override this; the numbering continues after the two
+        generic hints, so the first entry starts with "3.".
+        """
+        return []
+
     def _get_auth_recovery_actions(self, status_code):
         """
         Get specific recovery actions for authentication errors based on API and status code.
@@ -342,28 +354,7 @@ class API_collector:
             actions.append("1. Verify your API key has the necessary permissions")
             actions.append("2. Check if your IP address needs to be whitelisted")
 
-            # API-specific guidance
-            if self.api_name == "Elsevier":
-                actions.append(
-                    "3. Elsevier-specific: Verify both 'api_key' and 'inst_token' in api.config.yml"
-                )
-                actions.append(
-                    "4. Elsevier-specific: Check if you need institutional access (inst_token)"
-                )
-                actions.append(
-                    "5. Elsevier-specific: Verify your API key tier allows Scopus access"
-                )
-            elif self.api_name == "IEEE":
-                actions.append(
-                    "3. IEEE-specific: Check your API key quota (200 requests/day limit)"
-                )
-                actions.append(
-                    "4. IEEE-specific: Visit https://developer.ieee.org/ to verify key status"
-                )
-            elif self.api_name == "Springer":
-                actions.append(
-                    "3. Springer-specific: Check your subscription tier and rate limits"
-                )
+            actions.extend(self.auth_failure_hints())
 
         actions.append(
             f"\nFor help, check: src/api.config.yml.example for {self.api_name} configuration"
@@ -623,14 +614,7 @@ class API_collector:
             dict: ``state``, ``last_page``, ``total_art``, ``coll_art``,
             ``update_date`` and ``id_collect``.
         """
-        state_data = {
-            "state": self.state,
-            "last_page": self.lastpage,
-            "total_art": self.total_art,
-            "coll_art": self.nb_art_collected,
-            "update_date": str(date.today()),
-            "id_collect": self.collectId,
-        }
+        state_data = self._state_snapshot()
 
         if self.state == 1:
             logging.info("Collection already completed.")

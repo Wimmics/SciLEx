@@ -103,3 +103,10 @@ class Elsevier_collector(API_collector):
         query = f"{keywords_query}&date={years_query}"
 
         return f"{self.api_url}?query={query}&apiKey={self.api_key}&count={self.max_by_page}&view=COMPLETE&start={{}}"
+
+    def auth_failure_hints(self):
+        return [
+            "3. Elsevier-specific: Verify both 'api_key' and 'inst_token' in api.config.yml",
+            "4. Elsevier-specific: Check if you need institutional access (inst_token)",
+            "5. Elsevier-specific: Verify your API key tier allows Scopus access",
+        ]

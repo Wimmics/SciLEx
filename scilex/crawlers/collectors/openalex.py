@@ -105,14 +105,7 @@ class OpenAlex_collector(API_collector):
         flushed, and the query is only marked complete when the cursor is
         exhausted or ``max_articles_per_query`` is reached.
         """
-        state_data = {
-            "state": self.state,
-            "last_page": self.lastpage,
-            "total_art": self.total_art,
-            "coll_art": self.nb_art_collected,
-            "update_date": str(date.today()),
-            "id_collect": self.collectId,
-        }
+        state_data = self._state_snapshot()
 
         if self.state == 1:
             logging.info("Collection already completed.")

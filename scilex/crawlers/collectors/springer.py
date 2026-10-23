@@ -131,3 +131,8 @@ class Springer_collector(API_collector):
     def get_offset(self, page):
         """Springer's ``s`` parameter is a 1-based record position."""
         return (page - 1) * self.max_by_page + 1
+
+    def auth_failure_hints(self):
+        return [
+            "3. Springer-specific: Check your subscription tier and rate limits",
+        ]
