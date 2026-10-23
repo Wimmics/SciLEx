@@ -9,7 +9,7 @@ CLI (``scilex.enrich_with_hf``) and the web API call it the same way.
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pandas as pd
 from tqdm import tqdm
@@ -46,7 +46,9 @@ class EnrichmentOptions:
             ``hf_enrichment.fuzzy_match_threshold`` (default 85).
         collect_dir: Collect directory holding the aggregated CSV (overrides
             ``output_dir`` + ``collect_name`` from the config).
-        workers: Papers searched concurrently. Network calls stay capped by
+        workers: Papers searched concurrently. When given (for example by
+            ``--workers``) it takes precedence over the config key
+            ``hf_enrichment.workers`` (default 4). Network calls stay capped by
             the HF client's rate limiter, so more workers only hide latency.
     """
 
@@ -54,7 +56,7 @@ class EnrichmentOptions:
     limit: int | None = None
     threshold: int | None = None
     collect_dir: str | None = None
-    workers: int = 4
+    workers: int | None = None
 
 
 @dataclass
@@ -293,7 +295,7 @@ def _enrich_rows(
             return idx, row, None, error
 
     # map() yields in row order; counting and callbacks stay on this thread.
-    with ThreadPoolExecutor(max_workers=max(1, options.workers)) as executor:
+    with ThreadPoolExecutor(max_workers=max(1, options.workers or 4)) as executor:
         outcomes = executor.map(search_row, rows.iterrows())
         for idx, row, result, error in tqdm(
             outcomes, total=len(rows), desc="Processing papers"
@@ -346,6 +348,8 @@ def run_enrichment(
         return EnrichmentResult(disabled=True)
 
     use_papers_api = hf_config.get("use_papers_api", True)
+    if options.workers is None:
+        options = replace(options, workers=hf_config.get("workers", 4))
 
     logging.info("Initializing HuggingFace enrichment system...")
     hf_client = HFClient(

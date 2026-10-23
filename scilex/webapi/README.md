@@ -337,7 +337,8 @@ The server does not need a `scilex.yml`. Each job:
   the pipeline steps resolve their configuration from it (the previous value is restored afterwards).
 
 API keys stored on the server (`/api-config` endpoints) follow `$SCILEX_KEYS` > `~/.config/scilex/keys.yml` >
-legacy `scilex/api.config.yml` (used, and created, only when neither of the first two exists).
+legacy `scilex/api.config.yml` (read only if it already exists). With no keys file at all, saving keys creates
+`~/.config/scilex/keys.yml`, never a file inside the package.
 If the request carries no `api_config`, the server-side keys file is used.
 
 ### Output Directory

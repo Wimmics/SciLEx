@@ -74,6 +74,15 @@ def main():
         ),
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help=(
+            "Papers searched concurrently. Overrides "
+            "enrichment.huggingface.workers (default: 4)"
+        ),
+    )
+    parser.add_argument(
         "--collect-dir",
         type=str,
         default=None,
@@ -93,6 +102,7 @@ def main():
             dry_run=args.dry_run,
             limit=args.limit,
             threshold=args.threshold,
+            workers=args.workers,
             collect_dir=args.collect_dir,
         )
         result = run_enrichment(config, options)
