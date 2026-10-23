@@ -10,7 +10,6 @@ from scilex.crawlers.aggregate import (
     getquality,
     reconstruct_abstract_from_inverted_index,
     safe_get,
-    safe_has_key,
 )
 
 
@@ -35,23 +34,6 @@ class TestSafeGet:
 
     def test_none_input_returns_default(self):
         assert safe_get(None, "a") is None
-
-
-# -------------------------------------------------------------------------
-# safe_has_key
-# -------------------------------------------------------------------------
-class TestSafeHasKey:
-    def test_existing_key(self):
-        assert safe_has_key({"a": 1}, "a") is True
-
-    def test_missing_key(self):
-        assert safe_has_key({"a": 1}, "b") is False
-
-    def test_non_dict(self):
-        assert safe_has_key("string", "a") is False
-
-    def test_none_input(self):
-        assert safe_has_key(None, "a") is False
 
 
 # -------------------------------------------------------------------------

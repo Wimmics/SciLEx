@@ -9,9 +9,6 @@ Created on Fri Feb 10 10:57:49 2023
 """
 
 import contextlib
-import logging
-
-import pandas as pd
 
 from scilex.constants import MISSING_VALUE, is_valid
 from scilex.crawlers.converter_utils import (
@@ -100,11 +97,6 @@ def safe_get(obj, key, default=None):
     return default
 
 
-def safe_has_key(obj, key):
-    """Safely check if an object has a key."""
-    return isinstance(obj, dict) and key in obj
-
-
 def clean_doi(doi_value):
     """
     Extract clean DOI from URL-formatted DOI or return as-is.
@@ -137,11 +129,6 @@ def clean_doi(doi_value):
 
     # Already clean or unknown format
     return doi_str
-
-
-############
-# FUNCTION FOR AGGREGATIONS OF DATA
-############
 
 
 def getquality(df_row, column_names):
@@ -189,140 +176,6 @@ def getquality(df_row, column_names):
         quality += 1  # Bonus for complete bibliographic info
 
     return quality
-
-
-def _find_best_duplicate_index(duplicates_df, column_names):
-    """Find the best duplicate record, preferring most recent then quality."""
-    quality_list = []
-    year_list = []
-
-    for i in range(len(duplicates_df)):
-        idx = duplicates_df.index[i]
-        record = duplicates_df.loc[idx]
-
-        # Get quality score
-        qual = getquality(record, column_names)
-        quality_list.append(qual)
-
-        # Extract year from date field
-        year = 0  # Default for missing/invalid years
-        date_str = record.get("date", "")
-        if is_valid(date_str):
-            try:
-                # Try to extract year from ISO date or year string
-                if isinstance(date_str, str):
-                    # Handle ISO dates (YYYY-MM-DD) or just year (YYYY)
-                    year_match = date_str.split("-")[0]
-                    if year_match.isdigit():
-                        year = int(year_match)
-            except (ValueError, AttributeError, IndexError):
-                year = 0
-        year_list.append(year)
-
-    # Find best duplicate: prioritize most recent year, then quality
-    best_idx = 0
-    best_year = year_list[0]
-    best_quality = quality_list[0]
-
-    for i in range(1, len(duplicates_df)):
-        current_year = year_list[i]
-        current_quality = quality_list[i]
-
-        # Prefer most recent year (higher year wins)
-        if current_year > best_year:
-            best_idx = i
-            best_year = current_year
-            best_quality = current_quality
-        # If same year, prefer higher quality
-        elif current_year == best_year and current_quality > best_quality:
-            best_idx = i
-            best_quality = current_quality
-
-    return best_idx
-
-
-def _merge_duplicate_archives(archive_list, chosen_archive):
-    """Merge archive list with chosen archive marked with asterisk."""
-    archive_str = ";".join(archive_list)
-    return archive_str.replace(chosen_archive, chosen_archive + "*")
-
-
-def _fill_missing_values(row, column_values_dict, column_names):
-    """Fill missing values in row from alternative duplicates."""
-    for col in column_names:
-        if not is_valid(row.get(col)):
-            row[col] = MISSING_VALUE
-
-        if row[col] == MISSING_VALUE:
-            for value in column_values_dict[col]:
-                if is_valid(value):
-                    row[col] = value
-                    break
-    return row
-
-
-def deduplicate(df_input):
-    """
-    Remove duplicate papers by DOI and exact title matching.
-
-    Args:
-        df_input: Input DataFrame
-
-    Returns:
-        Deduplicated DataFrame
-    """
-    df_output = df_input.copy()
-    check_columns = ["DOI", "title"]
-    column_names = list(df_output.columns.values)
-
-    for col in check_columns:
-        if col not in df_output.columns:
-            continue
-
-        # Find duplicates - exclude missing values
-        non_na_df = df_output[df_output[col].apply(is_valid)]
-        duplicate_counts = non_na_df.groupby([col])[col].count()
-        duplicate_values = duplicate_counts[duplicate_counts > 1].index
-
-        if len(duplicate_values) == 0:
-            continue
-
-        logging.info(f"Found {len(duplicate_values)} duplicates by {col}")
-
-        for dup_value in duplicate_values:
-            duplicates_temp = df_output[df_output[col] == dup_value]
-            column_values = {key: [] for key in column_names}
-            archive_list = []
-
-            # Collect data from all duplicates
-            for idx in duplicates_temp.index:
-                archive_list.append(str(df_output.loc[idx]["archive"]))
-                for col_name in column_names:
-                    value = df_output.loc[idx, col_name]
-                    column_values[col_name].append(
-                        MISSING_VALUE if not is_valid(value) else value
-                    )
-
-            # Find best duplicate
-            best_idx = _find_best_duplicate_index(duplicates_temp, column_names)
-            best_record = duplicates_temp.iloc[best_idx].copy()
-            chosen_archive = str(best_record["archive"])
-
-            # Update archives field
-            best_record["archive"] = _merge_duplicate_archives(
-                archive_list, chosen_archive
-            )
-
-            # Fill missing values from other duplicates
-            best_record = _fill_missing_values(best_record, column_values, column_names)
-
-            # Replace duplicates with merged record
-            df_output = df_output.drop(duplicates_temp.index)
-            df_output = pd.concat(
-                [df_output, best_record.to_frame().T], ignore_index=True
-            )
-
-    return df_output
 
 
 def _apply_semantic_scholar_venue(record, venue):
@@ -1091,15 +944,3 @@ FORMAT_CONVERTERS = {
     "ORKG": ORKGtoZoteroFormat,
 }
 """Maps API names to their format converter functions."""
-
-
-def get_converter(api_name: str):
-    """Get format converter for a given API name.
-
-    Args:
-        api_name: Name of the API (e.g., 'SemanticScholar', 'OpenAlex')
-
-    Returns:
-        Converter function, or None if not found.
-    """
-    return FORMAT_CONVERTERS.get(api_name)
