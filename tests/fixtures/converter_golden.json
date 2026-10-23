@@ -521,13 +521,13 @@
    "date": "2020-01-02",
    "DOI": "10.1000/pmc.1",
    "url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123456/",
-   "pdf_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123456/pdf/",
    "rights": "open-access",
    "pages": "3-4",
    "journalAbbreviation": "PMC Journal",
    "volume": "1",
    "serie": "NA",
    "issue": "2",
+   "pdf_url": "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC123456/pdf/",
    "tags": "NA"
   }
  },
@@ -567,13 +567,13 @@
    "date": "2021-02-03",
    "DOI": "10.1000/pm.1",
    "url": "https://pubmed.ncbi.nlm.nih.gov/222/",
-   "pdf_url": "https://pmc.example/222.pdf",
    "rights": "open-access",
    "pages": "5-6",
    "journalAbbreviation": "PM Journal",
    "volume": "2",
    "serie": "NA",
    "issue": "3",
+   "pdf_url": "https://pmc.example/222.pdf",
    "tags": "Humans;Cells"
   }
  },

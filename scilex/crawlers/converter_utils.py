@@ -83,10 +83,10 @@ def get_valid(row: Any, key: str) -> Any:
     """
     if not isinstance(row, Mapping):
         return None
-    return _valid_or_none(row.get(key))
+    return valid_or_none(row.get(key))
 
 
-def _valid_or_none(value: Any) -> Any:
+def valid_or_none(value: Any) -> Any:
     if isinstance(value, _CONTAINER_TYPES):
         return value if len(value) > 0 else None
     try:
@@ -143,7 +143,7 @@ def join_values(values: Any) -> str:
         values = [values]
     if not isinstance(values, Iterable) or isinstance(values, Mapping):
         return MISSING_VALUE
-    kept = [str(value) for value in values if _valid_or_none(value) is not None]
+    kept = [str(value) for value in values if valid_or_none(value) is not None]
     return AUTHOR_SEPARATOR.join(kept) if kept else MISSING_VALUE
 
 
@@ -154,7 +154,7 @@ def join_authors(names: Any) -> str:
 
 def page_range(first: Any, last: Any) -> str:
     """Format ``first-last``, or ``MISSING_VALUE`` unless both ends are valid."""
-    if _valid_or_none(first) is None or _valid_or_none(last) is None:
+    if valid_or_none(first) is None or valid_or_none(last) is None:
         return MISSING_VALUE
     return f"{first}-{last}"
 

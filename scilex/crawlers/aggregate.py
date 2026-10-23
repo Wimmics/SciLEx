@@ -26,6 +26,7 @@ from scilex.crawlers.converter_utils import (
     map_item_type,
     new_record,
     page_range,
+    valid_or_none,
 )
 
 _SS_SINGLE_TYPE_TO_ITEM_TYPE = {
@@ -70,6 +71,20 @@ _SPRINGER_TYPE_PATTERNS = (
     ("Chapter", "bookSection"),
 )
 _ELSEVIER_TYPE_PATTERNS = _SPRINGER_TYPE_PATTERNS
+_PUBMED_TYPE_TO_ITEM_TYPE = {
+    "Journal Article": "journalArticle",
+    "Review": "journalArticle",
+    "Book": "book",
+    "Book Chapter": "bookSection",
+}
+_OPENAIRE_TYPE_TO_ITEM_TYPE = {
+    "Article": "journalArticle",
+    "publication": "journalArticle",  # OpenAIRE generic type
+    "Conference object": "conferencePaper",
+    "Book": "book",
+    "Book part": "bookSection",
+    "Preprint": "preprint",
+}
 _HAL_DOC_TYPE_TO_ITEM_TYPE = {
     "ART": "journalArticle",
     "COMM": "conferencePaper",
@@ -860,6 +875,22 @@ def ElseviertoZoteroFormat(row):
     return record
 
 
+def _ncbi_common_fields(row):
+    """Fields shared by PubMed and PubMed Central collector rows."""
+    return {
+        "title": get_valid(row, "title"),
+        "authors": join_authors(get_valid(row, "authors")),
+        "abstract": get_valid(row, "abstract"),
+        "DOI": clean_doi(get_valid(row, "doi")),
+        "date": get_valid(row, "date"),
+        "journalAbbreviation": get_valid(row, "journal"),
+        "volume": get_valid(row, "volume"),
+        "issue": get_valid(row, "issue"),
+        "pages": get_valid(row, "pages"),
+        "language": get_valid(row, "language"),
+    }
+
+
 def PubMedCentraltoZoteroFormat(row):
     """Convert PubMed Central (PMC) results to Zotero format.
 
@@ -873,103 +904,30 @@ def PubMedCentraltoZoteroFormat(row):
     Returns:
         dict: Zotero-formatted article metadata
     """
-    zotero_temp = {
-        "title": MISSING_VALUE,
-        "publisher": MISSING_VALUE,
-        "itemType": MISSING_VALUE,
-        "authors": MISSING_VALUE,
-        "language": MISSING_VALUE,
-        "abstract": MISSING_VALUE,
-        "archiveID": MISSING_VALUE,
-        "archive": MISSING_VALUE,
-        "date": MISSING_VALUE,
-        "DOI": MISSING_VALUE,
-        "url": MISSING_VALUE,
-        "pdf_url": MISSING_VALUE,
-        "rights": MISSING_VALUE,
-        "pages": MISSING_VALUE,
-        "journalAbbreviation": MISSING_VALUE,
-        "volume": MISSING_VALUE,
-        "serie": MISSING_VALUE,
-        "issue": MISSING_VALUE,
-        "tags": MISSING_VALUE,
-    }
+    # Most PMC articles are journal articles; all of them are open access.
+    record = new_record(
+        "PubMedCentral", item_type="journalArticle", extra_keys=("tags",)
+    )
+    record["rights"] = "open-access"
+    fill_record(
+        record, publisher=get_valid(row, "publisher"), **_ncbi_common_fields(row)
+    )
 
-    # Set archive name
-    zotero_temp["archive"] = "PubMedCentral"
-
-    # PMC is always open access
-    zotero_temp["rights"] = "open-access"
-
-    # Title
-    if is_valid(row.get("title")):
-        zotero_temp["title"] = row["title"]
-
-    # Authors - PMC returns list of "Surname GivenNames" strings
-    authors = row.get("authors")
-    if authors:
-        if isinstance(authors, list) and len(authors) > 0:
-            zotero_temp["authors"] = ";".join(authors)
-        elif isinstance(authors, str) and is_valid(authors):
-            zotero_temp["authors"] = authors
-
-    # Abstract
-    if is_valid(row.get("abstract")):
-        zotero_temp["abstract"] = row["abstract"]
-
-    # DOI
-    if is_valid(row.get("doi")):
-        zotero_temp["DOI"] = row["doi"]
-
-    # PMC ID (archiveID) - use PMID if PMC ID not available
-    if is_valid(row.get("pmc_id")):
-        pmc_id = row["pmc_id"]
-        zotero_temp["archiveID"] = pmc_id
-
-        # Construct URL from PMC ID
-        if pmc_id.startswith("PMC"):
-            zotero_temp["url"] = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/"
-            # PMC provides direct PDF access for all articles
-            zotero_temp["pdf_url"] = (
+    pmc_id = get_valid(row, "pmc_id")
+    pmid = get_valid(row, "pmid")
+    if pmc_id is not None:
+        record["archiveID"] = pmc_id
+        if str(pmc_id).startswith("PMC"):
+            record["url"] = f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/"
+            # PMC provides direct PDF access for all articles.
+            record["pdf_url"] = (
                 f"https://www.ncbi.nlm.nih.gov/pmc/articles/{pmc_id}/pdf/"
             )
-    elif is_valid(row.get("pmid")):
-        # Fallback to PMID if no PMC ID
-        zotero_temp["archiveID"] = row["pmid"]
-        zotero_temp["url"] = f"https://pubmed.ncbi.nlm.nih.gov/{row['pmid']}/"
-
-    # Publication date (YYYY-MM-DD format from collector)
-    if is_valid(row.get("date")):
-        zotero_temp["date"] = row["date"]
-
-    # Journal name
-    if is_valid(row.get("journal")):
-        zotero_temp["journalAbbreviation"] = row["journal"]
-
-    # Volume
-    if is_valid(row.get("volume")):
-        zotero_temp["volume"] = row["volume"]
-
-    # Issue
-    if is_valid(row.get("issue")):
-        zotero_temp["issue"] = row["issue"]
-
-    # Pages
-    if is_valid(row.get("pages")):
-        zotero_temp["pages"] = row["pages"]
-
-    # Publisher
-    if is_valid(row.get("publisher")):
-        zotero_temp["publisher"] = row["publisher"]
-
-    # Language
-    if is_valid(row.get("language")):
-        zotero_temp["language"] = row["language"]
-
-    # ItemType - Most PMC articles are journal articles
-    zotero_temp["itemType"] = "journalArticle"
-
-    return zotero_temp
+    elif pmid is not None:
+        # No PMC id: fall back to the PMID.
+        record["archiveID"] = pmid
+        record["url"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+    return record
 
 
 def PubMedtoZoteroFormat(row):
@@ -985,328 +943,132 @@ def PubMedtoZoteroFormat(row):
     Returns:
         dict: Zotero-formatted article metadata
     """
-    zotero_temp = {
-        "title": MISSING_VALUE,
-        "publisher": MISSING_VALUE,
-        "itemType": MISSING_VALUE,
-        "authors": MISSING_VALUE,
-        "language": MISSING_VALUE,
-        "abstract": MISSING_VALUE,
-        "archiveID": MISSING_VALUE,
-        "archive": MISSING_VALUE,
-        "date": MISSING_VALUE,
-        "DOI": MISSING_VALUE,
-        "url": MISSING_VALUE,
-        "pdf_url": MISSING_VALUE,
-        "rights": MISSING_VALUE,
-        "pages": MISSING_VALUE,
-        "journalAbbreviation": MISSING_VALUE,
-        "volume": MISSING_VALUE,
-        "serie": MISSING_VALUE,
-        "issue": MISSING_VALUE,
-        "tags": MISSING_VALUE,
-    }
+    record = new_record(
+        "PubMed",
+        item_type=map_item_type(
+            get_valid(row, "publication_type"),
+            _PUBMED_TYPE_TO_ITEM_TYPE,
+            "journalArticle",
+        ),
+        extra_keys=("tags",),
+    )
+    # Only open access when the article is in PMC.
+    if get_valid(row, "pmcid") is not None:
+        record["rights"] = "open-access"
+    fill_record(record, **_ncbi_common_fields(row))
 
-    # Set archive name
-    zotero_temp["archive"] = "PubMed"
+    pmid = get_valid(row, "pmid")
+    if pmid is not None:
+        record["archiveID"] = pmid
+        record["url"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+    # pdf_url is populated by the collector when a PMCID is present.
+    fill_record(record, pdf_url=get_valid(row, "pdf_url"))
 
-    # Rights - only set to open-access if PMCID present
-    if is_valid(row.get("pmcid")):
-        zotero_temp["rights"] = "open-access"
-
-    # Title
-    if is_valid(row.get("title")):
-        zotero_temp["title"] = row["title"]
-
-    # Authors - PubMed returns list of "LastName ForeName" strings
-    if "authors" in row and row["authors"]:
-        authors = row["authors"]
-        if isinstance(authors, list) and len(authors) > 0:
-            zotero_temp["authors"] = ";".join(authors)
-        elif isinstance(authors, str) and authors != "":
-            zotero_temp["authors"] = authors
-
-    # Abstract
-    if is_valid(row.get("abstract")):
-        zotero_temp["abstract"] = row["abstract"]
-
-    # DOI
-    if is_valid(row.get("doi")):
-        zotero_temp["DOI"] = row["doi"]
-
-    # PMID (archiveID) - primary identifier
-    if is_valid(row.get("pmid")):
-        pmid = row["pmid"]
-        zotero_temp["archiveID"] = pmid
-        # Construct PubMed URL
-        zotero_temp["url"] = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-
-    # PDF URL - populated by collector when PMCID present
-    if is_valid(row.get("pdf_url")):
-        zotero_temp["pdf_url"] = row["pdf_url"]
-
-    # Publication date (YYYY-MM-DD format from collector)
-    if is_valid(row.get("date")):
-        zotero_temp["date"] = row["date"]
-
-    # Journal name
-    if is_valid(row.get("journal")):
-        zotero_temp["journalAbbreviation"] = row["journal"]
-
-    # Volume
-    if is_valid(row.get("volume")):
-        zotero_temp["volume"] = row["volume"]
-
-    # Issue
-    if is_valid(row.get("issue")):
-        zotero_temp["issue"] = row["issue"]
-
-    # Pages
-    if is_valid(row.get("pages")):
-        zotero_temp["pages"] = row["pages"]
-
-    # Language
-    if is_valid(row.get("language")):
-        zotero_temp["language"] = row["language"]
-
-    # MeSH terms as tags (optional)
-    if "mesh_terms" in row and row["mesh_terms"]:
-        mesh_terms = row["mesh_terms"]
-        if isinstance(mesh_terms, list) and len(mesh_terms) > 0:
-            zotero_temp["tags"] = ";".join(mesh_terms)
-
-    # ItemType - map from publication_type
-    pub_type = row.get("publication_type", "")
-    if pub_type:
-        # Map PubMed publication types to Zotero itemTypes
-        type_mapping = {
-            "Journal Article": "journalArticle",
-            "Review": "journalArticle",
-            "Book": "book",
-            "Book Chapter": "bookSection",
-        }
-        zotero_temp["itemType"] = type_mapping.get(pub_type, "journalArticle")
-    else:
-        # Default to journal article
-        zotero_temp["itemType"] = "journalArticle"
-
-    return zotero_temp
+    # MeSH terms are exported as tags.
+    mesh_terms = get_valid(row, "mesh_terms")
+    if isinstance(mesh_terms, list):
+        record["tags"] = join_values(mesh_terms)
+    return record
 
 
 def OpenAIREtoZoteroFormat(row):
-    zotero_temp = {
-        "title": MISSING_VALUE,
-        "publisher": MISSING_VALUE,
-        "itemType": MISSING_VALUE,
-        "authors": MISSING_VALUE,
-        "language": MISSING_VALUE,
-        "abstract": MISSING_VALUE,
-        "archiveID": MISSING_VALUE,
-        "archive": "OpenAIRE",
-        "date": MISSING_VALUE,
-        "DOI": MISSING_VALUE,
-        "url": MISSING_VALUE,
-        "rights": MISSING_VALUE,
-        "pages": MISSING_VALUE,
-        "journalAbbreviation": MISSING_VALUE,
-        "volume": MISSING_VALUE,
-        "serie": MISSING_VALUE,
-        "issue": MISSING_VALUE,
-        "pdf_url": MISSING_VALUE,
-    }
+    """Convert an OpenAIRE result to the internal Zotero-style record."""
+    record = new_record("OpenAIRE")
+    entity = dig(row, "metadata", "oaf:entity", "oaf:result")
+    if not isinstance(entity, dict):
+        return record
 
-    try:
-        entity = row["metadata"]["oaf:entity"]["oaf:result"]
-    except (KeyError, TypeError):
-        return zotero_temp
+    creators = _as_list(entity.get("creator"))
+    pids = _as_list(entity.get("pid"))
+    doi_raw = next(
+        (
+            get_valid(pid, "$")
+            for pid in pids
+            if get_valid(pid, "@classid") == "doi" and get_valid(pid, "$")
+        ),
+        None,
+    )
+    description = entity.get("description")
+    access_right = dig(entity, "bestaccessright", "@classname")
+    resource_type = dig(entity, "resourcetype", "@classname")
+    url = next(
+        (
+            url_value
+            for instance in _as_list(dig(entity, "children", "instance"))
+            if (url_value := get_valid(dig(instance, "webresource", "url"), "$"))
+        ),
+        None,
+    )
 
-    # Title
-    try:
-        zotero_temp["title"] = entity["title"]["$"]
-    except (KeyError, TypeError):
-        pass
-
-    # Authors — creator can be a dict (single) or list
-    try:
-        creators = entity["creator"]
-        if isinstance(creators, dict):
-            creators = [creators]
-        names = [c.get("$", "") for c in creators if c.get("$")]
-        if names:
-            zotero_temp["authors"] = ";".join(names)
-    except (KeyError, TypeError):
-        pass
-
-    # Date
-    try:
-        zotero_temp["date"] = entity["dateofacceptance"]["$"]
-    except (KeyError, TypeError):
-        pass
-
-    # Abstract — description can be a dict {"$": "..."} or a plain string
-    try:
-        desc = entity["description"]
-        if isinstance(desc, dict):
-            zotero_temp["abstract"] = desc["$"]
-        elif isinstance(desc, str) and desc:
-            zotero_temp["abstract"] = desc
-    except (KeyError, TypeError):
-        pass
-
-    # DOI — pid can be dict or list; filter by @classid == "doi"
-    try:
-        pids = entity.get("pid", [])
-        if isinstance(pids, dict):
-            pids = [pids]
-        doi_raw = next(
-            (p["$"] for p in pids if p.get("@classid") == "doi" and p.get("$")),
-            None,
+    fill_record(
+        record,
+        title=get_valid(entity.get("title"), "$"),
+        authors=join_authors([get_valid(creator, "$") for creator in creators]),
+        date=get_valid(entity.get("dateofacceptance"), "$"),
+        abstract=(
+            get_valid(description, "$")
+            if isinstance(description, dict)
+            else get_valid(entity, "description")
+        ),
+        DOI=clean_doi(doi_raw),
+        journalAbbreviation=get_valid(entity.get("journal"), "$"),
+        language=get_valid(entity.get("language"), "@classid"),
+        rights=(
+            None
+            if access_right is None
+            else "open_access"
+            if "Open" in access_right
+            else "restricted"
+        ),
+        archiveID=valid_or_none(first_of(entity.get("originalId"))),
+        url=url,
+    )
+    if resource_type is not None:
+        record["itemType"] = map_item_type(
+            resource_type, _OPENAIRE_TYPE_TO_ITEM_TYPE, "journalArticle"
         )
-        if doi_raw:
-            zotero_temp["DOI"] = clean_doi(doi_raw)
-    except (KeyError, TypeError):
-        pass
+    return record
 
-    # Journal
-    try:
-        zotero_temp["journalAbbreviation"] = entity["journal"]["$"]
-    except (KeyError, TypeError):
-        pass
 
-    # Language
-    try:
-        zotero_temp["language"] = entity["language"]["@classid"]
-    except (KeyError, TypeError):
-        pass
-
-    # Rights
-    try:
-        classname = entity["bestaccessright"]["@classname"]
-        if "Open" in classname:
-            zotero_temp["rights"] = "open_access"
-        else:
-            zotero_temp["rights"] = "restricted"
-    except (KeyError, TypeError):
-        pass
-
-    # Archive ID — originalId can be str or list
-    try:
-        original_id = entity["originalId"]
-        if isinstance(original_id, list):
-            original_id = original_id[0]
-        zotero_temp["archiveID"] = original_id
-    except (KeyError, TypeError):
-        pass
-
-    # URL — children.instance can be dict or list
-    try:
-        instances = entity["children"]["instance"]
-        if isinstance(instances, dict):
-            instances = [instances]
-        url_val = next(
-            (
-                inst["webresource"]["url"]["$"]
-                for inst in instances
-                if inst.get("webresource", {}).get("url", {}).get("$")
-            ),
-            None,
-        )
-        if url_val:
-            zotero_temp["url"] = url_val
-    except (KeyError, TypeError):
-        pass
-
-    # Item type
-    try:
-        resource_type = entity["resourcetype"]["@classname"]
-        type_mapping = {
-            "Article": "journalArticle",
-            "publication": "journalArticle",  # OpenAIRE generic type
-            "Conference object": "conferencePaper",
-            "Book": "book",
-            "Book part": "bookSection",
-            "Preprint": "preprint",
-        }
-        zotero_temp["itemType"] = type_mapping.get(resource_type, "journalArticle")
-    except (KeyError, TypeError):
-        pass
-
-    return zotero_temp
+def _as_list(value):
+    """Wrap a lone dict in a list (OpenAIRE returns dict for one item, list for many)."""
+    if isinstance(value, dict):
+        return [value]
+    return value if isinstance(value, list) else []
 
 
 def ORKGtoZoteroFormat(row):
-    zotero_temp = {
-        "title": MISSING_VALUE,
-        "publisher": MISSING_VALUE,
-        "itemType": "journalArticle",
-        "authors": MISSING_VALUE,
-        "language": MISSING_VALUE,
-        "abstract": MISSING_VALUE,
-        "archiveID": MISSING_VALUE,
-        "archive": "ORKG",
-        "date": MISSING_VALUE,
-        "DOI": MISSING_VALUE,
-        "url": MISSING_VALUE,
-        "rights": MISSING_VALUE,
-        "pages": MISSING_VALUE,
-        "journalAbbreviation": MISSING_VALUE,
-        "volume": MISSING_VALUE,
-        "serie": MISSING_VALUE,
-        "issue": MISSING_VALUE,
-        "pdf_url": MISSING_VALUE,
-    }
+    """Convert an ORKG paper to the internal Zotero-style record."""
+    record = new_record("ORKG", item_type="journalArticle")
 
-    orkg_id = row.get("id", MISSING_VALUE)
-    zotero_temp["archiveID"] = orkg_id
+    orkg_id = get_valid(row, "id")
+    publication_info = get_valid(row, "publication_info")
+    if not isinstance(publication_info, dict):
+        publication_info = {}
+    published_year = get_valid(publication_info, "published_year")
+    published_in = get_valid(publication_info, "published_in")
+    if isinstance(published_in, dict):
+        published_in = get_valid(published_in, "label")
+    authors = get_valid(row, "authors")
+    doi = first_of(dig(row, "identifiers", "doi"))
 
-    # Title
-    title = row.get("title")
-    if title:
-        zotero_temp["title"] = title
-
-    # DOI
-    try:
-        doi_list = row["identifiers"]["doi"]
-        if doi_list:
-            zotero_temp["DOI"] = clean_doi(doi_list[0])
-    except (KeyError, TypeError):
-        pass
-
-    # Publication info
-    pub_info = row.get("publication_info", {})
-
-    # Date
-    year = pub_info.get("published_year")
-    if year is not None:
-        zotero_temp["date"] = str(year)
-
-    # Journal
-    published_in = pub_info.get("published_in")
-    if published_in:
-        if isinstance(published_in, dict):
-            label = published_in.get("label")
-            if label:
-                zotero_temp["journalAbbreviation"] = label
-        elif isinstance(published_in, str):
-            zotero_temp["journalAbbreviation"] = published_in
-
-    # URL — fallback to ORKG paper page
-    url_val = pub_info.get("url", "")
-    if url_val:
-        zotero_temp["url"] = url_val
-    elif is_valid(orkg_id):
-        zotero_temp["url"] = f"https://orkg.org/paper/{orkg_id}"
-
-    # Authors
-    try:
-        authors = row.get("authors", [])
-        names = [a["name"] for a in authors if a.get("name")]
-        if names:
-            zotero_temp["authors"] = ";".join(names)
-    except (KeyError, TypeError):
-        pass
-
-    return zotero_temp
+    fill_record(
+        record,
+        archiveID=orkg_id,
+        title=get_valid(row, "title"),
+        DOI=clean_doi(doi),
+        date=None if published_year is None else str(published_year),
+        journalAbbreviation=published_in if isinstance(published_in, str) else None,
+        # Fall back to the ORKG paper page when no URL is given.
+        url=get_valid(publication_info, "url")
+        or (None if orkg_id is None else f"https://orkg.org/paper/{orkg_id}"),
+        authors=join_authors(
+            [get_valid(author, "name") for author in authors]
+            if isinstance(authors, list)
+            else None
+        ),
+    )
+    return record
 
 
 # ============================================================================
