@@ -38,3 +38,8 @@ Branche : `feat/gui-desktop`, worktree `.claude/worktrees/gui-desktop`
 ## Prochaine étape
 
 Fusion `--ff-only` dans `dev` après validation de l'utilisateur ; puis spec du lot 1 (Configurer + clés).
+
+## Test « comme un humain » (Chrome headless, 2026-10-23)
+Parcours complet OK : accueil → nouvelle revue « Test » → collecte OpenAlex réelle → ③ Screen → retour accueil (« Results available »).
+Corrigé : chemin relatif depuis `/` (56d9b2d8), barre latérale figée après collecte (a873caa4), infobulles empilées sur Run (b57b012f).
+Reste : rebuild de dist/SciLEx.app (quitter l'app avant).
