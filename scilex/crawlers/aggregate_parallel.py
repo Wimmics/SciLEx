@@ -20,7 +20,7 @@ from multiprocessing import cpu_count
 import pandas as pd
 from tqdm import tqdm
 
-from scilex.constants import is_valid
+from scilex.constants import MISSING_VALUE, is_valid
 from scilex.crawlers.aggregate import FORMAT_CONVERTERS
 from scilex.pipeline.text_filter import record_passes_text_filter
 
@@ -712,6 +712,89 @@ def _merge_archives_for_duplicates(archives: list[str], winner_archive: str) -> 
     return ";".join([a + "*" if a == winner_archive else a for a in unique_archives])
 
 
+def _split_archive_names(archive_value) -> list[str]:
+    """Split an archive cell ("A*;B" or "A") into bare API names.
+
+    Missing values (NaN, "NA", "") yield an empty list instead of raising.
+    """
+    if not is_valid(archive_value):
+        return []
+    names = (part.replace("*", "").strip() for part in str(archive_value).split(";"))
+    return [name for name in names if name]
+
+
+_WINNER_COLUMN = "_winner_archive"
+
+
+def _dedup_by_key(
+    df: pd.DataFrame, key_col: str, is_valid_key=is_valid
+) -> tuple[pd.DataFrame, int]:
+    """Drop duplicates on `key_col`, keeping the best record and merging provenance.
+
+    Rows are expected to carry `_dedup_quality` (best record is kept) and
+    `_winner_archive` (the API the kept record originally came from, so the
+    winner star stays correct across successive dedup passes). Rows whose key
+    is not valid are passed through untouched.
+
+    For each group of duplicates:
+    - `archive` becomes the merged list with the winner starred ("A*;B");
+    - `collect_keywords` (if present) becomes the union of all query tags.
+
+    Args:
+        df: DataFrame to deduplicate.
+        key_col: Column holding the dedup key (e.g. "DOI", "title_normalized").
+        is_valid_key: Predicate telling whether a key value is usable.
+
+    Returns:
+        Tuple of (deduplicated DataFrame, number of rows removed).
+    """
+    if df.empty or key_col not in df.columns:
+        return df, 0
+
+    valid_mask = df[key_col].apply(is_valid_key).astype(bool)
+    keyed = df[valid_mask]
+    unkeyed = df[~valid_mask]
+    if keyed.empty:
+        return df, 0
+
+    groups = keyed.groupby(key_col, sort=False)
+    group_sizes = groups.size().to_dict()
+    key_to_archives = groups["archive"].apply(list).to_dict()
+    key_to_keywords = (
+        groups["collect_keywords"].apply(list).to_dict()
+        if "collect_keywords" in keyed.columns
+        else None
+    )
+
+    # Best record first so drop_duplicates(keep="first") keeps it
+    kept = keyed.sort_values("_dedup_quality", ascending=False).drop_duplicates(
+        subset=[key_col], keep="first"
+    )
+    removed = len(keyed) - len(kept)
+
+    merged_archives = []
+    for key, own_archive, winner in zip(
+        kept[key_col], kept["archive"], kept[_WINNER_COLUMN], strict=True
+    ):
+        names = [n for cell in key_to_archives[key] for n in _split_archive_names(cell)]
+        names = list(dict.fromkeys(names))
+        if group_sizes[key] > 1 or len(names) > 1:
+            merged_archives.append(
+                _merge_archives_for_duplicates(names, winner) if names else own_archive
+            )
+        else:
+            merged_archives.append(own_archive)
+    kept = kept.copy()
+    kept["archive"] = merged_archives
+
+    if key_to_keywords is not None:
+        kept["collect_keywords"] = [
+            _merge_collect_keywords(key_to_keywords[key]) for key in kept[key_col]
+        ]
+
+    return pd.concat([kept, unkeyed], ignore_index=True), removed
+
+
 def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """
     Simple, fast deduplication using hash-based exact matching.
@@ -743,168 +826,42 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     initial_count = len(df)
     df_output = df.copy()
 
-    # Compute quality once — used to sort before drop_duplicates so "first" = best
+    # Temporary bookkeeping columns, dropped before returning:
+    # - quality: sort key so "first" duplicate = most complete record
+    # - winner: API of the record that survives, tracked explicitly so that the
+    #   archive star stays right when DOI and title merges stack up
     df_output["_dedup_quality"] = _compute_dedup_quality(df_output)
+    added_archive_column = "archive" not in df_output.columns
+    if added_archive_column:
+        df_output["archive"] = MISSING_VALUE
+    df_output[_WINNER_COLUMN] = df_output["archive"].apply(
+        lambda cell: (_split_archive_names(cell) or [None])[0]
+    )
 
-    # ========================================================================
     # STEP 1: DOI-based deduplication
-    # ========================================================================
+    df_output, doi_removed = _dedup_by_key(df_output, "DOI")
+    logging.info(f"DOI deduplication: removed {doi_removed:,} duplicates")
 
-    # Separate papers with valid vs missing DOIs
-    has_valid_doi = df_output["DOI"].apply(is_valid)
-    papers_with_doi = df_output[has_valid_doi].copy()
-    papers_without_doi = df_output[~has_valid_doi].copy()
-
-    valid_dois = len(papers_with_doi)
-
-    # Create DOI → archives/keywords mappings BEFORE dedup
-    doi_to_archives = papers_with_doi.groupby("DOI")["archive"].apply(list).to_dict()
-    has_kw_col = "collect_keywords" in papers_with_doi.columns
-    if has_kw_col:
-        doi_to_keywords = (
-            papers_with_doi.groupby("DOI")["collect_keywords"].apply(list).to_dict()
-        )
-
-    # Sort by quality descending so drop_duplicates(keep="first") keeps the best record
-    papers_with_doi = papers_with_doi.sort_values("_dedup_quality", ascending=False)
-    logging.info(
-        f"DOI dedup: sorted {len(papers_with_doi):,} papers by metadata quality "
-        f"(range {papers_with_doi['_dedup_quality'].min()}-{papers_with_doi['_dedup_quality'].max()})"
-    )
-
-    # Drop duplicates ONLY among papers with valid DOIs
-    doi_before = len(papers_with_doi)
-    papers_with_doi = papers_with_doi.drop_duplicates(subset=["DOI"], keep="first")
-    doi_removed = doi_before - len(papers_with_doi)
-
-    # Merge archives for DOI duplicates (preserves info about which APIs found the paper)
-    def merge_doi_archives(row):
-        doi = row["DOI"]
-        if doi in doi_to_archives:
-            archives = doi_to_archives[doi]
-            if len(archives) > 1:
-                return _merge_archives_for_duplicates(archives, row["archive"])
-        return row["archive"]
-
-    papers_with_doi["archive"] = papers_with_doi.apply(merge_doi_archives, axis=1)
-
-    # Merge collect_keywords across DOI duplicates so no query tag is lost
-    if has_kw_col:
-
-        def merge_doi_keywords(row):
-            doi = row["DOI"]
-            return _merge_collect_keywords(
-                doi_to_keywords.get(doi, [row["collect_keywords"]])
-            )
-
-        papers_with_doi["collect_keywords"] = papers_with_doi.apply(
-            merge_doi_keywords, axis=1
-        )
-
-    # Recombine: deduplicated papers with DOI + all papers without DOI
-    df_output = pd.concat([papers_with_doi, papers_without_doi], ignore_index=True)
-
-    logging.info(
-        f"DOI deduplication: {valid_dois:,} valid DOIs, removed {doi_removed:,} duplicates"
-    )
-
-    # ========================================================================
     # STEP 2: Normalized title deduplication
-    # ========================================================================
-
-    # Create normalized title column (lowercase, stripped, no punctuation)
-    df_output["title_normalized"] = (
-        df_output["title"]
-        .fillna("")
-        .str.lower()
-        .str.strip()
-        .str.replace(r"[^\w\s]", "", regex=True)  # Remove punctuation
-        .str.replace(r"\s+", " ", regex=True)  # Normalize whitespace
-    )
-
-    # Separate papers with valid vs missing titles
-    has_valid_title = df_output["title_normalized"] != ""
-    papers_with_title = df_output[has_valid_title].copy()
-    papers_without_title = df_output[~has_valid_title].copy()
-
-    valid_titles = len(papers_with_title)
-
-    # Create title → archives/keywords mappings BEFORE dedup
-    title_to_archives = (
-        papers_with_title.groupby("title_normalized")["archive"].apply(list).to_dict()
-    )
-    has_kw_col_title = "collect_keywords" in papers_with_title.columns
-    if has_kw_col_title:
-        title_to_keywords = (
-            papers_with_title.groupby("title_normalized")["collect_keywords"]
-            .apply(list)
-            .to_dict()
+    if "title" in df_output.columns:
+        df_output["title_normalized"] = (
+            df_output["title"]
+            .fillna("")
+            .astype(str)
+            .str.lower()
+            .str.strip()
+            .str.replace(r"[^\w\s]", "", regex=True)  # Remove punctuation
+            .str.replace(r"\s+", " ", regex=True)  # Normalize whitespace
         )
-
-    # Sort by quality descending so drop_duplicates(keep="first") keeps the best record
-    papers_with_title = papers_with_title.sort_values("_dedup_quality", ascending=False)
-    logging.info(
-        f"Title dedup: sorted {len(papers_with_title):,} papers by metadata quality "
-        f"(range {papers_with_title['_dedup_quality'].min()}-{papers_with_title['_dedup_quality'].max()})"
-    )
-
-    # Drop duplicates ONLY among papers with valid titles
-    title_before = len(papers_with_title)
-    papers_with_title = papers_with_title.drop_duplicates(
-        subset=["title_normalized"], keep="first"
-    )
-    title_removed = title_before - len(papers_with_title)
-
-    # Merge archives for title duplicates (combines with existing DOI-merged archives)
-    def merge_title_archives(row):
-        title = row["title_normalized"]
-        if title in title_to_archives:
-            archives_from_title = title_to_archives[title]
-            # Parse existing archive field (may already be merged from DOI dedup)
-            existing = row["archive"].split(";")
-            existing = [
-                a.replace("*", "") for a in existing
-            ]  # Remove existing asterisks
-            # Combine: existing + new archives not already present
-            all_archives = existing + [
-                a for a in archives_from_title if a not in existing
-            ]
-            if len(all_archives) > 1:
-                # Re-mark the winner (first in existing list, i.e., the kept record)
-                winner = existing[0] if existing else archives_from_title[0]
-                return _merge_archives_for_duplicates(all_archives, winner)
-        return row["archive"]
-
-    papers_with_title["archive"] = papers_with_title.apply(merge_title_archives, axis=1)
-
-    # Merge collect_keywords across title duplicates so no query tag is lost
-    if has_kw_col_title:
-
-        def merge_title_keywords(row):
-            title = row["title_normalized"]
-            return _merge_collect_keywords(
-                title_to_keywords.get(title, [row["collect_keywords"]])
-            )
-
-        papers_with_title["collect_keywords"] = papers_with_title.apply(
-            merge_title_keywords, axis=1
+        df_output, title_removed = _dedup_by_key(
+            df_output, "title_normalized", is_valid_key=lambda title: title != ""
         )
+        df_output = df_output.drop(columns=["title_normalized"])
+    else:
+        title_removed = 0
+    logging.info(f"Title deduplication: removed {title_removed:,} duplicates")
 
-    # Recombine: deduplicated papers with title + all papers without title
-    # Drop the temporary normalized column before concat
-    papers_with_title = papers_with_title.drop(columns=["title_normalized"])
-    if "title_normalized" in papers_without_title.columns:
-        papers_without_title = papers_without_title.drop(columns=["title_normalized"])
-    df_output = pd.concat([papers_with_title, papers_without_title], ignore_index=True)
-
-    logging.info(
-        f"Title deduplication: {valid_titles:,} valid titles, removed {title_removed:,} duplicates"
-    )
-
-    # ========================================================================
     # Final statistics
-    # ========================================================================
-
     elapsed = time.time() - start_time
     final_count = len(df_output)
     total_removed = initial_count - final_count
@@ -927,13 +884,10 @@ def simple_deduplicate(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         f"Deduplication took {elapsed:.2f}s ({stats['papers_per_second']:.1f} papers/sec)"
     )
 
-    # Drop temporary quality column
-    if "_dedup_quality" in df_output.columns:
-        df_output = df_output.drop(columns=["_dedup_quality"])
-
-    # Reset index
-    df_output = df_output.reset_index(drop=True)
-
+    temporary_columns = ["_dedup_quality", _WINNER_COLUMN]
+    if added_archive_column:
+        temporary_columns.append("archive")
+    df_output = df_output.drop(columns=temporary_columns)
     return df_output, stats
 
 
