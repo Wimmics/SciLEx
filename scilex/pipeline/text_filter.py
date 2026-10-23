@@ -1,7 +1,8 @@
 """Text-based keyword filtering for the aggregation pipeline."""
 
-from scilex.constants import MISSING_VALUE, is_valid, normalize_text_field
+from scilex.constants import normalize_text_field
 from scilex.keyword_validation import (
+    build_searchable_text,
     check_keyword_in_text,
     check_keyword_in_text_flexible,
 )
@@ -63,10 +64,7 @@ def record_passes_text_filter(
     if not keywords and not keyword_groups:
         return True
 
-    abstract = record.get("abstract", MISSING_VALUE)
-    title = record.get("title", "")
-
-    combined_text = f"{title} {abstract if is_valid(abstract) else ''}"
+    combined_text = build_searchable_text(record.get("title"), record.get("abstract"))
 
     # DUAL KEYWORD GROUP MODE
     if keyword_groups and len(keyword_groups) == 2:

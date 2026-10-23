@@ -9,6 +9,7 @@ from scilex.config_defaults import (
     DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS,
     DEFAULT_RELEVANCE_WEIGHTS,
 )
+from scilex.keyword_validation import build_searchable_text
 
 
 def count_keyword_matches(row, keyword_groups, bonus_keywords=None):
@@ -30,9 +31,7 @@ def count_keyword_matches(row, keyword_groups, bonus_keywords=None):
         if isinstance(group, list):
             all_keywords.extend(group)
 
-    title = str(row.get("title", "")).lower()
-    abstract = str(row.get("abstract", "")).lower()
-    combined_text = f"{title} {abstract}"
+    combined_text = build_searchable_text(row.get("title"), row.get("abstract")).lower()
 
     match_count = 0
     for keyword in all_keywords:
@@ -156,8 +155,9 @@ def apply_relevance_ranking(
     if top_n and top_n < len(df_ranked):
         initial_count = len(df_ranked)
         df_ranked = df_ranked.head(top_n)
-        logging.info(
-            f"Filtered to top {top_n} most relevant papers (removed {initial_count - top_n:,})"
+        logging.warning(
+            f"max_papers={top_n}: truncated to the top {top_n} most relevant papers "
+            f"(removed {initial_count - top_n:,} of {initial_count:,})"
         )
 
     return df_ranked

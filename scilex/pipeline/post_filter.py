@@ -6,6 +6,8 @@ scilex_api.py and web_interface.py.
 
 import pandas as pd
 
+from scilex.quality_validation import count_words
+
 
 def apply_post_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
     """Apply user-facing filters to an aggregated DataFrame.
@@ -40,12 +42,16 @@ def apply_post_filters(df: pd.DataFrame, filters: dict) -> pd.DataFrame:
     if "abstract" in df.columns:
         min_words = filters.get("min_abstract_words")
         max_words = filters.get("max_abstract_words")
-        word_counts = df["abstract"].fillna("").str.split().str.len()
+        # Computed on the current (already itemType-filtered) frame so the mask
+        # is index-aligned; "NA"/NaN abstracts count as 0 words.
+        word_counts = df["abstract"].apply(count_words)
 
+        keep = pd.Series(True, index=df.index)
         if min_words:
-            df = df[word_counts >= min_words]
+            keep &= word_counts >= min_words
         if max_words:
-            df = df[word_counts <= max_words]
+            keep &= word_counts <= max_words
+        df = df[keep]
 
     # Sort by relevance
     if filters.get("apply_relevance_ranking") and "relevance_score" in df.columns:
