@@ -7,8 +7,10 @@ simplification, efficacité, altitude) sur `dev` @ f759b795.
 - [x] Revue (4 agents), constats dédupliqués ci-dessous
 - [x] S1 helpers (`94db50d8`) + lots crawlers / pipeline / sorties-webapi appliqués et fusionnés dans dev
   (1688 tests, ruff propre). Couvre S1, S3 (hors rate-limit), S4 (hors HF, getquality), S5 (hors config, code mort testé).
-- [ ] Reste, après C2 de scilex-90 : chargeur YAML unique (S5) ; `getquality` vectorisé (orchestrator) ;
-  HF en pool de threads (`enrich_with_hf`) ; rate-limit lu une fois (`load_rate_limit_from_config`).
+- [x] `quality_scores` vectorisé dans `crawlers/aggregate.py` (51aa4910) ; branchement dans orchestrator fait par scilex-90 (lot run_aggregation).
+- [x] Sans objet : chargeur YAML unique (fait par C2, `settings/resolve.py`) ; rate-limit déjà injecté (vague 2).
+- [ ] HF en pool de threads : attendre `run_enrichment` de scilex-90 (boucle par papier isolée), puis ThreadPoolExecutor
+  (`_throttle` ratelimit et HFCache sqlite par appel sont sûrs en multithread).
 - [ ] À décider par l'utilisateur : `FilterConfig`/`filter_config` (forme de l'API) ; fonctions seulement testées.
 - Volontairement gardés (changeraient les sorties) : `export_to_bibtex.extract_year` (4 chiffres quelconques),
   split auteurs Zotero (garde les vides), `report_charts.load_data`, année webapi en float,
