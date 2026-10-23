@@ -46,5 +46,5 @@ chaque brief commence par `git reset --hard dev`.
 - [x] Revue finale : 10 défauts vérifiés (traces brutes sur config invalide, bool→int, --threshold ignoré, env CrossRef/Unpaywall/openrouter, dict vide efface preset, migrate invalide, validations tardives, advanced fusionné sur snapshot, VPN figé, env ignorée côté web)
 - [x] Corrections des 10 défauts fusionnées (9c43feb2, 1836 tests) ; vérifié à la main : erreurs lisibles, suggestions, code 1
 
-## État : chantier terminé. Décisions restantes pour l'utilisateur : clés web créées dans scilex/api.config.yml si ~/.config/scilex/keys.yml absent ; seuils CitationFilterConfig non configurables ; exposer EnrichmentOptions.workers ? ; push vers GitHub (rien poussé).
+## État : chantier terminé. Décisions utilisateur (2026-10-23) : clés web créées dans ~/.config/scilex/keys.yml (fait) ; seuils de citations restent fixés dans le code ; workers HF exposés (fait) ; pas de push.
 - Ouvert (choix) : webapi crée encore scilex/api.config.yml si ~/.config/scilex/keys.yml absent ; seuils CitationFilterConfig non configurables

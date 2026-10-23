@@ -468,7 +468,11 @@ def to_legacy(
         "apis": list(search.apis),
         "semantic_scholar_mode": search.semantic_scholar_mode,
         "aggregate_get_citations": settings.citations.fetch,
-        "hf_enrichment": hf.model_dump() if hf.enabled else {"enabled": False},
+        "hf_enrichment": (
+            hf.model_dump(exclude=set() if hf.workers != 4 else {"workers"})
+            if hf.enabled
+            else {"enabled": False}
+        ),
         "quality_filters": quality_filters,
     }
     if search.max_articles_per_query is not None:

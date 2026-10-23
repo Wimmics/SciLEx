@@ -247,6 +247,7 @@ class HuggingFaceSettings(BaseModel):
     fuzzy_match_threshold: Integer = Field(default=85, ge=0, le=100)
     cache_path: str = "output/hf_cache.db"
     cache_ttl_days: Integer = Field(default=30, ge=0)
+    workers: Integer = Field(default=4, ge=1, le=32)
 
     @model_validator(mode="before")
     @classmethod

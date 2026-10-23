@@ -141,7 +141,7 @@ Results are cached in `<output_dir>/<name>/llm_relevance_cache.json`.
 
 | Key | Type | Default | Role |
 |-----|------|---------|------|
-| `huggingface` | bool or mapping | `false` | `true` enables HuggingFace enrichment. A mapping accepts `enabled` (`false`), `use_papers_api` (`true`), `fuzzy_match_threshold` (`85`, 0-100), `cache_path` (`output/hf_cache.db`) and `cache_ttl_days` (`30`). |
+| `huggingface` | bool or mapping | `false` | `true` enables HuggingFace enrichment. A mapping accepts `enabled` (`false`), `use_papers_api` (`true`), `fuzzy_match_threshold` (`85`, 0-100), `cache_path` (`output/hf_cache.db`), `cache_ttl_days` (`30`) and `workers` (`4`, 1-32, papers searched concurrently; `scilex-enrich --workers` overrides it). |
 | `recover_dois` | bool | `false` | Recover missing DOIs through CrossRef (title and first author) |
 | `doi_recovery_min_similarity` | float 0-1 | `0.9` | Minimum title similarity to accept a recovered DOI |
 | `unpaywall` | bool | `false` | Add the `oa_type` column through Unpaywall (needs `Unpaywall.email` in `keys.yml`) |

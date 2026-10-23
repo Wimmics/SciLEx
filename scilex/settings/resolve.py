@@ -110,10 +110,13 @@ def keys_file_for_editing(fallback: Path) -> Path:
     """Path of the keys file a UI should read and write, without any warning.
 
     ``$SCILEX_KEYS`` > ``~/.config/scilex/keys.yml`` (when it exists) > ``fallback``
-    (the legacy ``api.config.yml``, which is also where a new file is created).
+    (the legacy ``api.config.yml``, when it exists). With no keys file at all, a
+    new one is created at ``~/.config/scilex/keys.yml``, never in the package.
     """
     explicit = os.environ.get("SCILEX_KEYS")
     if explicit:
         return Path(explicit).expanduser()
     user_path = USER_KEYS_PATH.expanduser()
-    return user_path if user_path.is_file() else fallback
+    if user_path.is_file() or not fallback.is_file():
+        return user_path
+    return fallback
