@@ -175,60 +175,30 @@ def reconstruct_query_to_keywords_mapping(
     years = config_used.get("years", [])
     apis = config_used.get("apis", [])
 
-    # Step 1: Generate keyword combinations (same logic as queryCompositor)
-    keyword_combinations = []
-    two_list_k = False
-
-    # Check for dual keyword group mode
+    # Step 1: Generate keyword combinations (same logic as queryCompositor).
+    # Each combination is the keyword list recorded for the query.
+    keyword_combinations: list[list[str]] = []
     if len(keywords) == 2 and len(keywords[0]) > 0 and len(keywords[1]) > 0:
         # Dual keyword mode: cartesian product of both groups
-        two_list_k = True
         keyword_combinations = [
             list(pair) for pair in itertools.product(keywords[0], keywords[1])
         ]
     elif (len(keywords) == 2 and len(keywords[0]) > 0 and len(keywords[1]) == 0) or (
         len(keywords) == 1 and len(keywords[0]) > 0
     ):
-        # Single keyword mode
-        keyword_combinations = keywords[0]
+        # Single keyword mode: each keyword is wrapped in its own list
+        keyword_combinations = [[keyword] for keyword in keywords[0]]
 
     logging.debug(f"Reconstructed {len(keyword_combinations)} keyword combinations")
 
-    # Step 2: Generate cartesian product (keywords × years × apis)
-    combinations = itertools.product(keyword_combinations, years, apis)
-
-    # Step 3: Group by API and create query lists
-    queries_by_api = {}
-
-    if two_list_k:
-        # Dual keyword mode: keyword_group is already a list [kw1, kw2]
-        for keyword_group, year, api in combinations:
-            if api not in queries_by_api:
-                queries_by_api[api] = []
-            queries_by_api[api].append(
-                {
-                    "keyword": keyword_group,  # Already a list
-                    "year": year,
-                }
-            )
-    else:
-        # Single keyword mode: wrap single keyword in list
-        for keyword_group, year, api in combinations:
-            if api not in queries_by_api:
-                queries_by_api[api] = []
-            queries_by_api[api].append(
-                {
-                    "keyword": [keyword_group],  # Wrap in list
-                    "year": year,
-                }
-            )
-
-    # Step 4: Create index → keywords mapping
-    mapping = {}
-    for api, queries in queries_by_api.items():
-        mapping[api] = {}
-        for idx, query in enumerate(queries):
-            mapping[api][str(idx)] = query["keyword"]
+    # Step 2: Cartesian product (keywords × years × apis), grouped by API.
+    # The per-API enumeration index is the query index used on disk.
+    mapping: dict[str, dict[str, list[str]]] = {}
+    for keyword_group, _year, api in itertools.product(
+        keyword_combinations, years, apis
+    ):
+        api_queries = mapping.setdefault(api, {})
+        api_queries[str(len(api_queries))] = keyword_group
 
     logging.debug(
         f"Reconstructed mapping for {len(mapping)} APIs with "
