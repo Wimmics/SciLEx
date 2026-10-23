@@ -244,3 +244,19 @@ def test_key_formats_stay_valid(isolated):
     assert api["openrouter"]["api_key"] == "sk"
     assert api["Unpaywall"]["email"] == "a@b.c"
     assert api["rate_limits"] == {"OpenAlex": 5}
+
+
+def test_example_files_are_valid_and_match_defaults(isolated):
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    (isolated / "scilex.yml").write_text((root / "scilex.yml.example").read_text())
+    (isolated / "keys.yml").write_text((root / "keys.yml.example").read_text())
+    main, api = resolve_legacy_configs(keys_path=str(isolated / "keys.yml"))
+    # the example only restates defaults: no optional legacy key is emitted
+    for key in ("since", "generate_prisma_report", "llm_screening", "vpn"):
+        assert key not in main
+    assert not {"recover_missing_dois", "use_venue_ranking"} & set(
+        main["quality_filters"]
+    )
+    assert {"Zotero", "openrouter", "Unpaywall"} <= set(api)

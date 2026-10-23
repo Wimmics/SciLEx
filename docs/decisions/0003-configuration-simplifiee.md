@@ -108,6 +108,42 @@ Nouveau paquet `scilex/settings/` : `schema.py` (modèles), `presets.py`, `loade
 - Les listes de types sont ignorées quand le drapeau correspondant est désactivé.
 - Les suggestions `difflib` comparent le dernier segment du chemin de la clé.
 
+## Précisions issues de C2 (branchement des points d'entrée)
+- **Point de résolution unique** : `scilex.settings.resolve.resolve_legacy_configs(config_path, keys_path)`
+  renvoie `(main_config, api_config)`. `SciLExConfig.from_files()` (sans `config_dir`) et
+  `load_all_configs` (`main_config` / `api_config`) passent par lui ; la fusion `advanced` n'existe plus
+  qu'en un lieu (`settings/advanced.py::merge_advanced_config`, ré-exportée sous l'ancien nom dans `config.py`).
+  `from_files(config_dir=...)` force le format legacy depuis un dossier. Un `--config` explicite vers un
+  fichier contenant `collect_name` est lu comme legacy (avertissement). Sans `scilex.yml`, repli sur
+  `scilex/scilex.config.yml` (+ `scilex.advanced.yml`), avec avertissement.
+- **`--config` / `--keys`** : `settings/cli.py` (`add_config_arguments`, `apply_config_arguments`) place les
+  chemins dans `SCILEX_CONFIG` / `SCILEX_KEYS`, lus par tous les chargeurs. Branché sur tous les CLI de
+  `[project.scripts]` (sauf `scilex-init`, dont `--config` désigne le fichier à écrire) et `collect_status`.
+- **Nouvelles clés** (émises vers le legacy uniquement si différentes du défaut, pour garder l'invariant) :
+
+  | `scilex.yml` | legacy |
+  |---|---|
+  | `search.since` (date ou null) | `main.since` |
+  | `citations.discrepancy_threshold` | `quality_filters.canonical_citation_discrepancy_threshold` |
+  | `enrichment.recover_dois` / `doi_recovery_min_similarity` | `quality_filters.recover_missing_dois` / `doi_recovery_min_similarity` |
+  | `enrichment.unpaywall` / `enrichment.author_hindex` | `quality_filters.enrich_unpaywall` / `enrich_author_hindex` |
+  | `ranking.venue_ranking` | `quality_filters.use_venue_ranking` |
+  | `report.prisma` | `main.generate_prisma_report` |
+  | `llm_screening:` (bloc de premier niveau) | `main.llm_screening` |
+
+  `since` est rangé sous `search` (et non `collect`) car il détermine les requêtes. L'email Unpaywall vit
+  dans `keys.yml` (`Unpaywall.email`) ; `quality_filters.unpaywall_email` d'un ancien fichier n'est pas migré
+  (avertissement). Clés : `api_key` = chaîne ou liste (KeyPool), `openrouter.api_key`, `Unpaywall.email` ;
+  Springer (dict) et `inst_token` Elsevier restent valides (blocs libres).
+- **VPN** : `_load_vpn_config` lit `main_config["vpn"]`, repli `api_config["vpn"]`, ne lève jamais.
+- **Commandes** : `scilex init` / `scilex-init` écrivent `./scilex.yml` au nouveau format (modèle, questions si
+  TTY, sinon squelette commenté) ; les modèles et profils sont au nouveau format, un profil legacy est converti
+  à la lecture. `scilex config show|check|migrate` dans `settings/cli.py`.
+- **webapi** : chaque job écrit sa config (legacy) dans `<output_dir>/_web_job_config.yml` et positionne
+  `SCILEX_CONFIG` vers ce fichier pour la durée du job ; le serveur n'a donc pas besoin d'un `./scilex.yml`.
+  Le fichier de clés du serveur suit `$SCILEX_KEYS` > `~/.config/scilex/keys.yml` > `scilex/api.config.yml`.
+- Les modèles ne portent plus `huggingface: true` implicite (défaut du nouveau format : désactivé).
+
 ## Conséquences
 - Une revue = un dossier avec un `scilex.yml` versionnable ; les clés ne fuient plus dans un dépôt.
 - Les noms `quality_filters.*` restent valables en interne ; seuls les fichiers humains changent.
