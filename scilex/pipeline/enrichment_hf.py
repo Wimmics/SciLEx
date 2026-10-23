@@ -8,6 +8,7 @@ CLI (``scilex.enrich_with_hf``) and the web API call it the same way.
 
 import logging
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import pandas as pd
@@ -44,12 +45,15 @@ class EnrichmentOptions:
             ``hf_enrichment.fuzzy_match_threshold`` takes precedence.
         collect_dir: Collect directory holding the aggregated CSV (overrides
             ``output_dir`` + ``collect_name`` from the config).
+        workers: Papers searched concurrently. Network calls stay capped by
+            the HF client's rate limiter, so more workers only hide latency.
     """
 
     dry_run: bool = False
     limit: int | None = None
     threshold: int = 85
     collect_dir: str | None = None
+    workers: int = 4
 
 
 @dataclass
@@ -248,8 +252,8 @@ def _enrich_rows(
 ) -> tuple[list[tuple[object, dict]], dict]:
     """Search HuggingFace for each row, without modifying ``data``.
 
-    Pure per-paper loop: no global state, ``data`` is only read. Each row is
-    independent of the others.
+    Rows are searched concurrently (``options.workers`` threads); ``data`` is
+    only read and results come back in row order.
 
     Args:
         data: Aggregated papers.
@@ -257,7 +261,7 @@ def _enrich_rows(
         matcher: TitleMatcher instance.
         extractor: MetadataExtractor instance.
         formatter: TagFormatter instance.
-        options: Run options (``limit`` and ``dry_run`` are used here).
+        options: Run options (``limit``, ``dry_run`` and ``workers`` are used here).
         use_papers_api: Enable the Papers API search.
         progress_callback: Optional ``callback(processed, total, stats)``,
             called after every row.
@@ -269,13 +273,11 @@ def _enrich_rows(
     """
     stats = {"total": len(data), "matched": 0, "skipped": 0}
     updates: list[tuple[object, dict]] = []
+    rows = data.head(options.limit) if options.limit else data
 
-    for position, (idx, row) in enumerate(
-        tqdm(data.iterrows(), total=len(data), desc="Processing papers")
-    ):
-        if options.limit and position >= options.limit:
-            break
-
+    def search_row(item):
+        """Run one paper's search; errors are returned, not raised."""
+        idx, row = item
         try:
             result = process_paper_for_csv(
                 row,
@@ -285,8 +287,20 @@ def _enrich_rows(
                 formatter,
                 use_papers_api=use_papers_api,
             )
+            return idx, row, result, None
+        except Exception as error:
+            return idx, row, None, error
 
-            if result is None:
+    # map() yields in row order; counting and callbacks stay on this thread.
+    with ThreadPoolExecutor(max_workers=max(1, options.workers)) as executor:
+        outcomes = executor.map(search_row, rows.iterrows())
+        for idx, row, result, error in tqdm(
+            outcomes, total=len(rows), desc="Processing papers"
+        ):
+            if error is not None:
+                logging.error(f"Error processing row {idx}: {error}")
+                stats["skipped"] += 1
+            elif result is None:
                 stats["skipped"] += 1
             else:
                 stats["matched"] += 1
@@ -297,11 +311,6 @@ def _enrich_rows(
                     logging.info(f"  HF URL: {result['hf_url']}")
                     logging.info(f"  GitHub: {result['github_repo']}")
 
-        except Exception as e:
-            logging.error(f"Error processing row {idx}: {e}")
-            stats["skipped"] += 1
-        finally:
-            # Report every row, whatever path it took
             if progress_callback:
                 progress_callback(stats["matched"] + stats["skipped"], len(data), stats)
 

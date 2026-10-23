@@ -107,7 +107,8 @@ def test_enrich_progress_called_for_every_row_and_limit_uses_counter(
     csv_dir, calls = _run_enrich(
         monkeypatch, tmp_path, data, EnrichmentOptions(limit=3), processor
     )
-    assert processed_titles == ["w", "x", "y"]
+    # rows are searched concurrently: same rows, call order not guaranteed
+    assert sorted(processed_titles) == ["w", "x", "y"]
     # one call per processed row (skipped, errored, matched) plus the final report
     assert calls[:3] == [1, 2, 3]
     assert os.path.exists(csv_dir / "aggregated_results.csv")

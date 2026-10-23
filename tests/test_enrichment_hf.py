@@ -147,3 +147,27 @@ def test_cli_reexports_business_functions():
     assert cli_module.process_paper_for_csv is core.process_paper_for_csv
     assert cli_module._match_via_papers_api is core._match_via_papers_api
     assert cli_module._match_via_models_api is core._match_via_models_api
+
+
+def test_enrich_rows_parallel_keeps_order_and_counts_errors(monkeypatch):
+    def processor(row, *args, **kwargs):
+        if row["title"] == "Boom":
+            raise RuntimeError("network down")
+        return MATCH
+
+    monkeypatch.setattr(core, "process_paper_for_csv", processor)
+    titles = [f"T{i}" for i in range(50)] + ["Boom"]
+    data = pd.DataFrame({"title": titles})
+    progress = []
+    updates, stats = _enrich_rows(
+        data,
+        None,
+        None,
+        None,
+        None,
+        EnrichmentOptions(workers=8, limit=51),
+        progress_callback=lambda done, total, _stats: progress.append(done),
+    )
+    assert [idx for idx, _ in updates] == list(range(50))
+    assert stats == {"total": 51, "matched": 50, "skipped": 1}
+    assert progress == list(range(1, 52))
