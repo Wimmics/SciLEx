@@ -277,7 +277,7 @@ def run_snowball(
     try:
         corpus_df = load_aggregated_data(config.main)
         references, citers = load_citation_caches(str(collect_dir))
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         raise AnalysisError(str(exc)) from exc
     progress(10, "Looking for candidates…")
     candidates = extract_candidates(
@@ -331,7 +331,7 @@ def run_graph(
     try:
         df = load_aggregated_data(config.main)
         references, citers = load_citation_caches(str(collect_dir))
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError) as exc:
         raise AnalysisError(str(exc)) from exc
     analysis_dir.mkdir(exist_ok=True)
     corpus_dois = extract_corpus_dois(df)
@@ -384,6 +384,37 @@ def run_summaries(config: SciLExConfig, progress: ProgressFn) -> AnalysisResult:
     report_path = analysis_dir / "summary_report.md"
     generate_report(stats, str(report_path), collect_name=config.main["collect_name"])
     return AnalysisResult(f"Summary of {len(stats)} clusters.", [report_path])
+
+
+# --- options coming from the page --------------------------------------------
+
+# name -> {option: caster}; options not listed are dropped.
+OPTION_CASTS: dict[str, dict[str, Callable]] = {
+    "report": {},
+    "keywords": {"top_k": int, "min_freq": int},
+    "enrich": {"dry_run": bool, "limit": int, "threshold": int},
+    "snowball": {
+        "direction": str,
+        "top_k": int,
+        "min_frequency": int,
+        "dry_run": bool,
+    },
+    "graph": {"graph_type": str, "resolution": float, "min_weight": int, "fmt": str},
+    "summaries": {},
+}
+
+
+def normalize_options(name: str, raw: dict) -> dict:
+    """Cast the widget values of analysis ``name`` to the runner's keyword arguments.
+
+    Unknown keys and empty values (None, "") are dropped so the runner defaults apply.
+    """
+    casts = OPTION_CASTS[name]
+    return {
+        key: casts[key](value)
+        for key, value in raw.items()
+        if key in casts and value not in (None, "")
+    }
 
 
 RUNNERS: dict[str, Callable[..., AnalysisResult]] = {
