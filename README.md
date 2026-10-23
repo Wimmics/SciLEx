@@ -78,6 +78,7 @@
 | **OpenAlex** | Optional | 250M+ works | Broad coverage, ORCID data |
 | **IEEE** | Yes | 5M+ docs | Engineering, CS conferences |
 | **Arxiv** | No | 2M+ preprints | Preprints, physics, CS |
+| **BioRxiv** | No | ~50k preprints/year | Biology preprints (bioRxiv only; no server-side search, so a yearly cache is filtered client-side) |
 | **Springer** | Yes | 13M+ docs | Journals, books |
 | **Elsevier** | Yes | 18M+ articles | Medical, life sciences |
 | **PubMed** | Optional | 35M+ papers | Biomedical literature |
