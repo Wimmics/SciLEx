@@ -19,7 +19,11 @@ from scilex.constants import is_valid
 from scilex.crawlers.utils import load_all_configs
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
-from scilex.Zotero.zotero_api import ZoteroAPI, prepare_zotero_item
+from scilex.Zotero.zotero_api import (
+    ZoteroAPI,
+    fetch_item_template,
+    prepare_zotero_item,
+)
 
 # Set up logging with centralized configuration
 setup_logging()
@@ -38,8 +42,6 @@ def prefetch_templates(data: pd.DataFrame) -> dict[str, dict]:
     Returns:
         Dictionary mapping item types to their Zotero templates
     """
-    import requests
-
     unique_types = data["itemType"].dropna().unique()
     templates = {}
 
@@ -50,16 +52,12 @@ def prefetch_templates(data: pd.DataFrame) -> dict[str, dict]:
         if item_type == "bookSection":
             item_type = "journalArticle"
 
-        # Fetch template directly from public Zotero API (no auth needed)
-        try:
-            response = requests.get(
-                f"https://api.zotero.org/items/new?itemType={item_type}", timeout=30
-            )
-            response.raise_for_status()
-            templates[item_type] = response.json()
+        template = fetch_item_template(item_type)
+        if template:
+            templates[item_type] = template
             logging.debug(f"Fetched template for: {item_type}")
-        except requests.exceptions.RequestException as e:
-            logging.warning(f"Failed to fetch template for {item_type}: {e}")
+        else:
+            logging.warning(f"Failed to fetch template for {item_type}")
 
     logging.info(f"Successfully pre-fetched {len(templates)} templates")
     return templates
