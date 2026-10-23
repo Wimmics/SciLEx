@@ -171,6 +171,8 @@ def set_keys_list(
     """Store ``keys`` in ``data[api][field_name]``: a string, a list, or removed."""
     keys = [key.strip() for key in keys if key and key.strip()]
     block = dict(data.get(api) or {})
+    if keys == get_keys_list(block, field_name):
+        return  # unchanged: keep the original shape (e.g. Springer's meta/openaccess mapping)
     if not keys:
         block.pop(field_name, None)
     else:

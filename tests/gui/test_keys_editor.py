@@ -73,3 +73,12 @@ def test_check_zotero():
     with patch("requests.get", return_value=_Response(200)) as get:
         assert editor.check_zotero("k", "12", "group")[0]
     assert "/groups/12/" in get.call_args.args[0]
+
+
+def test_unchanged_springer_mapping_keeps_its_shape():
+    from scilex.gui.services import keys_editor
+
+    mapping = {"meta_api_key": "META", "openaccess_api_key": "OA"}
+    data = {"Springer": {"api_key": dict(mapping)}}
+    keys_editor.set_keys_list(data, "Springer", ["META", "OA"])
+    assert data["Springer"]["api_key"] == mapping
