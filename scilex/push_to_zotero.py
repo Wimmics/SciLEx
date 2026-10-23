@@ -9,13 +9,14 @@ Zotero collection, handling duplicates and creating the collection if needed.
 import argparse
 import logging
 import os
+import sys
 from datetime import datetime
 
 import pandas as pd
 from tqdm import tqdm
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
-from scilex.constants import is_valid
+from scilex.constants import is_valid, normalize_path_component
 from scilex.crawlers.utils import load_all_configs
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
@@ -24,9 +25,6 @@ from scilex.Zotero.zotero_api import (
     fetch_item_template,
     prepare_zotero_item,
 )
-
-# Set up logging with centralized configuration
-setup_logging()
 
 
 def prefetch_templates(data: pd.DataFrame) -> dict[str, dict]:
@@ -86,7 +84,7 @@ def push_new_items_to_zotero(
     """
     output_dir = config.get("output_dir", DEFAULT_OUTPUT_DIR)
     dir_collect = config.get("_collect_dir") or os.path.join(
-        output_dir, config.get("collect_name", "")
+        output_dir, normalize_path_component(config.get("collect_name", ""))
     )
     results = {
         "success": 0,
@@ -99,10 +97,9 @@ def push_new_items_to_zotero(
 
     logging.info("Processing papers for upload...")
 
-    # Use itertuples for faster iteration (5-10x faster than iterrows)
-    for row in tqdm(
-        data.itertuples(index=False), total=len(data), desc="Preparing items"
-    ):
+    # Plain dict records keep the original column names (itertuples renames
+    # columns that are not valid identifiers) and are fast to iterate.
+    for row in tqdm(data.to_dict("records"), total=len(data), desc="Preparing items"):
         # Prepare Zotero item from row
         item = prepare_zotero_item(row, collection_key, templates_cache)
 
@@ -114,9 +111,7 @@ def push_new_items_to_zotero(
         # Check for duplicate URL
         item_url = item.get("url")
         if not is_valid(item_url):
-            title = (
-                getattr(row, "title", "Unknown") if hasattr(row, "title") else "Unknown"
-            )
+            title = row.get("title", "Unknown")
             logging.warning(f"Skipping paper without valid URL: {title}")
             invalid_items.append(row)
             results["skipped_for_incompatibility"] += 1
@@ -131,6 +126,7 @@ def push_new_items_to_zotero(
         items_to_upload.append(item)
     if invalid_items:
         invalid_data = pd.DataFrame(invalid_items)
+        os.makedirs(dir_collect, exist_ok=True)
         invalid_data_path = os.path.join(dir_collect, "invalid_items_no_url.csv")
         invalid_data.to_csv(invalid_data_path, index=False)
         logging.info(
@@ -182,6 +178,7 @@ def main():
     )
 
     args = parser.parse_args()
+    setup_logging()
 
     logging.info(f"Zotero push process started at {datetime.now()}")
     logging.info("=" * 60)
@@ -211,7 +208,7 @@ def main():
         logging.error("  - api_key: Your Zotero API key")
         logging.error("  - user_id: Your Zotero user ID")
         logging.error("  - user_mode: 'user' or 'group'")
-        return
+        sys.exit(1)
 
     api_key = zotero_config.get("api_key")
     user_id = zotero_config.get("user_id")
@@ -219,7 +216,7 @@ def main():
 
     if not api_key:
         logging.error("Zotero API key not found in api.config.yml")
-        return
+        sys.exit(1)
 
     if not user_id:
         logging.error("Zotero user_id not found in api.config.yml")
@@ -227,7 +224,7 @@ def main():
         logging.error(
             "You can find your user ID at: https://www.zotero.org/settings/keys"
         )
-        return
+        sys.exit(1)
 
     collection_name = args.zotero_collection or main_config.get(
         "collect_name", "new_models"
@@ -243,7 +240,7 @@ def main():
 
     if not collection:
         logging.error(f"Failed to get or create collection '{collection_name}'")
-        return
+        sys.exit(1)
 
     collection_key = collection["data"]["key"]
     logging.info(f"Using collection key: {collection_key}")

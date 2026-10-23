@@ -44,9 +44,74 @@ from scilex.io_utils import (
 )
 from scilex.logging_config import setup_logging
 
-# Set up logging with centralized configuration
-setup_logging()
 logger = logging.getLogger(__name__)
+
+
+def _match_via_papers_api(
+    title: str,
+    hf_client: HFClient,
+    matcher: TitleMatcher,
+    extractor: MetadataExtractor,
+) -> dict | None:
+    """Search the HF Papers API and return extracted metadata, or None."""
+    logging.debug(f"Trying Papers API for: {title[:50]}...")
+    papers = hf_client.search_papers_by_title(title, limit=10)
+    if not papers:
+        return None
+
+    best_paper, score = matcher.find_best_match(title, papers, key="title")
+    if not best_paper:
+        return None
+
+    logging.info(
+        f"✓ Papers API match: '{title[:40]}...' → "
+        f"{best_paper['title'][:40]}... (score: {score})"
+    )
+    paper_id = best_paper.get("id")
+
+    # Paper info (actual GitHub repo, ai_keywords, github_stars)
+    paper_info = hf_client.get_paper_info(paper_id)
+
+    # Linked resources (citing models/datasets for metadata)
+    linked_resources = hf_client.get_paper_linked_resources(paper_id)
+    metadata = extractor.extract_paper_resources(best_paper, linked_resources)
+
+    if paper_info:
+        metadata["github_stars"] = paper_info.get("githubStars")
+        metadata["ai_keywords"] = paper_info.get("ai_keywords", [])
+        # Paper's actual GitHub repo (NOT from citing models)
+        metadata["paper_github_repo"] = paper_info.get("githubRepo")
+
+    # Rename datasets from citing resources to citing_datasets
+    if "datasets" in metadata:
+        metadata["citing_datasets"] = metadata.pop("datasets")
+
+    return metadata
+
+
+def _match_via_models_api(
+    title: str,
+    hf_client: HFClient,
+    matcher: TitleMatcher,
+    extractor: MetadataExtractor,
+) -> dict | None:
+    """Search the HF Models API and return extracted metadata, or None."""
+    logging.debug(f"Falling back to Models API for: {title[:50]}...")
+    models = hf_client.search_models_by_title(title, limit=3)
+    if not models:
+        return None
+
+    best_model, score = matcher.find_best_match(title, models, key="modelId")
+    if not best_model:
+        return None
+
+    logging.info(
+        f"✓ Models API match: '{title[:40]}...' → "
+        f"{best_model['modelId']} (score: {score})"
+    )
+    metadata = extractor.extract_model_metadata(best_model)
+    metadata["modelId"] = best_model.get("modelId")
+    return metadata
 
 
 def process_paper_for_csv(
@@ -87,64 +152,18 @@ def process_paper_for_csv(
 
     metadata = None
     match_source = None
-    paper_info = None
 
     # STRATEGY 1: Papers API (PRIMARY)
     if use_papers_api:
-        logging.debug(f"Trying Papers API for: {title[:50]}...")
-        papers = hf_client.search_papers_by_title(title, limit=10)
-
-        if papers:
-            # Find best matching paper
-            best_paper, score = matcher.find_best_match(title, papers, key="title")
-
-            if best_paper:
-                logging.info(
-                    f"✓ Papers API match: '{title[:40]}...' → "
-                    f"{best_paper['title'][:40]}... (score: {score})"
-                )
-                paper_id = best_paper.get("id")
-
-                # Get paper info (actual GitHub repo, ai_keywords, github_stars)
-                paper_info = hf_client.get_paper_info(paper_id)
-
-                # Get linked resources (citing models/datasets for metadata)
-                linked_resources = hf_client.get_paper_linked_resources(paper_id)
-                metadata = extractor.extract_paper_resources(
-                    best_paper, linked_resources
-                )
-
-                # Add paper info data to metadata
-                if paper_info:
-                    metadata["github_stars"] = paper_info.get("githubStars")
-                    metadata["ai_keywords"] = paper_info.get("ai_keywords", [])
-                    # Paper's actual GitHub repo (NOT from citing models)
-                    metadata["paper_github_repo"] = paper_info.get("githubRepo")
-
-                # Rename datasets from citing resources to citing_datasets
-                if "datasets" in metadata:
-                    metadata["citing_datasets"] = metadata.pop("datasets")
-
-                match_source = "papers_api"
+        metadata = _match_via_papers_api(title, hf_client, matcher, extractor)
+        if metadata is not None:
+            match_source = "papers_api"
 
     # STRATEGY 2: Models API (FALLBACK)
     if metadata is None:
-        logging.debug(f"Falling back to Models API for: {title[:50]}...")
-        models = hf_client.search_models_by_title(title, limit=3)
-
-        if models:
-            # Find best matching model
-            best_model, score = matcher.find_best_match(title, models, key="modelId")
-
-            if best_model:
-                logging.info(
-                    f"✓ Models API match: '{title[:40]}...' → "
-                    f"{best_model['modelId']} (score: {score})"
-                )
-                metadata = extractor.extract_model_metadata(best_model)
-                match_source = "models_api"
-                # Store model_id for later use
-                metadata["modelId"] = best_model.get("modelId")
+        metadata = _match_via_models_api(title, hf_client, matcher, extractor)
+        if metadata is not None:
+            match_source = "models_api"
 
     # No match found
     if metadata is None:
@@ -225,6 +244,9 @@ def main(progress_callback=None):
     )
 
     args = parser.parse_args()
+    if progress_callback is None:
+        # CLI run; embedded callers (web API) keep their own logging setup
+        setup_logging()
 
     try:
         # Load configs
@@ -287,10 +309,10 @@ def main(progress_callback=None):
             "skipped": 0,
         }
 
-        for idx, row in tqdm(
-            data.iterrows(), total=len(data), desc="Processing papers"
+        for position, (idx, row) in enumerate(
+            tqdm(data.iterrows(), total=len(data), desc="Processing papers")
         ):
-            if args.limit and idx >= args.limit:
+            if args.limit and position >= args.limit:
                 break
 
             try:
@@ -305,30 +327,26 @@ def main(progress_callback=None):
 
                 if result is None:
                     stats["skipped"] += 1
-                    continue
-
-                stats["matched"] += 1
-
-                if not args.dry_run:
-                    data.at[idx, "tags"] = result["tags"]
-                    data.at[idx, "hf_url"] = result["hf_url"]
-                    data.at[idx, "github_repo"] = result["github_repo"]
-                    stats["updated"] += 1
                 else:
-                    logging.info(f"[DRY RUN] Would enrich: {row['title'][:50]}...")
-                    logging.info(f"  Tags: {result['tags']}")
-                    logging.info(f"  HF URL: {result['hf_url']}")
-                    logging.info(f"  GitHub: {result['github_repo']}")
+                    stats["matched"] += 1
+                    if not args.dry_run:
+                        data.at[idx, "tags"] = result["tags"]
+                        data.at[idx, "hf_url"] = result["hf_url"]
+                        data.at[idx, "github_repo"] = result["github_repo"]
+                        stats["updated"] += 1
+                    else:
+                        logging.info(f"[DRY RUN] Would enrich: {row['title'][:50]}...")
+                        logging.info(f"  Tags: {result['tags']}")
+                        logging.info(f"  HF URL: {result['hf_url']}")
+                        logging.info(f"  GitHub: {result['github_repo']}")
 
             except Exception as e:
                 logging.error(f"Error processing row {idx}: {e}")
                 stats["skipped"] += 1
-                continue
-
-            # Report progress every 10 papers
-            if progress_callback:
-                processed = stats["matched"] + stats["skipped"]
-                if processed % 10 == 0:
+            finally:
+                # Report every row, whatever path it took
+                if progress_callback:
+                    processed = stats["matched"] + stats["skipped"]
                     progress_callback(processed, len(data), stats)
 
         # Final progress report
