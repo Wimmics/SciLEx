@@ -18,10 +18,11 @@ import sys
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.constants import normalize_path_component
-from scilex.crawlers.utils import load_all_configs
 from scilex.export_to_bibtex import BIBTEX_CITATIONS_FILENAME, BIBTEX_PLAIN_FILENAME
 from scilex.logging_config import setup_logging
 from scilex.rdf import convert_to_string
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.resolve import resolve_legacy_configs, resolve_main_config
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -37,8 +38,7 @@ FORMAT_EXTENSIONS = {
 
 def load_config() -> dict:
     """Load scilex.config.yml."""
-    configs = load_all_configs({"main_config": "scilex.config.yml"})
-    return configs["main_config"]
+    return resolve_main_config()
 
 
 def export_citation_graph(
@@ -51,7 +51,7 @@ def export_citation_graph(
     from scilex.rdf.citation_graph import write_citation_graph
 
     dois = sorted(extract_corpus_dois(load_aggregated_data(config, collect_dir)))
-    api_configs = load_all_configs({"api_config": "api.config.yml"})["api_config"]
+    api_configs = resolve_legacy_configs()[1]
     references = fetch_references_batch(
         dois,
         api_key=((api_configs or {}).get("SemanticScholar") or {}).get("api_key"),
@@ -97,7 +97,9 @@ def main():
         action="store_true",
         help="With --citation-graph: skip the doi.org requests (edges only)",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     try:
         config = load_config()

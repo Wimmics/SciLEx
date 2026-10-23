@@ -10,21 +10,17 @@ import pandas as pd
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid, normalize_path_component
-from scilex.crawlers.utils import load_all_configs
+from scilex.settings.resolve import resolve_legacy_configs, resolve_main_config
 
 
 def load_main_config() -> dict:
-    """Load ``scilex.config.yml`` and return the parsed dict."""
-    configs = load_all_configs({"main_config": "scilex.config.yml"})
-    return configs["main_config"]
+    """Resolve the main configuration (``scilex.yml`` or legacy) as a legacy dict."""
+    return resolve_main_config()
 
 
 def load_main_and_api_configs() -> tuple[dict, dict]:
-    """Load ``scilex.config.yml`` and ``api.config.yml``."""
-    configs = load_all_configs(
-        {"main_config": "scilex.config.yml", "api_config": "api.config.yml"}
-    )
-    return configs["main_config"], configs["api_config"]
+    """Resolve ``(main_config, api_config)`` from ``scilex.yml`` / ``keys.yml``."""
+    return resolve_legacy_configs()
 
 
 def resolve_collect_dir(config: dict) -> str:

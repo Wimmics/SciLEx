@@ -32,7 +32,6 @@ import pandas as pd
 from tqdm import tqdm
 
 from scilex.constants import MISSING_VALUE, is_valid
-from scilex.crawlers.utils import load_all_configs
 from scilex.HuggingFace.hf_client import HFClient
 from scilex.HuggingFace.metadata_extractor import MetadataExtractor
 from scilex.HuggingFace.tag_formatter import TagFormatter
@@ -43,6 +42,8 @@ from scilex.io_utils import (
     write_aggregated_csv,
 )
 from scilex.logging_config import setup_logging
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.resolve import resolve_legacy_configs
 
 logger = logging.getLogger(__name__)
 
@@ -243,20 +244,16 @@ def main(progress_callback=None):
         "(overrides output_dir + collect_name from config)",
     )
 
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
     if progress_callback is None:
         # CLI run; embedded callers (web API) keep their own logging setup
         setup_logging()
 
     try:
         # Load configs
-        config_files = {
-            "main_config": "scilex.config.yml",
-            "api_config": "api.config.yml",
-        }
-        configs = load_all_configs(config_files)
-        main_config = configs["main_config"]
-        api_config = configs["api_config"]
+        main_config, api_config = resolve_legacy_configs()
 
         # Get HF config
         hf_config = main_config.get("hf_enrichment", {})

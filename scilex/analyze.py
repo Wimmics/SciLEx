@@ -40,6 +40,7 @@ from scilex.pipeline_utils import (
     load_main_config,
     resolve_collect_dir,
 )
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -74,7 +75,9 @@ def main():
         default=DEFAULT_GRAPH_FORMAT,
         help=f"Graph export format (default: {DEFAULT_GRAPH_FORMAT})",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     try:
         config = load_main_config()

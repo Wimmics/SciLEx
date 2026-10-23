@@ -32,6 +32,7 @@ from scilex.pipeline_utils import (
     load_main_and_api_configs,
     resolve_collect_dir,
 )
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
 from scilex.snowball.candidates import extract_candidates
 from scilex.snowball.fetcher import fetch_metadata_batch
 from scilex.snowball.filter import apply_snowball_filters
@@ -69,7 +70,9 @@ def main():
         action="store_true",
         help="List candidates without fetching metadata",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     try:
         main_config, api_config = load_main_and_api_configs()

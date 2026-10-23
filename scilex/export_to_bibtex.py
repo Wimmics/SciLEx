@@ -20,9 +20,10 @@ from scilex.constants import (
     normalize_path_component,
     split_semicolon_field,
 )
-from scilex.crawlers.utils import load_all_configs
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.resolve import resolve_main_config
 
 logger = logging.getLogger(__name__)
 
@@ -80,11 +81,7 @@ def load_config(collect_name: str | None = None, output_dir: str | None = None) 
     Returns:
         Configuration dictionary
     """
-    config_files = {
-        "main_config": "scilex.config.yml",
-    }
-    configs = load_all_configs(config_files)
-    config = configs["main_config"]
+    config = resolve_main_config()
 
     # Override with CLI arguments if provided
     if collect_name:
@@ -500,7 +497,9 @@ def main():
         help="Output directory (overrides scilex.config.yml)",
     )
 
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     try:
         # Load configuration with CLI overrides

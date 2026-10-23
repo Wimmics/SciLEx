@@ -23,6 +23,7 @@ from scilex.pipeline_utils import (
     load_main_config,
     resolve_collect_dir,
 )
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
 from scilex.summarize.report import generate_report
 from scilex.summarize.stats import compute_cluster_stats
 
@@ -40,7 +41,9 @@ def main():
         default=None,
         help="Path to clusters CSV (overrides auto-detection)",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     try:
         config = load_main_config()

@@ -10,6 +10,8 @@ import matplotlib
 import numpy as np
 import pandas as pd
 
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -525,7 +527,9 @@ def main() -> None:
         type=Path,
         help="Path to the collect directory containing aggregated_results.csv",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     collect_dir: Path = args.collect_dir.resolve()
     if not collect_dir.is_dir():

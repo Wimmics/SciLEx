@@ -17,7 +17,9 @@ import sys
 from itertools import product
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
-from scilex.crawlers.utils import load_all_configs, load_yaml_config
+from scilex.crawlers.utils import load_yaml_config
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.resolve import resolve_main_config
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -25,8 +27,7 @@ from scilex.crawlers.utils import load_all_configs, load_yaml_config
 def _resolve_collect_dir(collection_arg: str | None, src_dir: str) -> str:
     """Return absolute path to the collection directory."""
     if collection_arg is None:
-        configs = load_all_configs({"main_config": "scilex.config.yml"})
-        cfg = configs["main_config"]
+        cfg = resolve_main_config()
         output_dir = cfg.get("output_dir", DEFAULT_OUTPUT_DIR)
         collect_name = cfg.get("collect_name", "unknown")
         return os.path.join(output_dir, collect_name)
@@ -39,9 +40,8 @@ def _resolve_collect_dir(collection_arg: str | None, src_dir: str) -> str:
         return collection_arg
 
     # Name only — look up output_dir from the current config
-    current_config_path = os.path.join(src_dir, "scilex.config.yml")
     try:
-        cfg = load_yaml_config(current_config_path)
+        cfg = resolve_main_config()
         output_dir = cfg.get("output_dir", DEFAULT_OUTPUT_DIR)
     except FileNotFoundError:
         output_dir = DEFAULT_OUTPUT_DIR
@@ -313,7 +313,9 @@ def main():
         action="store_true",
         help="Show full keyword combo lists instead of truncated summaries",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     src_dir = os.path.dirname(os.path.abspath(__file__))
     dir_collect = _resolve_collect_dir(args.collection, src_dir)

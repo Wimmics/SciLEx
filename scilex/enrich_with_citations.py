@@ -26,7 +26,6 @@ from scilex.citations.reference_fetcher import (
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid, normalize_path_component
 from scilex.crawlers.key_pool import first_key
-from scilex.crawlers.utils import load_all_configs
 from scilex.export_to_bibtex import (
     BIBTEX_CITATIONS_FILENAME,
     format_bibtex_entry,
@@ -35,6 +34,8 @@ from scilex.export_to_bibtex import (
 )
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.resolve import resolve_legacy_configs
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -42,10 +43,7 @@ logger = logging.getLogger(__name__)
 
 def load_config() -> tuple[dict, dict]:
     """Load scilex.config.yml and api.config.yml."""
-    configs = load_all_configs(
-        {"main_config": "scilex.config.yml", "api_config": "api.config.yml"}
-    )
-    return configs["main_config"], configs["api_config"]
+    return resolve_legacy_configs()
 
 
 def main():
@@ -69,7 +67,9 @@ def main():
         action="store_true",
         help="Skip fetching incoming citers (cited_by field / bibo:citedBy triples)",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     try:
         main_config, api_config = load_config()

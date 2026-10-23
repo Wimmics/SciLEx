@@ -15,6 +15,7 @@ from scilex.config import SciLExConfig
 from scilex.config_defaults import DEFAULT_COLLECT_ENABLED, DEFAULT_OUTPUT_DIR
 from scilex.logging_config import log_section, setup_logging
 from scilex.pipeline.orchestrator import run_collection
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
 from scilex.since_utils import parse_since
 
 
@@ -55,7 +56,9 @@ def main():
             "<collect_name>_since_<date>, merged by scilex-aggregate."
         ),
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     # Load configuration (from a previous collection when resuming)
     try:

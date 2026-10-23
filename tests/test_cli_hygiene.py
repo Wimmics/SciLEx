@@ -40,9 +40,7 @@ def test_push_main_exits_1_without_zotero_config(monkeypatch):
     monkeypatch.setattr("sys.argv", ["scilex-push-zotero"])
     monkeypatch.setattr(push_module, "setup_logging", lambda: None)
     monkeypatch.setattr(
-        push_module,
-        "load_all_configs",
-        lambda _files: {"main_config": {"collect_name": "c"}, "api_config": {}},
+        push_module, "resolve_legacy_configs", lambda: ({"collect_name": "c"}, {})
     )
     with pytest.raises(SystemExit) as exc_info:
         push_module.main()
@@ -76,9 +74,7 @@ def _run_enrich(monkeypatch, tmp_path, data, argv_extra, processor):
         "sys.argv", ["scilex-enrich", "--collect-dir", str(csv_dir), *argv_extra]
     )
     monkeypatch.setattr(
-        enrich_module,
-        "load_all_configs",
-        lambda _files: {"main_config": {"collect_name": "c"}, "api_config": {}},
+        enrich_module, "resolve_legacy_configs", lambda: ({"collect_name": "c"}, {})
     )
     monkeypatch.setattr(enrich_module, "HFClient", lambda **_: object())
     monkeypatch.setattr(

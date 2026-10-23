@@ -17,9 +17,10 @@ from tqdm import tqdm
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
 from scilex.constants import is_valid, normalize_path_component
-from scilex.crawlers.utils import load_all_configs
 from scilex.io_utils import load_aggregated_data
 from scilex.logging_config import setup_logging
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
+from scilex.settings.resolve import resolve_legacy_configs
 from scilex.Zotero.zotero_api import (
     ZoteroAPI,
     fetch_item_template,
@@ -177,20 +178,16 @@ def main():
         help="Zotero collection name to push into (overrides collect_name from config)",
     )
 
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
     setup_logging()
 
     logging.info(f"Zotero push process started at {datetime.now()}")
     logging.info("=" * 60)
 
     # Load configurations
-    config_files = {
-        "main_config": "scilex.config.yml",
-        "api_config": "api.config.yml",
-    }
-    configs = load_all_configs(config_files)
-    main_config = configs["main_config"]
-    api_config = configs["api_config"]
+    main_config, api_config = resolve_legacy_configs()
 
     # Override with CLI arguments if provided
     if args.collect_name:

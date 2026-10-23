@@ -4,6 +4,7 @@ import sys
 
 from scilex.config import SciLExConfig
 from scilex.logging_config import log_section, setup_logging
+from scilex.settings.cli import add_config_arguments, apply_config_arguments
 
 
 def main():
@@ -97,7 +98,9 @@ def main():
         default=4,
         help="Parallel workers for abstract enrichment HTTP requests (default: 4)",
     )
+    add_config_arguments(parser)
     args = parser.parse_args()
+    apply_config_arguments(args)
 
     logger = logging.getLogger(__name__)
 
