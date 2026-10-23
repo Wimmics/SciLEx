@@ -18,7 +18,6 @@ from scilex.constants import is_valid, normalize_path_component
 from scilex.crawlers.utils import load_all_configs
 from scilex.logging_config import setup_logging
 
-
 logger = logging.getLogger(__name__)
 
 
