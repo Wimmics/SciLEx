@@ -10,10 +10,19 @@ from scilex.citations import citations_tools as ct
 
 @pytest.fixture(autouse=True)
 def _no_sleep():
-    """Neutralize tenacity waits and rate-limit sleeps."""
+    """Neutralize tenacity waits and rate-limit windows.
+
+    Patching ``sleep`` alone is not enough: ``sleep_and_retry`` would then
+    busy-loop until the rate-limit period elapses. Reporting an elapsed
+    period makes the limiter reset its counter on every call.
+    """
     with (
         patch("tenacity.nap.time.sleep"),
         patch("ratelimit.decorators.time.sleep"),
+        patch(
+            "ratelimit.decorators.RateLimitDecorator._RateLimitDecorator__period_remaining",
+            return_value=0,
+        ),
     ):
         yield
 
