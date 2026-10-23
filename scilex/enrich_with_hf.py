@@ -28,193 +28,22 @@ import argparse
 import logging
 import sys
 
-import pandas as pd
-from tqdm import tqdm
-
-from scilex.constants import MISSING_VALUE, is_valid
-from scilex.HuggingFace.hf_client import HFClient
-from scilex.HuggingFace.metadata_extractor import MetadataExtractor
-from scilex.HuggingFace.tag_formatter import TagFormatter
-from scilex.HuggingFace.title_matcher import TitleMatcher
-from scilex.io_utils import (
-    load_aggregated_data,
-    resolve_aggregate_path,
-    write_aggregated_csv,
-)
+from scilex.config import SciLExConfig
 from scilex.logging_config import setup_logging
+from scilex.pipeline.enrichment_hf import (  # noqa: F401  (re-exported)
+    EnrichmentOptions,
+    _match_via_models_api,
+    _match_via_papers_api,
+    process_paper_for_csv,
+    run_enrichment,
+)
 from scilex.settings.cli import add_config_arguments, apply_config_arguments
-from scilex.settings.resolve import resolve_legacy_configs
 
 logger = logging.getLogger(__name__)
 
 
-def _match_via_papers_api(
-    title: str,
-    hf_client: HFClient,
-    matcher: TitleMatcher,
-    extractor: MetadataExtractor,
-) -> dict | None:
-    """Search the HF Papers API and return extracted metadata, or None."""
-    logging.debug(f"Trying Papers API for: {title[:50]}...")
-    papers = hf_client.search_papers_by_title(title, limit=10)
-    if not papers:
-        return None
-
-    best_paper, score = matcher.find_best_match(title, papers, key="title")
-    if not best_paper:
-        return None
-
-    logging.info(
-        f"✓ Papers API match: '{title[:40]}...' → "
-        f"{best_paper['title'][:40]}... (score: {score})"
-    )
-    paper_id = best_paper.get("id")
-
-    # Paper info (actual GitHub repo, ai_keywords, github_stars)
-    paper_info = hf_client.get_paper_info(paper_id)
-
-    # Linked resources (citing models/datasets for metadata)
-    linked_resources = hf_client.get_paper_linked_resources(paper_id)
-    metadata = extractor.extract_paper_resources(best_paper, linked_resources)
-
-    if paper_info:
-        metadata["github_stars"] = paper_info.get("githubStars")
-        metadata["ai_keywords"] = paper_info.get("ai_keywords", [])
-        # Paper's actual GitHub repo (NOT from citing models)
-        metadata["paper_github_repo"] = paper_info.get("githubRepo")
-
-    # Rename datasets from citing resources to citing_datasets
-    if "datasets" in metadata:
-        metadata["citing_datasets"] = metadata.pop("datasets")
-
-    return metadata
-
-
-def _match_via_models_api(
-    title: str,
-    hf_client: HFClient,
-    matcher: TitleMatcher,
-    extractor: MetadataExtractor,
-) -> dict | None:
-    """Search the HF Models API and return extracted metadata, or None."""
-    logging.debug(f"Falling back to Models API for: {title[:50]}...")
-    models = hf_client.search_models_by_title(title, limit=3)
-    if not models:
-        return None
-
-    best_model, score = matcher.find_best_match(title, models, key="modelId")
-    if not best_model:
-        return None
-
-    logging.info(
-        f"✓ Models API match: '{title[:40]}...' → "
-        f"{best_model['modelId']} (score: {score})"
-    )
-    metadata = extractor.extract_model_metadata(best_model)
-    metadata["modelId"] = best_model.get("modelId")
-    return metadata
-
-
-def process_paper_for_csv(
-    paper_row: pd.Series,
-    hf_client: HFClient,
-    matcher: TitleMatcher,
-    extractor: MetadataExtractor,
-    formatter: TagFormatter,
-    use_papers_api: bool = True,
-) -> dict | None:
-    """Process a single CSV row: search HF, extract metadata, format tags.
-
-    Dual-strategy approach:
-    1. Try Papers API first (if use_papers_api=True)
-    2. Fall back to Models API (if Papers API fails)
-
-    Args:
-        paper_row: pandas Series with paper data
-        hf_client: HFClient instance
-        matcher: TitleMatcher instance
-        extractor: MetadataExtractor instance
-        formatter: TagFormatter instance
-        use_papers_api: Enable Papers API search (default: True)
-
-    Returns:
-        Dictionary with:
-        {
-            "tags": "TASK:TextClassification;PTM:BERT;DATASET:Squad",
-            "hf_url": "https://huggingface.co/papers/...",
-            "github_repo": "https://github.com/..."
-        }
-        or None if no matches found
-    """
-    title = paper_row.get("title")
-
-    if not is_valid(title):
-        return None
-
-    metadata = None
-    match_source = None
-
-    # STRATEGY 1: Papers API (PRIMARY)
-    if use_papers_api:
-        metadata = _match_via_papers_api(title, hf_client, matcher, extractor)
-        if metadata is not None:
-            match_source = "papers_api"
-
-    # STRATEGY 2: Models API (FALLBACK)
-    if metadata is None:
-        metadata = _match_via_models_api(title, hf_client, matcher, extractor)
-        if metadata is not None:
-            match_source = "models_api"
-
-    # No match found
-    if metadata is None:
-        logging.debug(f"No HF match found for: {title[:50]}...")
-        return None
-
-    # Format tags from metadata
-    new_tags = formatter.format_all_tags(metadata)
-
-    if not new_tags:
-        logging.debug(f"No new tags to add for: {title[:50]}...")
-        return None
-
-    # Build result dictionary
-    result = {
-        "tags": ";".join(new_tags),  # Semicolon-separated for CSV
-        "hf_url": MISSING_VALUE,
-        "github_repo": MISSING_VALUE,
-    }
-
-    # Add HF URL based on match source
-    if match_source == "papers_api":
-        paper_id = metadata.get("paper_id")
-        if paper_id:
-            result["hf_url"] = f"https://huggingface.co/papers/{paper_id}"
-    else:  # models_api
-        model_id = metadata.get("modelId")
-        if model_id:
-            result["hf_url"] = f"https://huggingface.co/{model_id}"
-
-    # Add GitHub repo URL - use paper's actual repo, not citing models
-    if match_source == "papers_api":
-        # Paper's actual GitHub repo from paper info
-        github_repo = metadata.get("paper_github_repo")
-        if github_repo:
-            result["github_repo"] = github_repo
-    else:  # models_api
-        github_url = metadata.get("github_url")
-        if github_url:
-            result["github_repo"] = github_url
-
-    return result
-
-
-def main(progress_callback=None):
-    """Main entry point for CSV enrichment.
-
-    Args:
-        progress_callback: Optional callback(processed, total, stats) for progress reporting.
-    """
+def main():
+    """Command-line entry point for CSV enrichment."""
     parser = argparse.ArgumentParser(
         description="Enrich aggregated CSV with HuggingFace metadata"
     )
@@ -247,140 +76,40 @@ def main(progress_callback=None):
     add_config_arguments(parser)
     args = parser.parse_args()
     apply_config_arguments(args)
-    if progress_callback is None:
-        # CLI run; embedded callers (web API) keep their own logging setup
-        setup_logging()
+    setup_logging()
 
     try:
-        # Load configs
-        main_config, api_config = resolve_legacy_configs()
-
-        # Get HF config
-        hf_config = main_config.get("hf_enrichment", {})
-        hf_enabled = hf_config.get("enabled", True)
-
-        if not hf_enabled:
-            logging.warning("HuggingFace enrichment is disabled in config. Exiting.")
-            return
-
-        hf_token = api_config.get("HuggingFace", {}).get("token")
-        use_papers_api = hf_config.get("use_papers_api", True)
-
-        # Initialize HF clients
-        logging.info("Initializing HuggingFace enrichment system...")
-        hf_client = HFClient(
-            token=hf_token,
-            cache_path=hf_config.get("cache_path", "output/hf_cache.db"),
-            cache_ttl_days=hf_config.get("cache_ttl_days", 30),
+        config = SciLExConfig.from_files()
+        options = EnrichmentOptions(
+            dry_run=args.dry_run,
+            limit=args.limit,
+            threshold=args.threshold,
+            collect_dir=args.collect_dir,
         )
-        matcher = TitleMatcher(
-            threshold=hf_config.get("fuzzy_match_threshold", args.threshold)
-        )
-        extractor = MetadataExtractor()
-        formatter = TagFormatter()
-
-        # Load CSV
-        csv_path = resolve_aggregate_path(main_config, args.collect_dir)
-
-        logging.info(f"Loading CSV: {csv_path}")
-        data = load_aggregated_data(
-            main_config, args.collect_dir, preserve_missing_marker=True
-        )
-        logging.info(f"Loaded {len(data)} papers")
-
-        # Add new columns if they don't exist
-        if "tags" not in data.columns:
-            data["tags"] = MISSING_VALUE
-        if "hf_url" not in data.columns:
-            data["hf_url"] = MISSING_VALUE
-        if "github_repo" not in data.columns:
-            data["github_repo"] = MISSING_VALUE
-
-        # Process papers
-        logging.info(f"Processing papers (limit: {args.limit})...")
-
-        stats = {
-            "total": len(data),
-            "matched": 0,
-            "updated": 0,
-            "skipped": 0,
-        }
-
-        for position, (idx, row) in enumerate(
-            tqdm(data.iterrows(), total=len(data), desc="Processing papers")
-        ):
-            if args.limit and position >= args.limit:
-                break
-
-            try:
-                result = process_paper_for_csv(
-                    row,
-                    hf_client,
-                    matcher,
-                    extractor,
-                    formatter,
-                    use_papers_api=use_papers_api,
-                )
-
-                if result is None:
-                    stats["skipped"] += 1
-                else:
-                    stats["matched"] += 1
-                    if not args.dry_run:
-                        data.at[idx, "tags"] = result["tags"]
-                        data.at[idx, "hf_url"] = result["hf_url"]
-                        data.at[idx, "github_repo"] = result["github_repo"]
-                        stats["updated"] += 1
-                    else:
-                        logging.info(f"[DRY RUN] Would enrich: {row['title'][:50]}...")
-                        logging.info(f"  Tags: {result['tags']}")
-                        logging.info(f"  HF URL: {result['hf_url']}")
-                        logging.info(f"  GitHub: {result['github_repo']}")
-
-            except Exception as e:
-                logging.error(f"Error processing row {idx}: {e}")
-                stats["skipped"] += 1
-            finally:
-                # Report every row, whatever path it took
-                if progress_callback:
-                    processed = stats["matched"] + stats["skipped"]
-                    progress_callback(processed, len(data), stats)
-
-        # Final progress report
-        if progress_callback:
-            total_processed = stats["matched"] + stats["skipped"]
-            progress_callback(total_processed, len(data), stats)
-
-        # Write updated CSV
-        if not args.dry_run:
-            write_aggregated_csv(data, csv_path)
-            logging.info(f"✓ Updated CSV written: {csv_path}")
-
-        # Print summary
-        logging.info("=" * 60)
-        logging.info("HuggingFace CSV Enrichment Summary")
-        logging.info("=" * 60)
-        logging.info(f"Total papers: {stats['total']}")
-        logging.info(f"Matched: {stats['matched']}")
-        logging.info(f"Updated: {stats['updated']}")
-        logging.info(f"Skipped: {stats['skipped']}")
-        logging.info("=" * 60)
-
-        if args.dry_run:
-            logging.info("✓ Dry run complete. No changes made to CSV.")
-        else:
-            logging.info("✓ HuggingFace CSV enrichment complete!")
-
+        result = run_enrichment(config, options)
     except FileNotFoundError as e:
         logger.error(f"Configuration error: {e}")
-        if progress_callback is not None:
-            raise
         sys.exit(1)
     except Exception as e:
         logger.error(f"Error during enrichment: {e}", exc_info=True)
-        if progress_callback is not None:
-            raise
         sys.exit(1)
+
+    if result.disabled:
+        return
+
+    logging.info("=" * 60)
+    logging.info("HuggingFace CSV Enrichment Summary")
+    logging.info("=" * 60)
+    logging.info(f"Total papers: {result.total}")
+    logging.info(f"Matched: {result.matched}")
+    logging.info(f"Updated: {result.updated}")
+    logging.info(f"Skipped: {result.skipped}")
+    logging.info("=" * 60)
+
+    if args.dry_run:
+        logging.info("✓ Dry run complete. No changes made to CSV.")
+    else:
+        logging.info("✓ HuggingFace CSV enrichment complete!")
 
 
 if __name__ == "__main__":

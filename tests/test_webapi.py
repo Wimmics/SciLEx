@@ -98,14 +98,17 @@ def mocked_pipeline(monkeypatch, output_root):
         calls["aggregation"] += 1
         _write_csv(output_root)
 
-    def fake_enrich_main(progress_callback=None):
+    def fake_run_enrichment(config, options=None, progress_callback=None):
         calls["enrich"] += 1
+        calls["enrich_args"] = (config, options, progress_callback)
 
     monkeypatch.setattr(scilex_api, "CollectCollection", FakeCollector)
     monkeypatch.setattr(
         "scilex.pipeline.orchestrator.run_aggregation", fake_run_aggregation
     )
-    monkeypatch.setattr("scilex.enrich_with_hf.main", fake_enrich_main)
+    monkeypatch.setattr(
+        "scilex.pipeline.enrichment_hf.run_enrichment", fake_run_enrichment
+    )
     return calls
 
 
@@ -248,6 +251,26 @@ def test_pipeline_with_enrichment(client, mocked_pipeline):
     assert status["status"] == "completed"
     assert status["enrichment_enabled"] is True
     assert mocked_pipeline["enrich"] == 1
+
+
+def test_enrichment_uses_run_enrichment_and_leaves_sys_argv_alone(
+    client, mocked_pipeline
+):
+    import sys
+
+    from scilex.config import SciLExConfig
+    from scilex.pipeline.enrichment_hf import EnrichmentOptions
+
+    argv_before = list(sys.argv)
+    payload = _start_payload()
+    payload["collection_config"]["enable_enrichment"] = True
+    client.post("/pipelines/start", json=payload)
+    config, options, progress_callback = mocked_pipeline["enrich_args"]
+    assert isinstance(config, SciLExConfig)
+    assert config.main["enable_enrichment"] is True
+    assert options == EnrichmentOptions()
+    assert callable(progress_callback)
+    assert sys.argv == argv_before
 
 
 def test_pipeline_failure_is_reported(client, monkeypatch, mocked_pipeline):
@@ -460,14 +483,14 @@ def _run_task_with_cancel_at(monkeypatch, output_root, cancel_phase):
         if cancel_phase == "aggregate":
             request_cancel()
 
-    def fake_enrich(progress_callback=None):
+    def fake_enrich(config, options=None, progress_callback=None):
         calls["enrich"] += 1
 
     monkeypatch.setattr(scilex_api, "CollectCollection", Collector)
     monkeypatch.setattr(
         "scilex.pipeline.orchestrator.run_aggregation", fake_aggregation
     )
-    monkeypatch.setattr("scilex.enrich_with_hf.main", fake_enrich)
+    monkeypatch.setattr("scilex.pipeline.enrichment_hf.run_enrichment", fake_enrich)
     if cancel_phase == "start":
         request_cancel()
 

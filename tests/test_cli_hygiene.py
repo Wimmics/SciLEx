@@ -9,8 +9,11 @@ import pytest
 
 import scilex.enrich_with_hf as enrich_module
 import scilex.export_to_bibtex as bibtex_module
+import scilex.pipeline.enrichment_hf as enrichment_module
 import scilex.push_to_zotero as push_module
+from scilex.config import SciLExConfig
 from scilex.logging_config import setup_logging
+from scilex.pipeline.enrichment_hf import EnrichmentOptions
 
 
 @pytest.fixture
@@ -67,22 +70,21 @@ def test_invalid_items_path_uses_normalized_collect_name(tmp_path):
     assert (expected / "invalid_items_no_url.csv").exists()
 
 
-def _run_enrich(monkeypatch, tmp_path, data, argv_extra, processor):
+def _run_enrich(monkeypatch, tmp_path, data, options, processor):
     csv_dir = tmp_path / "collect"
     csv_dir.mkdir(exist_ok=True)
+    options.collect_dir = str(csv_dir)
+    monkeypatch.setattr(enrichment_module, "HFClient", lambda **_: object())
     monkeypatch.setattr(
-        "sys.argv", ["scilex-enrich", "--collect-dir", str(csv_dir), *argv_extra]
+        enrichment_module, "load_aggregated_data", lambda *_a, **_k: data.copy()
     )
-    monkeypatch.setattr(
-        enrich_module, "resolve_legacy_configs", lambda: ({"collect_name": "c"}, {})
-    )
-    monkeypatch.setattr(enrich_module, "HFClient", lambda **_: object())
-    monkeypatch.setattr(
-        enrich_module, "load_aggregated_data", lambda *_a, **_k: data.copy()
-    )
-    monkeypatch.setattr(enrich_module, "process_paper_for_csv", processor)
+    monkeypatch.setattr(enrichment_module, "process_paper_for_csv", processor)
     calls = []
-    enrich_module.main(progress_callback=lambda done, total, stats: calls.append(done))
+    enrichment_module.run_enrichment(
+        SciLExConfig({"collect_name": "c"}, {}),
+        options,
+        lambda done, total, stats: calls.append(done),
+    )
     return csv_dir, calls
 
 
@@ -103,7 +105,7 @@ def test_enrich_progress_called_for_every_row_and_limit_uses_counter(
         return {"tags": "T", "hf_url": "NA", "github_repo": "NA"}
 
     csv_dir, calls = _run_enrich(
-        monkeypatch, tmp_path, data, ["--limit", "3"], processor
+        monkeypatch, tmp_path, data, EnrichmentOptions(limit=3), processor
     )
     assert processed_titles == ["w", "x", "y"]
     # one call per processed row (skipped, errored, matched) plus the final report

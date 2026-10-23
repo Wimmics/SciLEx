@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import shutil
-import sys
 import threading
 import time
 from datetime import datetime
@@ -424,7 +423,7 @@ async def run_collection_task(
         job["phase"] = "aggregating"
         job["message"] = "Collection completed, aggregating results..."
 
-        # Run aggregation via orchestrator (no sys.argv hack)
+        # Run aggregation via orchestrator
         from scilex.config import SciLExConfig
         from scilex.pipeline.orchestrator import AggregationOptions, run_aggregation
 
@@ -484,14 +483,19 @@ async def run_collection_task(
                     f"Enriching papers... {processed}/{total} ({matched} matched)"
                 )
 
-            sys.argv = ["enrich"]
-            from scilex.enrich_with_hf import main as enrich_main
+            from scilex.pipeline.enrichment_hf import (
+                EnrichmentOptions,
+                run_enrichment,
+            )
 
             await loop.run_in_executor(
                 None,
                 _run_in_job_thread,
                 job,
-                lambda: enrich_main(progress_callback=on_enrichment_progress),
+                run_enrichment,
+                agg_config,
+                EnrichmentOptions(),
+                on_enrichment_progress,
             )
 
         if _cancel_if_requested(
@@ -753,7 +757,7 @@ async def get_available_apis():
 @app.post("/pipelines/start")
 async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundTasks):
     """Start a new collection pipeline (one job at a time)."""
-    # Jobs share global state (scilex.config.yml, sys.argv, root logger), so
+    # Jobs share global state (SCILEX_CONFIG env var, root logger), so
     # concurrent runs would corrupt each other. No await between this check
     # and the job insertion below: the check-and-insert is atomic on the loop.
     if any(job["status"] in ACTIVE_JOB_STATUSES for job in pipeline_jobs.values()):
