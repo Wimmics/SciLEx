@@ -5,6 +5,8 @@ This module centralizes commonly used constants and provides helper functions
 for consistent data validation across the codebase.
 """
 
+import re
+
 import pandas as pd
 
 # Missing value indicator
@@ -31,12 +33,15 @@ class RateLimitBackoffConfig:
     # API-specific configurations
     # Format: {api_name: (base_wait_seconds, use_exponential_backoff)}
     API_SPECIFIC = {
-        "DBLP": (30, False),      # DBLP: Fixed 30s wait (no exponential)
-        "Springer": (15, True),   # Springer: 15s, 30s, 60s
-        "IEEE": (10, True),       # IEEE: 10s, 20s, 40s
-        "Elsevier": (20, True),   # Elsevier: 20s, 40s, 80s
-        "Arxiv": (30, False),     # Arxiv: fixed 30s — strict rate limits in parallel runs
-        "OpenAIRE": (15, False),  # OpenAIRE: fixed 15s — 409 Conflict from parallel scroll contexts
+        "DBLP": (30, False),  # DBLP: Fixed 30s wait (no exponential)
+        "Springer": (15, True),  # Springer: 15s, 30s, 60s
+        "IEEE": (10, True),  # IEEE: 10s, 20s, 40s
+        "Elsevier": (20, True),  # Elsevier: 20s, 40s, 80s
+        "Arxiv": (30, False),  # Arxiv: fixed 30s — strict rate limits in parallel runs
+        "OpenAIRE": (
+            15,
+            False,
+        ),  # OpenAIRE: fixed 15s — 409 Conflict from parallel scroll contexts
         # Others use default (2s exponential)
     }
 
@@ -162,3 +167,32 @@ def normalize_path_component(path_component: str) -> str:
         'normal_path'
     """
     return path_component.strip("/")
+
+
+_DOI_PREFIX_PATTERN = re.compile(
+    r"^(?:https?://(?:dx\.)?doi\.org/|(?:dx\.)?doi\.org/|doi:)\s*", re.IGNORECASE
+)
+
+
+def normalize_doi(doi) -> str | None:
+    """Normalize a DOI to its bare lowercase form.
+
+    Strips whitespace and the ``https://doi.org/``, ``http://dx.doi.org/``,
+    ``doi.org/`` and ``doi:`` prefixes (case-insensitive), then lowercases.
+
+    Args:
+        doi: DOI string in any common form (may be None, NaN or MISSING_VALUE)
+
+    Returns:
+        The normalized DOI, or None if the value is missing/empty.
+
+    Examples:
+        >>> normalize_doi("https://doi.org/10.1/ABC")
+        '10.1/abc'
+        >>> normalize_doi("NA") is None
+        True
+    """
+    if is_missing(doi):
+        return None
+    cleaned = _DOI_PREFIX_PATTERN.sub("", str(doi).strip()).strip().lower()
+    return cleaned or None
