@@ -257,7 +257,7 @@ class TestCrossRefBatchSize:
 
 
 def _get_fetch_fn():
-    from scilex.aggregate_collect import _fetch_citation_for_paper
+    from scilex.citations.fetcher import _fetch_citation_for_paper
 
     return _fetch_citation_for_paper
 
@@ -265,9 +265,9 @@ def _get_fetch_fn():
 class TestCrossRefTierInPipeline:
     """Test that CrossRef tier is correctly used between SS and OpenCitations."""
 
-    @patch("scilex.aggregate_collect.cit_tools.getRefandCitFormatted")
+    @patch("scilex.citations.fetcher.cit_tools.getRefandCitFormatted")
     @patch(
-        "scilex.aggregate_collect.cit_tools.getCrossRefCitation", return_value=(25, 12)
+        "scilex.citations.fetcher.cit_tools.getCrossRefCitation", return_value=(25, 12)
     )
     @patch("scilex.citations.cache.cache_citation")
     @patch("scilex.citations.cache.get_cached_citation", return_value=None)
@@ -313,8 +313,8 @@ class TestCrossRefTierInPipeline:
         mock_oc.assert_not_called()  # No OpenCitations call
         mock_cache_set.assert_called_once()  # Cached for future runs
 
-    @patch("scilex.aggregate_collect.cit_tools.getRefandCitFormatted")
-    @patch("scilex.aggregate_collect.cit_tools.getCrossRefCitation", return_value=None)
+    @patch("scilex.citations.fetcher.cit_tools.getRefandCitFormatted")
+    @patch("scilex.citations.fetcher.cit_tools.getCrossRefCitation", return_value=None)
     @patch("scilex.citations.cache.cache_citation")
     @patch("scilex.citations.cache.get_cached_citation", return_value=None)
     def test_cr_miss_falls_through_to_opencitations(
@@ -363,7 +363,7 @@ class TestCrossRefTierInPipeline:
         mock_oc.assert_called_once()
 
     @patch(
-        "scilex.aggregate_collect.cit_tools.getCrossRefCitation", return_value=(25, 12)
+        "scilex.citations.fetcher.cit_tools.getCrossRefCitation", return_value=(25, 12)
     )
     @patch("scilex.citations.cache.cache_citation")
     @patch("scilex.citations.cache.get_cached_citation", return_value=None)
@@ -410,9 +410,9 @@ class TestCrossRefTierInPipeline:
         assert nb_citations[0] == 30
         assert nb_citeds[0] == 10
 
-    @patch("scilex.aggregate_collect.cit_tools.getRefandCitFormatted")
+    @patch("scilex.citations.fetcher.cit_tools.getRefandCitFormatted")
     @patch(
-        "scilex.aggregate_collect.cit_tools.getCrossRefCitation", return_value=(25, 12)
+        "scilex.citations.fetcher.cit_tools.getCrossRefCitation", return_value=(25, 12)
     )
     @patch("scilex.citations.cache.cache_citation")
     @patch("scilex.citations.cache.get_cached_citation", return_value=None)
@@ -648,7 +648,7 @@ class TestCacheCitationsBatch:
 
 
 def _get_parallel_fn():
-    from scilex.aggregate_collect import _fetch_citations_parallel
+    from scilex.citations.fetcher import _fetch_citations_parallel
 
     return _fetch_citations_parallel
 
@@ -778,7 +778,7 @@ class TestFetchCitationsParallelPhased:
         mock_cache_write.assert_called()
 
     @patch("scilex.citations.cache.cache_citations_batch")
-    @patch("scilex.aggregate_collect.cit_tools.getCrossRefCitationsBatch")
+    @patch("scilex.citations.fetcher.cit_tools.getCrossRefCitationsBatch")
     @patch("scilex.citations.cache.get_cached_citations_batch", return_value={})
     @patch("scilex.citations.cache.initialize_cache")
     @patch(
@@ -812,9 +812,9 @@ class TestFetchCitationsParallelPhased:
 
     @patch("scilex.citations.cache.cache_citation")
     @patch("scilex.citations.cache.get_cached_citation", return_value=None)
-    @patch("scilex.aggregate_collect.cit_tools.getRefandCitFormatted")
+    @patch("scilex.citations.fetcher.cit_tools.getRefandCitFormatted")
     @patch(
-        "scilex.aggregate_collect.cit_tools.getCrossRefCitationsBatch", return_value={}
+        "scilex.citations.fetcher.cit_tools.getCrossRefCitationsBatch", return_value={}
     )
     @patch("scilex.citations.cache.get_cached_citations_batch", return_value={})
     @patch("scilex.citations.cache.initialize_cache")
@@ -865,7 +865,7 @@ class TestFetchCitationsParallelPhased:
         assert stats["success"] == 0
 
     @patch("scilex.citations.cache.cache_citations_batch")
-    @patch("scilex.aggregate_collect.cit_tools.getCrossRefCitationsBatch")
+    @patch("scilex.citations.fetcher.cit_tools.getCrossRefCitationsBatch")
     @patch("scilex.citations.cache.get_cached_citations_batch")
     @patch("scilex.citations.cache.initialize_cache")
     @patch(

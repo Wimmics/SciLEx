@@ -485,7 +485,7 @@ def run_aggregation(
     citation_stats_report = None
 
     if get_citation and len(df_clean) > 0:
-        from scilex.aggregate_collect import _fetch_citations_parallel
+        from scilex.citations.fetcher import _fetch_citations_parallel
 
         checkpoint_path = os.path.join(dir_collect, "citation_checkpoint.json")
         crossref_mailto = api_config.get("CrossRef", {}).get("mailto")
