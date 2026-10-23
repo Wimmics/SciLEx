@@ -23,9 +23,16 @@ from scilex.abstract_validation import (
 from scilex.config import SciLExConfig
 from scilex.config_defaults import (
     DEFAULT_AGGREGATED_FILENAME,
+    DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
+    DEFAULT_DOI_RECOVERY_MIN_SIMILARITY,
+    DEFAULT_ENRICH_AUTHOR_HINDEX,
+    DEFAULT_ENRICH_UNPAYWALL,
     DEFAULT_GENERATE_PRISMA_REPORT,
     DEFAULT_OUTPUT_DIR,
+    DEFAULT_RECOVER_MISSING_DOIS,
     DEFAULT_SINCE,
+    DEFAULT_UNPAYWALL_EMAIL,
+    DEFAULT_USE_VENUE_RANKING,
     MAX_ABSTRACT_WORDS,
     MIN_ABSTRACT_QUALITY_SCORE,
     MIN_ABSTRACT_WORDS,
@@ -38,11 +45,17 @@ from scilex.duplicate_tracking import (
     generate_itemtype_distribution_report,
 )
 from scilex.keyword_validation import generate_keyword_validation_report
+from scilex.llm_relevance import (
+    CACHE_FILENAME,
+    LLMScreeningConfig,
+    apply_llm_screening,
+)
 from scilex.logging_config import add_file_log_handler
 from scilex.pipeline.bonus_keywords import (
     generate_bonus_keyword_stats,
     tag_papers_with_bonus_keywords,
 )
+from scilex.pipeline.canonical_citations import apply_canonical_citations
 from scilex.pipeline.citation_filter import apply_time_aware_citation_filter
 from scilex.pipeline.enrichment import (
     fill_missing_urls_from_doi,
@@ -353,6 +366,22 @@ def run_aggregation(
         progress_callback("filtering", 30, "Applying filters...")
 
     # =========================================================================
+    # STEP -1 (opt-in): Recover missing DOIs via CrossRef
+    # =========================================================================
+    if quality_filters.get("recover_missing_dois", DEFAULT_RECOVER_MISSING_DOIS):
+        from scilex.pipeline.doi_recovery import recover_missing_dois
+
+        logging.info("\n=== DOI Recovery (CrossRef) ===")
+        df_clean, _doi_stats = recover_missing_dois(
+            df_clean,
+            min_similarity=quality_filters.get(
+                "doi_recovery_min_similarity", DEFAULT_DOI_RECOVERY_MIN_SIMILARITY
+            ),
+            mailto=(api_config or {}).get("CrossRef", {}).get("mailto"),
+            cache_path=os.path.join(dir_collect, "doi_recovery_cache.json"),
+        )
+
+    # =========================================================================
     # STEP 0: Fill Missing URLs from DOIs
     # =========================================================================
     logging.info("\n=== URL Fallback from DOI ===")
@@ -494,6 +523,25 @@ def run_aggregation(
             f"Abstracts meeting quality threshold (min score: {min_quality_score})",
         )
 
+    # =========================================================================
+    # STEP 2b: Optional LLM abstract screening (after keyword/quality filters)
+    # =========================================================================
+    screening_config = LLMScreeningConfig.from_dict(main_config.get("llm_screening"))
+    if screening_config.enabled and len(df_clean) > 0:
+        logging.info("\n=== LLM Abstract Screening ===")
+        df_clean = apply_llm_screening(
+            df_clean,
+            screening_config,
+            api_config=api_config,
+            cache_path=os.path.join(dir_collect, CACHE_FILENAME),
+        )
+        if screening_config.threshold is not None:
+            filtering_tracker.add_stage(
+                "LLM Screening",
+                len(df_clean),
+                f"Papers with llm_relevance_score >= {screening_config.threshold}",
+            )
+
     if progress_callback:
         progress_callback("citations", 55, "Fetching citations...")
 
@@ -539,6 +587,14 @@ def run_aggregation(
         if quality_filters.get("use_openalex_citations", True):
             df_clean = use_openalex_citations_fallback(df_clean)
 
+        df_clean = apply_canonical_citations(
+            df_clean,
+            quality_filters.get(
+                "canonical_citation_discrepancy_threshold",
+                DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD,
+            ),
+        )
+
         if quality_filters.get("apply_citation_filter", True):
             df_clean = apply_time_aware_citation_filter(df_clean)
             filtering_tracker.add_stage(
@@ -553,6 +609,39 @@ def run_aggregation(
     elif get_citation and len(df_clean) == 0:
         logging.warning("Skipping citation fetching - no papers to process")
 
+    # =========================================================================
+    # STEP 3b (opt-in): Unpaywall OA status, first/last author h-index
+    # =========================================================================
+    if len(df_clean) > 0 and quality_filters.get(
+        "enrich_unpaywall", DEFAULT_ENRICH_UNPAYWALL
+    ):
+        from scilex.pipeline.open_access import enrich_with_unpaywall
+
+        unpaywall_email = (
+            quality_filters.get("unpaywall_email")
+            or (api_config or {}).get("Unpaywall", {}).get("email")
+            or DEFAULT_UNPAYWALL_EMAIL
+        )
+        df_clean = enrich_with_unpaywall(df_clean, unpaywall_email)
+
+    if len(df_clean) > 0 and quality_filters.get(
+        "enrich_author_hindex", DEFAULT_ENRICH_AUTHOR_HINDEX
+    ):
+        from scilex.pipeline.author_metrics import enrich_with_author_hindex
+
+        semantic_scholar_key = (
+            (api_config or {}).get("SemanticScholar", {}).get("api_key")
+        )
+        df_clean = enrich_with_author_hindex(df_clean, api_key=semantic_scholar_key)
+
+    use_venue_ranking = quality_filters.get(
+        "use_venue_ranking", DEFAULT_USE_VENUE_RANKING
+    )
+    if len(df_clean) > 0 and use_venue_ranking:
+        from scilex.pipeline.venue_ranking import add_venue_rank
+
+        df_clean = add_venue_rank(df_clean)
+
     if progress_callback:
         progress_callback("ranking", 85, "Applying relevance ranking...")
 
@@ -566,7 +655,13 @@ def run_aggregation(
             keyword_groups=keyword_groups,
             top_n=top_n,
             has_citations=get_citation and len(df_clean) > 0,
-            config=main_config,
+            config={
+                **main_config,
+                "quality_filters": {
+                    **(main_config.get("quality_filters") or {}),
+                    "use_venue_ranking": use_venue_ranking,
+                },
+            },
             bonus_keywords=bonus_keywords,
         )
         filtering_tracker.add_stage(

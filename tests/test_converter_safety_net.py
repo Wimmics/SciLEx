@@ -51,6 +51,7 @@ GOLDEN = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
 # has a documented default.
 DEFAULT_ITEM_TYPE = {
     "Arxiv": "preprint",
+    "BioRxiv": "preprint",
     "PubMed": "journalArticle",
     "PubMedCentral": "journalArticle",
     "ORKG": "journalArticle",
@@ -59,6 +60,7 @@ DEFAULT_ITEM_TYPE = {
 }
 FORCED_VALUES = {
     "Arxiv": {"publisher": "arXiv", "rights": "open_access"},
+    "BioRxiv": {"publisher": "bioRxiv", "rights": "open_access", "language": "en"},
     "HAL": {"rights": "open_access"},
     "PubMedCentral": {"rights": "open-access"},
 }

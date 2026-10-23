@@ -5,6 +5,7 @@ This module provides API collectors for various academic paper databases.
 
 from .arxiv import Arxiv_collector
 from .base import API_collector, Filter_param
+from .biorxiv import BioRxiv_collector
 from .dblp import DBLP_collector
 from .elsevier import Elsevier_collector
 from .hal import HAL_collector
@@ -28,6 +29,7 @@ __all__ = [
     "OpenAlex_collector",
     "HAL_collector",
     "Arxiv_collector",
+    "BioRxiv_collector",
     "Istex_collector",
     "Springer_collector",
     "PubMed_collector",

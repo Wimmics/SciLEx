@@ -11,11 +11,16 @@ Coordination : scilex-90 (refactor, ADR 0003 config) lancera C2 après nos lots 
 ## État
 | Lot | Branche | Worktree | État |
 |---|---|---|---|
-| 0 | lot-0-bibtex2rdf | ../SciLEx-wt/lot-0 | fusion en cours (19 conflits, fait par l'orchestrateur) |
-| A | lot-a-data-quality | ../SciLEx-wt/lot-a | agent lancé |
-| D | lot-d-new-apis | ../SciLEx-wt/lot-d | agent lancé |
-| B | lot-b-pipeline-ux | — | après lot 0 |
-| C | lot-c-ai-research | — | après lot 0 |
+| 0 | lot-0-bibtex2rdf | ../SciLEx-wt/lot-0 | dans dev |
+| D | lot-d-new-apis | ../SciLEx-wt/lot-d | dans dev |
+| A | lot-a-data-quality | ../SciLEx-wt/lot-a | dans dev (CORE réel, SJR vide : Cloudflare) |
+| B | lot-b-pipeline-ux | ../SciLEx-wt/lot-b | agent en cours |
+| C | lot-c-ai-research | ../SciLEx-wt/lot-c | agent en cours |
+
+## Règle découverte
+Les nouvelles clés ne vont PAS dans `get_default_quality_filters()` / `QUALITY_FILTER_SCHEMA`
+(invariant legacy ↔ scilex/settings testé par scilex-90) : constante `DEFAULT_*` + `.get(clé, défaut)`.
 
 ## Prochaine étape
-Finir la fusion du lot 0, la passer dans dev, puis lancer B et C.
+Fusionner B et C (merge dev dans chaque branche, tests, ff-only), puis prévenir scilex-90 (C2) et scilex-86 (/simplify).
+Push / PR : à confirmer avec l'utilisateur.

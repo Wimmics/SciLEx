@@ -293,6 +293,7 @@ with tab1:
         "SemanticScholar",
         "OpenAlex",
         "Arxiv",
+        "BioRxiv",
         "PubMed",
         "PubMedCentral",
         "DBLP",

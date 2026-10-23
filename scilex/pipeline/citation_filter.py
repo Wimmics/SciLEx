@@ -67,7 +67,7 @@ def calculate_required_citations(months_since_pub):
         )
 
 
-def apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="date"):
+def apply_time_aware_citation_filter(df, citation_col=None, date_col="date"):
     """Apply time-aware citation filtering to DataFrame.
 
     Papers are filtered based on citation count relative to their age:
@@ -77,13 +77,20 @@ def apply_time_aware_citation_filter(df, citation_col="nb_citation", date_col="d
 
     Args:
         df: DataFrame with papers
-        citation_col: Column name for citation count
+        citation_col: Column name for citation count. Defaults to
+            ``canonical_citation_count`` when present, else ``nb_citation``.
         date_col: Column name for publication date
 
     Returns:
         pd.DataFrame: Filtered DataFrame with citation_threshold column added
     """
-    logging.info("Applying time-aware citation filtering...")
+    if citation_col is None:
+        citation_col = (
+            "canonical_citation_count"
+            if "canonical_citation_count" in df.columns
+            else "nb_citation"
+        )
+    logging.info(f"Applying time-aware citation filtering (column: {citation_col})...")
 
     # Papers without DOI bypass citation filtering (citations couldn't be looked up).
     # Work on a copy with a boolean mask so the original row order is preserved.

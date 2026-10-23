@@ -156,6 +156,28 @@ DEFAULT_APPLY_RELEVANCE_RANKING = True
 """Apply composite relevance scoring to rank papers by importance.
 Papers sorted by relevance_score (higher = more relevant)."""
 
+DEFAULT_CANONICAL_CITATION_DISCREPANCY_THRESHOLD = 0.5
+"""Relative gap between citation sources above which a discrepancy is logged
+(canonical_citation_count, issue #47)."""
+
+DEFAULT_RECOVER_MISSING_DOIS = False
+"""Opt-in: look up missing DOIs through CrossRef title+author search (#36)."""
+
+DEFAULT_DOI_RECOVERY_MIN_SIMILARITY = 0.90
+"""Minimum title similarity (0-1) to accept a CrossRef DOI candidate (#36)."""
+
+DEFAULT_ENRICH_UNPAYWALL = False
+"""Opt-in: add the oa_type column from Unpaywall (#44). Needs an email."""
+
+DEFAULT_UNPAYWALL_EMAIL = ""
+"""Contact email required by the Unpaywall API (falls back to api_config Unpaywall.email)."""
+
+DEFAULT_ENRICH_AUTHOR_HINDEX = False
+"""Opt-in: add first/last author h-index from Semantic Scholar (#45)."""
+
+DEFAULT_USE_VENUE_RANKING = False
+"""Opt-in: add venue_rank (CORE / SCImago) and blend it into the venue score (#3)."""
+
 DEFAULT_MAX_PAPERS = 1000
 """Maximum number of papers to keep after all filtering.
 Set to None to keep all papers that pass filters.
@@ -181,6 +203,7 @@ DEFAULT_RATE_LIMITS = {
     "SemanticScholar": {"without_key": 1.0, "with_key": 1.0},
     "OpenAlex": {"without_key": 10.0, "with_key": 10.0},
     "Arxiv": {"without_key": 0.33, "with_key": 0.33},  # 1 req per 3 seconds
+    "BioRxiv": {"without_key": 1.0, "with_key": 1.0},  # No official limit
     "IEEE": {"without_key": 2.0, "with_key": 2.0},
     "Elsevier": {"without_key": 2.0, "with_key": 9.0},  # Scopus: 9 req/sec with key
     "Springer": {"without_key": 1.67, "with_key": 1.67},  # 100 req/min
