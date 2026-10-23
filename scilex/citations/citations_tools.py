@@ -21,7 +21,7 @@ _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _backoff = wait_exponential(multiplier=1, min=2, max=10)
 
 
-def _is_retryable(exc: BaseException) -> bool:
+def is_retryable_http_error(exc: BaseException) -> bool:
     """Retry only transient failures: timeouts, connection errors, 429 and 5xx."""
     if isinstance(exc, requests.exceptions.HTTPError):
         response = getattr(exc, "response", None)
@@ -34,7 +34,7 @@ def _is_retryable(exc: BaseException) -> bool:
     )
 
 
-def _wait_retry_after_or_backoff(retry_state) -> float:
+def wait_retry_after_or_backoff(retry_state) -> float:
     """Honor a numeric Retry-After header (capped at 60 s), else back off."""
     exc = retry_state.outcome.exception() if retry_state.outcome else None
     response = getattr(exc, "response", None)
@@ -47,9 +47,9 @@ def _wait_retry_after_or_backoff(retry_state) -> float:
 
 
 @retry(
-    retry=retry_if_exception(_is_retryable),
+    retry=retry_if_exception(is_retryable_http_error),
     stop=stop_after_attempt(3),
-    wait=_wait_retry_after_or_backoff,
+    wait=wait_retry_after_or_backoff,
     reraise=True,
 )
 @sleep_and_retry
@@ -177,9 +177,9 @@ CROSSREF_BATCH_SIZE = 20
 
 
 @retry(
-    retry=retry_if_exception(_is_retryable),
+    retry=retry_if_exception(is_retryable_http_error),
     stop=stop_after_attempt(3),
-    wait=_wait_retry_after_or_backoff,
+    wait=wait_retry_after_or_backoff,
     reraise=True,
 )
 @sleep_and_retry

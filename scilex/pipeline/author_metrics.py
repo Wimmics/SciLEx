@@ -10,7 +10,12 @@ import time
 
 import pandas as pd
 import requests
+from tenacity import retry, retry_if_exception, stop_after_attempt
 
+from scilex.citations.citations_tools import (
+    is_retryable_http_error,
+    wait_retry_after_or_backoff,
+)
 from scilex.config_defaults import get_rate_limit
 from scilex.constants import normalize_doi
 
@@ -25,20 +30,31 @@ def _chunks(items, size):
         yield items[start : start + size]
 
 
-def _post_batch(endpoint, ids, fields, api_key, session=None):
-    """POST one batch; return the list of results (None for unknown ids)."""
+@retry(
+    retry=retry_if_exception(is_retryable_http_error),
+    stop=stop_after_attempt(3),
+    wait=wait_retry_after_or_backoff,
+    reraise=True,
+)
+def _post_batch_request(endpoint, ids, fields, api_key, session=None):
+    """POST one batch, retrying 429/5xx/network errors with backoff."""
     http = session or requests
     headers = {"x-api-key": api_key} if api_key else {}
+    response = http.post(
+        f"{SS_API_BASE}/{endpoint}/batch",
+        params={"fields": fields},
+        json={"ids": ids},
+        headers=headers,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _post_batch(endpoint, ids, fields, api_key, session=None):
+    """POST one batch; return the list of results (None for unknown ids)."""
     try:
-        response = http.post(
-            f"{SS_API_BASE}/{endpoint}/batch",
-            params={"fields": fields},
-            json={"ids": ids},
-            headers=headers,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        return response.json()
+        return _post_batch_request(endpoint, ids, fields, api_key, session)
     except (requests.RequestException, ValueError) as error:
         logging.warning(f"Semantic Scholar {endpoint}/batch failed: {error}")
         return [None] * len(ids)

@@ -10,7 +10,12 @@ import urllib.parse
 
 import requests
 from ratelimit import limits, sleep_and_retry
+from tenacity import retry, retry_if_exception, stop_after_attempt
 
+from scilex.citations.citations_tools import (
+    is_retryable_http_error,
+    wait_retry_after_or_backoff,
+)
 from scilex.crawlers.aggregate import SemanticScholartoZoteroFormat
 
 logger = logging.getLogger(__name__)
@@ -35,18 +40,27 @@ def _batch_request_no_key(ids: list[str]) -> list[dict]:
 
 
 @sleep_and_retry
-@limits(calls=10, period=1)
+@limits(calls=1, period=1)  # S2 keys are granted 1 req/sec by default
 def _batch_request_with_key(ids: list[str], api_key: str) -> list[dict]:
-    """POST batch request with API key (10 req/sec)."""
+    """POST batch request with API key (1 req/sec)."""
     return _do_batch_request(ids, api_key=api_key)
 
 
+@retry(
+    retry=retry_if_exception(is_retryable_http_error),
+    stop=stop_after_attempt(3),
+    wait=wait_retry_after_or_backoff,
+    reraise=True,
+)
 def _do_batch_request(ids: list[str], api_key: str | None) -> list[dict]:
     """Execute the SS /paper/batch POST request.
 
     Args:
         ids: List of paper identifiers (e.g. ``["DOI:10.1234/..."]``).
         api_key: Optional SS API key.
+
+    Transient failures (429, 5xx, network) are retried with exponential
+    backoff, honouring ``Retry-After``.
 
     Returns:
         List of paper dicts (may contain None for not-found papers).

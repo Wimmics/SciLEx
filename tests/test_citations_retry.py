@@ -81,12 +81,12 @@ def test_retry_after_is_honored_and_capped():
     )
     state = MagicMock()
     state.outcome.exception.return_value = exc
-    assert ct._wait_retry_after_or_backoff(state) == 60
+    assert ct.wait_retry_after_or_backoff(state) == 60
     exc = requests.exceptions.HTTPError(
         response=_response(429, headers={"Retry-After": "3"})
     )
     state.outcome.exception.return_value = exc
-    assert ct._wait_retry_after_or_backoff(state) == 3
+    assert ct.wait_retry_after_or_backoff(state) == 3
 
 
 @patch("scilex.citations.citations_tools.requests.get")
