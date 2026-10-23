@@ -18,9 +18,13 @@ def scilex_version() -> str:
 
 def diagnostic_text(exc: BaseException | None = None) -> str:
     """Build a report a user can paste into an issue (version, OS, traceback)."""
+    try:
+        system = platform.platform()
+    except Exception:  # the report must never fail: it is built while handling errors
+        system = sys.platform
     lines = [
         f"SciLEx {scilex_version()}",
-        f"Python {sys.version.split()[0]} — {platform.platform()}",
+        f"Python {sys.version.split()[0]} — {system}",
         f"Frozen app: {getattr(sys, 'frozen', False)}",
     ]
     if exc is not None:

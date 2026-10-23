@@ -103,3 +103,13 @@ def test_has_results_once_aggregated(workspace, tmp_path):
     review.results_path.write_text("title;year\n")
 
     assert read_review(review.folder).has_results
+
+
+def test_relative_folder_starts_at_home(workspace, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.chdir("/")  # like a macOS app bundle: read-only working directory
+
+    review = workspace.create_review(Path("Test"), name="test")
+
+    assert review.folder == (tmp_path / "home" / "Test").resolve()
+    assert review.config_path.is_file()

@@ -47,6 +47,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="open the UI in a browser tab instead of a native window (debugging)",
     )
     parser.add_argument("--port", type=int, default=None, help="port (browser mode)")
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="browser mode: do not open a browser tab (automated UI tests)",
+    )
     return parser
 
 
@@ -85,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         window_size=WINDOW_SIZE if native else None,
         port=args.port,
         reload=False,
-        show=not native,
+        show=not native and not args.no_open,
     )
     return 0
 

@@ -67,6 +67,18 @@ class Review:
         return self.results_path.is_file()
 
 
+def resolve_folder(folder: str | Path) -> Path:
+    """Return ``folder`` as an absolute path; relative paths start at the home folder.
+
+    The app's working directory is meaningless for the user (``/`` for a
+    macOS app bundle, read-only), so it is never used.
+    """
+    path = Path(folder).expanduser()
+    if not path.is_absolute():
+        path = Path.home() / path
+    return path.resolve()
+
+
 def read_review(folder: Path) -> Review:
     """Validate ``folder/scilex.yml`` and describe the review.
 
@@ -77,7 +89,7 @@ def read_review(folder: Path) -> Review:
         FileNotFoundError: If the folder has no ``scilex.yml``.
         SettingsError: If the configuration is invalid.
     """
-    folder = Path(folder).expanduser().resolve()
+    folder = resolve_folder(folder)
     config_path = folder / CONFIG_FILENAME
     if not config_path.is_file():
         raise FileNotFoundError(f"No {CONFIG_FILENAME} in {folder}")
@@ -147,7 +159,7 @@ class Workspace:
             FileExistsError: If the folder already holds a ``scilex.yml``.
             SettingsError: If the resulting configuration is invalid.
         """
-        config_path = Path(folder).expanduser() / CONFIG_FILENAME
+        config_path = resolve_folder(folder) / CONFIG_FILENAME
         if config_path.exists():
             raise FileExistsError(f"{config_path} already exists")
         if template:
@@ -165,7 +177,7 @@ class Workspace:
 
     def forget_review(self, folder: Path) -> None:
         """Remove a folder from the registry (its files are left untouched)."""
-        folder = Path(folder).expanduser().resolve()
+        folder = resolve_folder(folder)
         self._save_folders([f for f in self._load_folders() if f != folder])
 
     @staticmethod

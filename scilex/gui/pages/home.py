@@ -11,7 +11,7 @@ from scilex.init_templates import list_templates
 from scilex.settings.schema import SettingsError
 
 # Errors caused by the user's input or files, shown without a diagnostic report.
-EXPECTED_ERRORS = (FileNotFoundError, FileExistsError, SettingsError)
+EXPECTED_ERRORS = (OSError, SettingsError)  # missing, existing, unwritable files
 NO_TEMPLATE = "(blank)"
 
 
@@ -89,6 +89,9 @@ def new_review_dialog(ctx: AppContext) -> None:
     with ui.dialog() as dialog, ui.card().classes("w-[32rem]"):
         ui.label("New review").classes("text-lg font-bold")
         folder = _folder_input(ctx, "Folder (created if needed)")
+        folder.props(
+            'hint="Relative paths start at your home folder, e.g. Documents/reviews/rag"'
+        )
         name = (
             ui.input("Name", placeholder="e.g. rag_knowledge_graphs")
             .classes("w-full")
