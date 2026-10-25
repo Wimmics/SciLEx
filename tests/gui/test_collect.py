@@ -131,6 +131,40 @@ def test_start_pipeline_forwards_since_and_resume(tmp_path):
     assert seen["main"]["apis"] == ["OpenAlex"]
 
 
+def test_start_aggregation_skips_collection(tmp_path):
+    calls = []
+
+    def collection(config, progress_callback, cancel_event):
+        calls.append("collect")
+
+    def aggregation(config, options, progress_callback):
+        calls.append(("aggregate", options.skip_citations))
+
+    runner = JobRunner(collection, aggregation)
+    workspace = Workspace(registry_path=tmp_path / "reg.yml")
+    review = workspace.create_review(tmp_path / "rag", name="rag_kg")
+
+    job = runner.start_aggregation(
+        review, Workspace.load_config(review), skip_citations=True
+    )
+    _wait(job)
+
+    assert calls == [("aggregate", True)]
+    assert job.status == job_states.COMPLETED
+
+
+@pytest.mark.anyio
+async def test_page_offers_aggregation_of_existing_collection(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/collect")
+        await user.should_not_see(marker="aggregate-only")
+    _interrupted_collection(review)
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/collect")
+        await user.should_see(marker="aggregate-only")
+
+
 def test_aggregation_phase_recorded(tmp_path):
     def aggregation(config, options, progress_callback):
         progress_callback("filtering", 30, "Applying filters...")

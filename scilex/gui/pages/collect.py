@@ -108,16 +108,29 @@ def render(ctx: AppContext, review: Review) -> None:
             .props("outline")
             .mark("resume")
         )
+        aggregate_button = (
+            ui.button("Aggregate existing results", icon="filter_alt")
+            .props("outline")
+            .mark("aggregate-only")
+        )
         cancel_button = (
             ui.button("Cancel", icon="stop")
             .props("outline color=negative")
             .mark("cancel")
         )
     resume_hint = ui.label().classes("text-sm text-gray-500")
+    ui.label(
+        "Aggregate existing results re-runs deduplication, filters and ranking on "
+        "what is already collected (even a partial collection) with the current "
+        "scilex.yml; nothing is collected again."
+    ).classes("text-sm text-gray-500")
 
     # The resume state needs a disk scan: compute it at render and when a job
     # finishes, never on the 0.5 s tick of the job panel.
     resume_cache = {"info": detect_resume(review.collection_dir)}
+
+    def has_collection() -> bool:
+        return (review.collection_dir / "config_used.yml").is_file()
 
     def update_buttons(job: Job | None) -> None:
         running = job is not None and job.is_active
@@ -126,6 +139,8 @@ def render(ctx: AppContext, review: Review) -> None:
         # One tooltip, shown or hidden: calling .tooltip() here would add a new one every tick.
         busy_tooltip.set_visibility(busy_elsewhere)
         busy_notice.update(job)
+        aggregate_button.set_visibility(not running and has_collection())
+        aggregate_button.set_enabled(not busy_elsewhere)
         cancel_button.set_visibility(running)
         resume_info = None if running else resume_cache["info"]
         resume_button.set_visibility(resume_info is not None)
@@ -296,6 +311,20 @@ def render(ctx: AppContext, review: Review) -> None:
         show_failure.refresh()
         refresh()
 
+    def aggregate_only() -> None:
+        try:
+            ctx.runner.start_aggregation(
+                review,
+                Workspace.load_config(review),
+                skip_citations=skip_citations.value,
+            )
+        except (SettingsError, FileNotFoundError, JobConflictError) as exc:
+            show_error("Cannot start the aggregation", exc, expected=True)
+        except Exception as exc:
+            show_error("Cannot start the aggregation", exc)
+        show_failure.refresh()
+        refresh()
+
     def cancel() -> None:
         job = panel.job
         if job is not None:
@@ -304,4 +333,5 @@ def render(ctx: AppContext, review: Review) -> None:
 
     run_button.on_click(lambda: start(resume=False))
     resume_button.on_click(lambda: start(resume=True))
+    aggregate_button.on_click(aggregate_only)
     cancel_button.on_click(cancel)

@@ -189,6 +189,26 @@ class JobRunner:
         self._start_thread(job, body)
         return job
 
+    def start_aggregation(
+        self, review: Review, config: SciLExConfig, *, skip_citations: bool = False
+    ) -> Job:
+        """Aggregate the existing collection of ``review`` with its current config.
+
+        Works on a partial collection and can be replayed after editing
+        ``scilex.yml``: nothing is collected again.
+
+        Raises:
+            JobConflictError: If another job is still active.
+        """
+        job = self._new_job(review, PIPELINE)
+
+        def body() -> str:
+            self._aggregate(job, config, skip_citations)
+            return "Aggregation completed."
+
+        self._start_thread(job, body)
+        return job
+
     def cancel(self, job_id: str) -> bool:
         """Request cancellation; returns False if the job is not active.
 
