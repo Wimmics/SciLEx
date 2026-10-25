@@ -8,7 +8,9 @@ from nicegui import ui
 from scilex.gui.components.stepper import (
     DEFAULT_STEP,
     NEEDS_RESULTS_HINT,
+    RESULTS_POLL_SECONDS,
     STEPS,
+    USABLE_WHEN_INVALID,
     is_enabled,
     render_sidebar,
 )
@@ -16,10 +18,6 @@ from scilex.gui.state import AppContext
 
 # Each step is drawn by ``scilex.gui.pages.<step>.render(ctx, review)``;
 # a step without its module yet shows a placeholder.
-
-
-# Steps usable while scilex.yml cannot be loaded (to repair it).
-EDITABLE_WHEN_INVALID = ("configure", "keys")
 
 
 def _invalid_config_banner(review) -> None:
@@ -32,6 +30,17 @@ def _invalid_config_banner(review) -> None:
             "Fix in ① Configure",
             on_click=lambda: ui.navigate.to(f"/review/{review.id}/configure"),
         ).props("flat")
+
+
+def _reload_when_results_exist(review) -> None:
+    """Draw the step once the aggregation writes its results file."""
+
+    def check() -> None:
+        if review.has_results:
+            timer.cancel()
+            ui.navigate.reload()
+
+    timer = ui.timer(RESULTS_POLL_SECONDS, check)
 
 
 def step_module(step: str):
@@ -63,10 +72,11 @@ def render(ctx: AppContext, review_id: str, step: str = DEFAULT_STEP) -> None:
             module = step_module(step)
             if review.error:
                 _invalid_config_banner(review)
-            if review.error and step not in EDITABLE_WHEN_INVALID:
+            if review.error and step not in USABLE_WHEN_INVALID:
                 pass
             elif not is_enabled(STEPS[step], review):
-                ui.label(NEEDS_RESULTS_HINT)
+                ui.label(NEEDS_RESULTS_HINT).mark("needs-results")
+                _reload_when_results_exist(review)
             elif module is not None:
                 module.render(ctx, review)
             else:

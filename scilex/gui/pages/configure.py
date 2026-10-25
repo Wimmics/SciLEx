@@ -105,6 +105,12 @@ def _unknown_keys_banner(review: Review, unknown: list[tuple[str, str | None]]) 
         ).mark("remove-unknown")
 
 
+def _review_changed(ctx: AppContext, review: Review) -> bool:
+    """True when the saved file gives a different review (name, output, validity)."""
+    fresh = ctx.workspace.get(review.id)
+    return fresh is not None and (fresh != review or fresh.error != review.error)
+
+
 def render(ctx: AppContext, review: Review) -> None:
     """Draw the Configure screen of ``review``."""
     ui.label("Configure").classes("text-2xl font-bold")
@@ -597,11 +603,17 @@ def render(ctx: AppContext, review: Review) -> None:
                 .mark("config-unsaved")
             )
 
+    shown_problems: list[list[tuple[str, str]]] = [[]]  # drawn by summary([])
+
     def revalidate() -> None:
+        # Validation is cheap (~10 µs); redrawing the summary on every
+        # keystroke is not, so it is only redrawn when the problems change.
         problems = editor.validate(data)
         save_button.set_enabled(not problems)
         unsaved_label.set_visibility(unsaved["changes"])
-        summary.refresh(problems)
+        if problems != shown_problems[0]:
+            shown_problems[0] = problems
+            summary.refresh(problems)
         for dotted, label in error_labels.items():
             messages = [
                 message
@@ -623,6 +635,10 @@ def render(ctx: AppContext, review: Review) -> None:
         unsaved["changes"] = False
         unsaved_label.set_visibility(False)
         ui.notify(f"Saved {review.config_path.name}", type="positive")
+        if _review_changed(ctx, review):
+            # Name, output folder or validity changed: the sidebar, the
+            # results path and the locked steps were drawn from the old one.
+            ui.navigate.reload()
         return True
 
     def save_and_collect() -> None:

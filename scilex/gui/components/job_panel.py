@@ -92,7 +92,7 @@ class JobPanel:
             {existing.id} if existing is not None and not existing.is_active else set()
         )
         self.refresh()
-        ui.timer(0.5, self.refresh)
+        self.timer = ui.timer(0.5, self.refresh)
 
     @property
     def job(self) -> Job | None:

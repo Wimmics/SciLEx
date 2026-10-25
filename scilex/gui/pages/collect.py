@@ -2,6 +2,7 @@
 
 from nicegui import ui
 
+from scilex.gui.components.dialogs import one_shot_dialog
 from scilex.gui.components.errors import show_error
 from scilex.gui.components.job_panel import BusyNotice, JobPanel
 from scilex.gui.services.collect_summary import (
@@ -35,7 +36,7 @@ STEP_ICONS = {
 
 
 def _show_report(title: str, path) -> None:
-    with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
+    with one_shot_dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
         ui.label(title).classes("text-lg font-bold")
         with ui.scroll_area().classes("w-full h-96"):
             ui.markdown(path.read_text(encoding="utf-8"))

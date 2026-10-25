@@ -48,10 +48,29 @@ def render(ctx: AppContext, review: Review) -> None:
             ui.tab(info.name, label=info.title).mark(f"analysis-tab-{info.name}")
     # Finishing one analysis (e.g. Citations) can lift another tab's warning.
     problem_refreshers: list[Callable[[], None]] = []
-    with ui.tab_panels(tabs, value=service.ANALYSES[0].name).classes("w-full min-w-0"):
-        for info in service.ANALYSES:
-            with ui.tab_panel(info.name):
-                _render_analysis(ctx, review, info, problem_refreshers)
+    infos = {info.name: info for info in service.ANALYSES}
+    tab_containers: dict[str, ui.tab_panel] = {}
+    panels: dict[str, JobPanel] = {}
+    first = service.ANALYSES[0].name
+    with ui.tab_panels(tabs, value=first).classes("w-full min-w-0") as tab_panels:
+        for name in infos:
+            tab_containers[name] = ui.tab_panel(name)
+
+    def show_tab(name: str) -> None:
+        # A tab is drawn when first opened, and only the visible tab polls its
+        # job: six panels ticking every 0.5 s cost more than the page itself.
+        if name not in panels:
+            with tab_containers[name]:
+                panels[name] = _render_analysis(
+                    ctx, review, infos[name], problem_refreshers
+                )
+        for other, panel in panels.items():
+            panel.timer.active = other == name
+            if other == name:
+                panel.refresh()
+
+    show_tab(first)
+    tab_panels.on_value_change(lambda event: show_tab(event.value))
 
 
 def _render_analysis(
@@ -59,7 +78,7 @@ def _render_analysis(
     review: Review,
     info: service.AnalysisInfo,
     problem_refreshers: list[Callable[[], None]],
-):
+) -> JobPanel:
     name = info.name
     ui.label(info.description).classes("text-gray-500")
     collect_dir = review.collection_dir
@@ -189,6 +208,7 @@ def _render_analysis(
             show_error(title, exc)
 
     run_button.on_click(run)
+    return panel
 
 
 def _render_options(name: str) -> dict:

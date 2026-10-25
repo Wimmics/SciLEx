@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from nicegui import run, ui
 
+from scilex.gui.components.dialogs import one_shot_dialog
 from scilex.gui.components.errors import show_error
 from scilex.gui.components.job_panel import BusyNotice, JobPanel
 from scilex.gui.services import exports
@@ -196,7 +197,7 @@ def render(ctx: AppContext, review: Review) -> None:
                 expected=True,
             )
             return
-        with ui.dialog() as dialog, ui.card().mark("zotero-confirm"):
+        with one_shot_dialog() as dialog, ui.card().mark("zotero-confirm"):
             ui.label(
                 f"Push {count} papers to the Zotero {settings.user_mode} library "
                 f'{settings.user_id} (collection "{review.name}")?'

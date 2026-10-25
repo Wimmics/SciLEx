@@ -5,6 +5,7 @@ from pathlib import Path
 
 from nicegui import app, ui
 
+from scilex.gui.components.dialogs import one_shot_dialog
 from scilex.gui.components.errors import show_error
 from scilex.gui.services.workspace import Review
 from scilex.gui.state import AppContext
@@ -14,6 +15,7 @@ from scilex.settings.schema import SettingsError
 # Errors caused by the user's input or files, shown without a diagnostic report.
 EXPECTED_ERRORS = (OSError, SettingsError)  # missing, existing, unwritable files
 NO_TEMPLATE = "(blank)"
+CARDS_POLL_SECONDS = 2.0
 
 
 async def pick_folder(ctx: AppContext) -> str | None:
@@ -43,9 +45,12 @@ def render(ctx: AppContext) -> None:
                 on_click=lambda: open_review_dialog(ctx),
             ).props("outline").mark("open-review")
 
+        shown: list[tuple] = [()]
+
         @ui.refreshable
         def cards() -> None:
             reviews = ctx.workspace.list_reviews()
+            shown[0] = _cards_state(ctx, reviews)
             if not reviews:
                 ui.label(
                     "No review yet. Create one, or open a folder that already "
@@ -56,6 +61,23 @@ def render(ctx: AppContext) -> None:
                     _review_card(ctx, review, cards.refresh)
 
         cards()
+
+        def refresh_if_changed() -> None:
+            # A running job, new results or an edited scilex.yml change a card.
+            if _cards_state(ctx, ctx.workspace.list_reviews()) != shown[0]:
+                cards.refresh()
+
+        ui.timer(CARDS_POLL_SECONDS, refresh_if_changed)
+
+
+def _cards_state(ctx: AppContext, reviews: list[Review]) -> tuple:
+    """What the cards show, to redraw them only when it changes."""
+    state = []
+    for review in reviews:
+        job = ctx.runner.latest_for(review.id)
+        running = job.message if job is not None and job.is_active else None
+        state.append((review, review.error, review.has_results, running))
+    return tuple(state)
 
 
 def _review_card(
@@ -139,7 +161,7 @@ def _folder_input(ctx: AppContext, label: str) -> ui.input:
 
 def new_review_dialog(ctx: AppContext) -> None:
     """Ask for a folder, a name and a template, then create the review."""
-    with ui.dialog() as dialog, ui.card().classes("w-[32rem]"):
+    with one_shot_dialog() as dialog, ui.card().classes("w-[32rem]"):
         ui.label("New review").classes("text-lg font-bold")
         folder = _folder_input(ctx, "Folder (created if needed)")
         folder.props(
@@ -181,7 +203,7 @@ def new_review_dialog(ctx: AppContext) -> None:
 
 def open_review_dialog(ctx: AppContext) -> None:
     """Register an existing folder holding a scilex.yml."""
-    with ui.dialog() as dialog, ui.card().classes("w-[32rem]"):
+    with one_shot_dialog() as dialog, ui.card().classes("w-[32rem]"):
         ui.label("Open a review folder").classes("text-lg font-bold")
         folder = _folder_input(ctx, "Folder containing scilex.yml")
 

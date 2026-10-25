@@ -4,6 +4,7 @@ import logging
 
 from nicegui import ui
 
+from scilex.gui.components.dialogs import one_shot_dialog
 from scilex.gui.services.diagnostics import diagnostic_text
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ def show_error(title: str, exc: BaseException, *, expected: bool = False) -> Non
     """
     if not expected:
         logger.error("%s", title, exc_info=exc)
-    with ui.dialog() as dialog, ui.card().classes("w-[36rem]"):
+    with one_shot_dialog() as dialog, ui.card().classes("w-[36rem]"):
         ui.label(title).classes("text-lg font-bold")
         ui.label(str(exc)).classes("whitespace-pre-wrap")
         with ui.row().classes("w-full justify-end"):

@@ -94,9 +94,13 @@ def render(ctx: AppContext, review: Review) -> None:
         try:
             session = await run.io_bound(ScreeningSession, review)
         except Exception as exc:
+            if container.is_deleted:
+                return  # the user left the page while the file was loading
             loading.delete()
             with container:
                 show_error("Cannot load the results", exc)
+            return
+        if container.is_deleted:
             return
         loading.delete()
         with container:
@@ -334,7 +338,10 @@ class ScreenPage:
     def refill(self) -> None:
         """Reload the grid rows from the current filters."""
         rows = self.session.visible_rows(self.decision_filter, self.query)
-        self.order = [row["paper_key"] for row in rows]
+        order = [row["paper_key"] for row in rows]
+        if order == self.order:
+            return  # same papers shown: do not resend every row to the browser
+        self.order = order
         self.grid.options["rowData"] = rows
         self.grid.update()
         if self.current not in self.order:
