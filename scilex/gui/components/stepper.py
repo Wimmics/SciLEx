@@ -31,7 +31,10 @@ RESULTS_POLL_SECONDS = 1.0
 INVALID_CONFIG_HINT = "Fix scilex.yml in ① Configure first"
 # Steps usable while scilex.yml cannot be loaded (to repair it).
 USABLE_WHEN_INVALID = ("configure", "keys")
-NEEDS_RESULTS_HINT = "Available once a collection has been aggregated (step ②)."
+NEEDS_RESULTS_HINT = (
+    "Available once a collection has been aggregated (step ②: Run, or "
+    "Aggregate existing results after a stopped collection)."
+)
 
 
 def is_enabled(step: Step, review: Review) -> bool:
