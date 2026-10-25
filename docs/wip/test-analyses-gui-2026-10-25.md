@@ -36,5 +36,11 @@ Charts → Citations (limit 60) → Snowball (dry run puis réel) → Graph (bot
 - 7 : progression par article confirmée (abba99ba). Lenteur Citations sans clé (~29 s/article au 2e run) :
   limitation réseau S2/CrossRef, pas une régression.
 
+- 6 → dab64dcc (scipy dans l'extra graph, gui inclut graph : PageRank + Louvain dans l'app),
+  8 → b174a444 (en-tête déjà corrigé par 340d49f0 ; bigrammes sans pont sur mots vides/ponctuation,
+  mots à trait d'union, singulier/pluriel fusionnés), 9 → option « Clusters » dans Keywords/Summaries.
+- Run GUI final : plus d'avertissement scipy, « Summary of 6 communities from the bibliographic coupling
+  graph », erreur Snowball explicite. 2091 tests verts.
+
 ## Restant
-6 (scipy), 8 (en-tête legacy + bruit des suggestions), 9 (choix du CSV de clusters) : à arbitrer.
+Rien sur ce chantier. Snowball réel non vérifié faute de clé Semantic Scholar.
