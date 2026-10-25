@@ -37,11 +37,11 @@ SCORE_COLUMN = "llm_relevance_score"
 CACHE_FILENAME = "llm_relevance_cache.json"
 API_KEY_ENV_VAR = "OPENROUTER_API_KEY"
 
-DEFAULT_MODEL = "openai/gpt-4o-mini"
+DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 DEFAULT_WORKERS = 4
 DEFAULT_MAX_PAPERS = 500
-DEFAULT_PRICE_INPUT_PER_M = 0.15
-DEFAULT_PRICE_OUTPUT_PER_M = 0.60
+DEFAULT_PRICE_INPUT_PER_M = 0.091
+DEFAULT_PRICE_OUTPUT_PER_M = 0.182
 # Rough heuristic: one token is about four characters of English text.
 CHARS_PER_TOKEN = 4
 PROMPT_OVERHEAD_TOKENS = 150

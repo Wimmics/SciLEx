@@ -66,12 +66,12 @@ ranking:
 llm_screening:                   # optional LLM relevance scoring (needs openrouter.api_key in keys.yml)
   enabled: false
   topic: ""                      # research topic description; required when enabled
-  model: openai/gpt-4o-mini
+  model: deepseek/deepseek-v4-flash
   threshold: null                # drop papers scoring below this value
   max_papers: 500                # cap of papers (not cached) sent to the model
   workers: 4
-  price_input_per_m: 0.15        # USD per million tokens, for the cost estimate
-  price_output_per_m: 0.60
+  price_input_per_m: 0.091       # USD per million tokens, for the cost estimate
+  price_output_per_m: 0.182
 
 report:
   quality_report: true

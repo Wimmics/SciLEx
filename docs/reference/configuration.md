@@ -122,12 +122,12 @@ Results are cached in `<output_dir>/<name>/llm_relevance_cache.json`.
 |-----|------|---------|------|
 | `enabled` | bool | `false` | Activate the step |
 | `topic` | string | `""` | Description of the research topic; required when enabled |
-| `model` | string | `openai/gpt-4o-mini` | OpenRouter model |
+| `model` | string | `deepseek/deepseek-v4-flash` | OpenRouter model |
 | `threshold` | float or null | null | Drop papers whose `llm_relevance_score` is below this value |
 | `max_papers` | int >= 1 | `500` | Cap on papers (not already cached) sent to the model |
 | `workers` | int >= 1 | `4` | Concurrent requests |
-| `price_input_per_m` | float >= 0 | `0.15` | USD per million input tokens, used for the cost estimate |
-| `price_output_per_m` | float >= 0 | `0.60` | USD per million output tokens |
+| `price_input_per_m` | float >= 0 | `0.091` | USD per million input tokens, used for the cost estimate |
+| `price_output_per_m` | float >= 0 | `0.182` | USD per million output tokens |
 
 ### `report`
 

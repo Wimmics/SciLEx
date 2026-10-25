@@ -298,12 +298,12 @@ class LLMScreeningSettings(BaseModel):
 
     enabled: bool = False
     topic: str = ""
-    model: str = "openai/gpt-4o-mini"
+    model: str = "deepseek/deepseek-v4-flash"
     threshold: float | None = None
     max_papers: Integer = Field(default=500, ge=1)
     workers: Integer = Field(default=4, ge=1)
-    price_input_per_m: float = Field(default=0.15, ge=0)
-    price_output_per_m: float = Field(default=0.60, ge=0)
+    price_input_per_m: float = Field(default=0.091, ge=0)
+    price_output_per_m: float = Field(default=0.182, ge=0)
 
     @model_validator(mode="after")
     def _require_topic_when_enabled(self) -> "LLMScreeningSettings":
