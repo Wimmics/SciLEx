@@ -51,6 +51,7 @@ class Job:
     logs: list[str] = field(default_factory=list)
     api_stats: dict = field(default_factory=dict)
     aggregation_phase: str | None = None  # last phase of the aggregation callback
+    screening_fraction: float | None = None  # LLM screening progress, 0..1
     error: str | None = None
     result: Any = None  # value returned by a task body, for the page to display
     started_at: datetime = field(default_factory=datetime.now)
@@ -283,6 +284,8 @@ class JobRunner:
 
     def _aggregate(self, job: Job, config: SciLExConfig, skip_citations: bool) -> None:
         from scilex.pipeline.orchestrator import (
+            SCREENING_PERCENT_RANGE,
+            SCREENING_PHASE,
             AggregationCancelled,
             AggregationOptions,
         )
@@ -292,7 +295,13 @@ class JobRunner:
         job.message = "Aggregating results…"
 
         def on_progress(phase, percent, message):
-            job.aggregation_phase = phase
+            if phase == SCREENING_PHASE:
+                # A sub-step of "filtering": keep the phase list on that step.
+                low, high = SCREENING_PERCENT_RANGE
+                job.screening_fraction = (percent - low) / (high - low)
+            else:
+                job.aggregation_phase = phase
+                job.screening_fraction = None
             job.progress = _scale(percent / 100, AGGREGATE_RANGE)
             job.message = message
 

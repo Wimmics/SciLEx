@@ -81,6 +81,12 @@ from scilex.since_utils import (
 logger = logging.getLogger(__name__)
 
 
+# Progress phase of the LLM screening; percents are inside this range of the
+# overall aggregation progress.
+SCREENING_PHASE = "screening"
+SCREENING_PERCENT_RANGE = (45, 55)
+
+
 class AggregationCancelled(Exception):
     """Raised by run_aggregation() when ``options.cancel_event`` was set."""
 
@@ -657,8 +663,13 @@ def _screen_with_llm(ctx: _AggregationContext, df: pd.DataFrame) -> pd.DataFrame
         cache_path=os.path.join(ctx.dir_collect, CACHE_FILENAME),
         cancel_event=ctx.options.cancel_event,
         progress_callback=lambda done, total: ctx.report_progress(
-            "filtering",
-            45 + round(10 * done / max(total, 1)),
+            SCREENING_PHASE,
+            SCREENING_PERCENT_RANGE[0]
+            + round(
+                (SCREENING_PERCENT_RANGE[1] - SCREENING_PERCENT_RANGE[0])
+                * done
+                / max(total, 1)
+            ),
             f"LLM screening… {done}/{total} papers",
         ),
     )

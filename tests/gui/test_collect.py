@@ -316,3 +316,20 @@ def test_cancel_during_aggregation_ends_cancelled(tmp_path):
     _wait(job, timeout=5)
 
     assert job.status == job_states.CANCELLED
+
+
+def test_screening_progress_is_exposed_as_fraction(tmp_path):
+    from scilex.pipeline.orchestrator import SCREENING_PHASE
+
+    def aggregation(config, options, progress_callback):
+        progress_callback("filtering", 45, "Applying quality filters...")
+        progress_callback(SCREENING_PHASE, 50, "LLM screening… 5/10 papers")
+
+    runner = JobRunner(lambda *a, **k: None, aggregation)
+    workspace = Workspace(registry_path=tmp_path / "reg.yml")
+    review = workspace.create_review(tmp_path / "rag", name="rag_kg")
+    job = runner.start_aggregation(review, Workspace.load_config(review))
+    _wait(job)
+
+    assert job.screening_fraction == 0.5
+    assert job.aggregation_phase == "filtering"

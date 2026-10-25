@@ -168,6 +168,14 @@ def render(ctx: AppContext, review: Review) -> None:
     # --- live details: API table and aggregation phases -------------------
     api_container = ui.column().classes("w-full gap-1")
     phase_container = ui.column().classes("gap-0")
+    screening_label = ui.label().classes("text-sm").mark("screening-label")
+    screening_bar = (
+        ui.linear_progress(value=0, show_value=False)
+        .classes("w-full")
+        .mark("screening-bar")
+    )
+    screening_label.set_visibility(False)
+    screening_bar.set_visibility(False)
     shown: dict = {}
 
     def update_details(job: Job | None) -> None:
@@ -214,6 +222,12 @@ def render(ctx: AppContext, review: Review) -> None:
             shown["finished"] = job.id
             show_failure.refresh()
             show_summary.refresh()
+        screening = job.is_active and job.screening_fraction is not None
+        screening_label.set_visibility(screening)
+        screening_bar.set_visibility(screening)
+        if screening:
+            screening_bar.value = job.screening_fraction
+            screening_label.text = job.message
         aggregating = job.phase == "aggregating" or job.aggregation_phase is not None
         finished = job.status == job_states.COMPLETED
         steps = (
