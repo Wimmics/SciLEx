@@ -44,7 +44,7 @@
 
 ## Overview
 
-**SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. It crawls 12 academic APIs in parallel, deduplicates results using DOI-based and normalized title exact matching, and applies a 5-phase quality filtering pipeline before exporting to Zotero or BibTeX.
+**SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. It crawls 14 academic APIs in parallel, deduplicates results using DOI-based and normalized title exact matching, and applies a 5-phase quality filtering pipeline before exporting to Zotero or BibTeX.
 
 
 ---
@@ -57,7 +57,7 @@
 
 ## Key Features
 
-- Multi-API collection with parallel processing (12 academic APIs)
+- Multi-API collection with parallel processing (14 academic APIs)
 - Smart deduplication using DOI and normalized title matching
 - 5-phase quality filtering pipeline with time-aware citation thresholds:
   1. **ItemType Filter** — whitelist by publication type (journal, conference, etc.)
@@ -82,6 +82,7 @@
 | **Springer** | Yes | 13M+ docs | Journals, books |
 | **Elsevier** | Yes | 18M+ articles | Medical, life sciences |
 | **PubMed** | Optional | 35M+ papers | Biomedical literature |
+| **PubMedCentral** | Optional | 10M+ full texts | Open-access biomedical full text |
 | **HAL** | No | 1M+ docs | French research, theses |
 | **DBLP** | No | 6M+ CS papers | CS bibliography, 95%+ DOI |
 | **Istex** | No | 25M+ docs | French institutional access |
@@ -102,23 +103,19 @@ See the [API Comparison](https://scilex.readthedocs.io/en/latest/reference/api-c
     ├── scilex.yml.example
     ├── keys.yml.example
     ├── scilex/
-    │   ├── run_collection.py
-    │   ├── aggregate_collect.py
-    │   ├── enrich_with_hf.py
-    │   ├── push_to_zotero.py
-    │   ├── export_to_bibtex.py
-    │   ├── quality_validation.py
-    │   ├── keyword_validation.py
-    │   ├── abstract_validation.py
-    │   ├── duplicate_tracking.py
+    │   ├── run_collection.py, aggregate_collect.py, collect_status.py   # CLI entry points
+    │   ├── enrich_with_hf.py, push_to_zotero.py, export_to_*.py          # enrichment and outputs
     │   ├── settings/        # scilex.yml / keys.yml schema, presets, loader, migration
     │   ├── templates/       # scilex init templates
-    │   ├── pipeline/
-    │   ├── crawlers/
-    │   ├── citations/
+    │   ├── pipeline/        # aggregation, filtering, ranking, reports
+    │   ├── crawlers/        # one collector per API
+    │   ├── citations/       # 4-tier citation resolution
+    │   ├── rdf/             # RDF/Turtle export
+    │   ├── graph_analysis/, snowball/, summarize/, keyword_suggestions/
+    │   ├── gui/             # desktop app (scilex-gui)
+    │   ├── webapi/          # FastAPI + Streamlit web interface
     │   ├── Zotero/
-    │   ├── HuggingFace/
-    │   └── tagging/
+    │   └── HuggingFace/
     ├── tests/
     ├── docs/
     └── img/
@@ -163,6 +160,8 @@ See the [API Comparison](https://scilex.readthedocs.io/en/latest/reference/api-c
 # With dev dependencies (pytest, ruff, coverage)
 ❯ pip install -e ".[dev]"
 ```
+
+The desktop app needs the `gui` extra: `uv sync --extra gui` (or `pip install -e ".[gui]"`).
 
 ### Configuration
 
@@ -219,10 +218,12 @@ Run the pipeline step by step:
 ❯ scilex config check
 
 # 1. Collect papers from all configured APIs
-❯ scilex-collect
+❯ scilex-collect                # --resume NAME to continue a run, --since YYYY-MM-DD for incremental
+❯ python -m scilex status       # collection completeness (keywords, APIs, years)
 
-# 2. Deduplicate and apply quality filtering
-❯ scilex-aggregate
+# 2. Deduplicate, filter and rank
+❯ scilex-aggregate              # --skip-citations to skip citation lookups, --workers N
+❯ scilex-aggregate --collection NAME --use-current-config   # replay on an existing (even partial) collection with the current scilex.yml
 
 # 3. (Optional) Enrich with HuggingFace metadata
 ❯ scilex-enrich
@@ -233,9 +234,33 @@ Run the pipeline step by step:
 ❯ scilex-export-turtle      # Export to RDF/Turtle
 ```
 
+Every pipeline command accepts `--config PATH` and `--keys PATH`.
+`python -m scilex <collect|aggregate|status|enrich|export-bibtex|push-zotero|init|config>` is the equivalent module entry point.
+
+Other commands:
+
+```sh
+❯ scilex-enrich-citations   # add citation counts to an existing aggregated file
+❯ scilex-report             # charts / report from aggregated results
+❯ scilex-analyze            # graph analysis (co-authorship, communities)
+❯ scilex-snowball           # snowball sampling (references / citing papers)
+❯ scilex-seed               # start from seed papers (DOIs, BibTeX)
+❯ scilex-summarize          # cluster summaries
+❯ scilex-suggest-keywords   # keyword suggestions from a first collection
+```
+
 See the [Quick Start Guide](https://scilex.readthedocs.io/en/latest/getting-started/quick-start.html) for a complete walkthrough.
 
-**Option C - 💻 Web Interface [BETA VERSION]**
+**Option C — 🖥️ Desktop app**
+```sh
+❯ uv sync --extra gui
+❯ uv run scilex-gui              # native window
+❯ uv run scilex-gui --browser    # same UI in a browser tab (--port N, --no-open)
+❯ uv run scilex-gui --self-test  # check the installation without opening a window
+```
+See the [desktop app guide](docs/user-guides/gui.md).
+
+**Option D - 💻 Web Interface [BETA VERSION]**
 * [Youtube Tutorial](https://www.youtube.com/watch?v=FXZtrlOJ-vU)
 * [Complete Documentation](https://scilex.readthedocs.io/en/latest/user-guides/WebInterfaceGuide.html)
 
