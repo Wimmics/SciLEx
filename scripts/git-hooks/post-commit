@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Rebuild the desktop app in the background after a commit that touches the
+# app's code. Install: scripts/git-hooks/install.sh
+# Skipped in secondary worktrees and for commits without scilex/ or packaging/ changes.
+set -uo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+[ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] || exit 0
+git diff-tree --no-commit-id --name-only -r HEAD | grep -qE '^(scilex/|packaging/|pyproject.toml$)' || exit 0
+
+lock="$root/build/.gui-build.lock"
+log="$root/build/gui-build.log"
+mkdir -p "$root/build"
+# One build at a time: mkdir is atomic; a stale lock older than 30 min is dropped.
+find "$lock" -maxdepth 0 -mmin +30 -exec rmdir {} \; 2>/dev/null
+mkdir "$lock" 2>/dev/null || exit 0
+
+(
+  trap 'rmdir "$lock"' EXIT
+  if "$root/scripts/build_gui.sh" >"$log" 2>&1; then status=ok; else status=FAILED; fi
+  echo "[$(date '+%F %T')] GUI build $status" >>"$root/build/gui-build.history"
+) >/dev/null 2>&1 &
