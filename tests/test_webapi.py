@@ -243,6 +243,13 @@ def test_pipeline_start_and_status(client, mocked_pipeline):
     assert client.get("/pipelines/nope/status").status_code == 404
 
 
+def test_pipeline_passes_bonus_keywords(client, mocked_pipeline):
+    payload = _start_payload()
+    payload["collection_config"]["bonus_keywords"] = ["LC-MS"]
+    job_id = client.post("/pipelines/start", json=payload).json()["job_id"]
+    assert scilex_api.pipeline_jobs[job_id]["config"]["bonus_keywords"] == ["LC-MS"]
+
+
 def test_pipeline_with_enrichment(client, mocked_pipeline):
     payload = _start_payload()
     payload["collection_config"]["enable_enrichment"] = True

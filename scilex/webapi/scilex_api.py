@@ -771,6 +771,7 @@ async def start_pipeline(request: PipelineRequest, background_tasks: BackgroundT
         # Prepare main configuration
         main_config = {
             "keywords": request.collection_config.keywords,
+            "bonus_keywords": request.collection_config.bonus_keywords or [],
             "years": request.collection_config.years,
             "apis": request.collection_config.apis,
             "collect_name": request.collection_config.collect_name,
