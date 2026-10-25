@@ -28,5 +28,13 @@ Charts → Citations (limit 60) → Snowball (dry run puis réel) → Graph (bot
    (« term memory », « models knowledge », « graphs large », pluriel de mots-clés existants).
 9. Keywords/Summaries prennent toujours `clusters_cocitation.csv` quand Graph = both, sans choix dans l'UI.
 
-## Prochaine étape
-Corriger 1-5 (+ tests), puis 6, 8, 9 selon arbitrage.
+## Corrigé
+- 1 → 5bebef3f (normalize_doi dans loader/graphs/candidates/export), 3+4 → e7b63b62, 5 → aaf1fda2,
+  2 → ded00001 (le fetcher réessaie déjà, mais sans clé S2 le batch reste en 429 : message explicite).
+- Revérifié dans la GUI (cache de références réutilisé, 38 s) : candidats en minuscules, « Summary of 3
+  communities (490 one-paper communities left out) », « 2 of 15 papers matched, 2 would be updated ».
+- 7 : progression par article confirmée (abba99ba). Lenteur Citations sans clé (~29 s/article au 2e run) :
+  limitation réseau S2/CrossRef, pas une régression.
+
+## Restant
+6 (scipy), 8 (en-tête legacy + bruit des suggestions), 9 (choix du CSV de clusters) : à arbitrer.
