@@ -286,3 +286,40 @@ class TestExport:
         loaded = nx.read_gexf(output_path)
         assert loaded.nodes["a"]["cluster_id"] == 0
         assert loaded.nodes["b"]["cluster_id"] == 1
+
+
+# ---------------------------------------------------------------------------
+# DOI case (DOIs are case-insensitive)
+# ---------------------------------------------------------------------------
+
+
+class TestDoiCase:
+    def test_cache_merges_case_variants(self):
+        from scilex.graph_analysis.loader import normalize_citation_map
+
+        mapping = {
+            "10.1/A": ["10.9/X", "https://doi.org/10.9/y"],
+            "10.1/a": ["10.9/x", "NA", ""],
+        }
+        assert normalize_citation_map(mapping) == {"10.1/a": ["10.9/x", "10.9/y"]}
+
+    def test_coupling_links_case_variants(self):
+        graph = build_bibliographic_coupling_graph(
+            {"10.1/A": ["10.9/X"], "10.1/b": ["10.9/x"]}, {"10.1/a", "10.1/B"}
+        )
+        assert graph.has_edge("10.1/a", "10.1/b")
+
+    def test_cocitation_links_case_variants(self):
+        graph = build_cocitation_graph(
+            {}, {"10.1/a": ["10.8/C"], "10.1/b": ["10.8/c"]}, {"10.1/A", "10.1/b"}
+        )
+        assert graph.has_edge("10.1/a", "10.1/b")
+
+    def test_clusters_csv_maps_mixed_case_dois(self, tmp_path):
+        df = pd.DataFrame({"DOI": ["10.1/A", "https://doi.org/10.1/b"]})
+        output = tmp_path / "clusters.csv"
+        export_clusters_csv(
+            df, {"10.1/a": 0, "10.1/b": 1}, {"10.1/a": 0.5}, str(output)
+        )
+        result = pd.read_csv(output)
+        assert sorted(result["cluster_id"]) == [0, 1]

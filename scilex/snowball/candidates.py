@@ -8,6 +8,8 @@ papers cite or are cited by them.
 import logging
 from collections import Counter
 
+from scilex.graph_analysis.loader import normalize_citation_map, normalize_dois
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,21 +34,25 @@ def extract_candidates(
 
     Returns:
         List of (doi, frequency) tuples, sorted by frequency descending.
+        DOIs are compared and returned in normalized (lowercase) form.
     """
+    references = normalize_citation_map(references)
+    citers = normalize_citation_map(citers)
+    corpus_dois = normalize_dois(corpus_dois)
     freq: Counter[str] = Counter()
 
     if direction in ("backward", "both"):
         # Papers cited BY corpus papers (references = "what does the corpus cite?")
         for corpus_doi in corpus_dois:
             for ref_doi in references.get(corpus_doi, []):
-                if ref_doi not in corpus_dois and ref_doi.strip():
+                if ref_doi not in corpus_dois:
                     freq[ref_doi] += 1
 
     if direction in ("forward", "both"):
         # Papers that CITE corpus papers (citers = "who cites the corpus?")
         for corpus_doi in corpus_dois:
             for citing_doi in citers.get(corpus_doi, []):
-                if citing_doi not in corpus_dois and citing_doi.strip():
+                if citing_doi not in corpus_dois:
                     freq[citing_doi] += 1
 
     # Filter by minimum frequency and take top-K

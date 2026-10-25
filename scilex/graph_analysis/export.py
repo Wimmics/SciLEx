@@ -5,6 +5,8 @@ import logging
 import networkx as nx
 import pandas as pd
 
+from scilex.constants import normalize_doi
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,8 +26,10 @@ def export_clusters_csv(
         output_path: Where to write the augmented CSV.
         doi_column: Column name containing DOIs.
     """
-    data["cluster_id"] = data[doi_column].map(partition).fillna(-1).astype(int)
-    data["pagerank"] = data[doi_column].map(pagerank).fillna(0.0)
+    # Graph nodes are normalized DOIs (lowercase, no doi.org prefix).
+    dois = data[doi_column].map(normalize_doi)
+    data["cluster_id"] = dois.map(partition).fillna(-1).astype(int)
+    data["pagerank"] = dois.map(pagerank).fillna(0.0)
     data = data.sort_values(["cluster_id", "pagerank"], ascending=[True, False])
 
     data.to_csv(output_path, index=False)

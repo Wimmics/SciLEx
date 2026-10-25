@@ -18,6 +18,8 @@ from itertools import combinations
 
 import networkx as nx
 
+from scilex.graph_analysis.loader import normalize_citation_map, normalize_dois
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,8 +43,11 @@ def build_cocitation_graph(
         min_weight: Minimum co-citation count to keep an edge.
 
     Returns:
-        Undirected weighted NetworkX graph over corpus DOIs.
+        Undirected weighted NetworkX graph over the normalized corpus DOIs.
     """
+    references = normalize_citation_map(references)
+    citers = normalize_citation_map(citers)
+    corpus_dois = normalize_dois(corpus_dois)
     # Invert: for each external paper, which corpus papers does it cite?
     citer_to_corpus: dict[str, set[str]] = defaultdict(set)
 
@@ -84,8 +89,10 @@ def build_bibliographic_coupling_graph(
         min_weight: Minimum shared-reference count to keep an edge.
 
     Returns:
-        Undirected weighted NetworkX graph over corpus DOIs.
+        Undirected weighted NetworkX graph over the normalized corpus DOIs.
     """
+    references = normalize_citation_map(references)
+    corpus_dois = normalize_dois(corpus_dois)
     # Invert references: for each referenced paper, which corpus papers cite it?
     ref_to_corpus: dict[str, set[str]] = defaultdict(set)
     for corpus_doi in corpus_dois:

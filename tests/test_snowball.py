@@ -112,6 +112,18 @@ class TestExtractCandidates:
 # ---------------------------------------------------------------------------
 
 
+class TestCandidatesDoiCase:
+    def test_case_variants_are_one_candidate(self):
+        refs = {"10.1/a": ["10.18653/V1/X"], "10.1/b": ["10.18653/v1/x"]}
+        result = extract_candidates(refs, {}, {"10.1/a", "10.1/b"}, min_frequency=2)
+        assert result == [("10.18653/v1/x", 2)]
+
+    def test_corpus_paper_cited_in_other_case_is_not_a_candidate(self):
+        refs = {"10.1/a": ["10.1/B"], "10.1/c": ["10.1/B"]}
+        corpus = {"10.1/a", "10.1/b", "10.1/c"}
+        assert extract_candidates(refs, {}, corpus, min_frequency=1) == []
+
+
 class TestSnowballFilters:
     def _make_papers(self):
         return [
