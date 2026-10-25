@@ -155,3 +155,37 @@ def test_configured_keywords_flattens_groups_and_bonus():
     ]
     assert configured_keywords({"keywords": "a, b"}) == ["a", "b"]
     assert configured_keywords({}) == []
+
+
+class TestSuggestionNoise:
+    def _df(self, titles):
+        return pd.DataFrame({"title": titles, "cluster_id": [0] * len(titles)})
+
+    def test_stopword_breaks_bigram(self):
+        from scilex.keyword_suggestions.extractor import title_bigrams
+
+        bigrams = title_bigrams("Unifying Language Models and Knowledge Graphs")
+        assert "models knowledge" not in bigrams
+        assert "knowledge graphs" in bigrams
+
+    def test_hyphenated_word_stays_whole(self):
+        from scilex.keyword_suggestions.extractor import title_bigrams
+
+        assert title_bigrams("Long-Term Memory for Agents") == ["long-term memory"]
+
+    def test_punctuation_breaks_bigram(self):
+        from scilex.keyword_suggestions.extractor import title_bigrams
+
+        assert "graphs survey" not in title_bigrams("Knowledge Graphs: Survey Paper")
+
+    def test_plural_of_existing_keyword_is_excluded(self):
+        df = self._df(["Knowledge Graphs Today", "Knowledge Graphs Tomorrow"])
+        terms = [s["term"] for s in extract_suggestions(df, ["knowledge graph"])]
+        assert "knowledge graphs" not in terms
+
+    def test_singular_and_plural_are_merged(self):
+        df = self._df(["Neural Networks Now", "Neural Network Later"])
+        suggestions = extract_suggestions(df, [], min_freq=2)
+        assert [
+            (s["term"], s["frequency"]) for s in suggestions if "neural" in s["term"]
+        ] == [("neural networks", 2)]

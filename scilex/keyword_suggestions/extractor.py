@@ -98,7 +98,7 @@ def extract_suggestions(
         List of suggestion dicts: ``{"term", "frequency", "cluster_ids"}``,
         sorted by frequency descending.
     """
-    existing_lower = {k.strip().lower() for k in existing_keywords}
+    existing_keys = {_term_key(k.strip()) for k in existing_keywords}
 
     # Count terms from keywords/tags columns
     term_freq: Counter[str] = Counter()
@@ -123,20 +123,30 @@ def extract_suggestions(
             for bigram in title_bigrams(str(title)):
                 _register_term(bigram, cluster_id, term_freq, term_clusters)
 
+    # Merge singular/plural and case variants under their most frequent form.
+    merged_freq: Counter[str] = Counter()
+    merged_clusters: dict[str, set[int]] = {}
+    display: dict[str, str] = {}
+    for term, freq in term_freq.most_common():
+        key = _term_key(term)
+        display.setdefault(key, term)  # most_common: first seen is the most frequent
+        merged_freq[key] += freq
+        merged_clusters.setdefault(key, set()).update(term_clusters.get(term, set()))
+
     # Filter: remove existing keywords and low-frequency terms
     suggestions = []
-    for term, freq in term_freq.most_common():
-        if term.lower() in existing_lower:
+    for key, freq in merged_freq.most_common():
+        if key in existing_keys:
             continue
         if freq < min_freq:
             continue
-        if len(term) < 3:
+        if len(key) < 3:
             continue
         suggestions.append(
             {
-                "term": term,
+                "term": display[key],
                 "frequency": freq,
-                "cluster_ids": sorted(term_clusters.get(term, set())),
+                "cluster_ids": sorted(merged_clusters[key]),
             }
         )
         if len(suggestions) >= top_k:
@@ -165,14 +175,35 @@ def _register_term(
 
 
 def title_bigrams(title: str) -> list[str]:
-    """Extract lowercase bigrams from a title string.
+    """Extract lowercase bigrams of adjacent words from a title string.
 
-    Filters out common stopwords to produce meaningful bigrams.
+    Hyphenated words stay whole ("long-term memory", not "term memory").
+    Stopwords, short words and punctuation break the sequence instead of being
+    skipped, so "Models and Knowledge Graphs" gives "knowledge graphs" but not
+    "models knowledge".
     """
-    words = re.findall(r"[a-zA-Z]+", title.lower())
-    words = [w for w in words if w not in _TITLE_STOPWORDS and len(w) > 2]
-
     bigrams = []
-    for i in range(len(words) - 1):
-        bigrams.append(f"{words[i]} {words[i + 1]}")
+    for segment in re.split(r"[^\w\s-]", title.lower()):
+        previous = None
+        for word in re.findall(r"[a-z]+(?:-[a-z]+)*", segment):
+            if word in _TITLE_STOPWORDS or len(word) <= 2:
+                previous = None
+                continue
+            if previous:
+                bigrams.append(f"{previous} {word}")
+            previous = word
     return bigrams
+
+
+def _term_key(term: str) -> str:
+    """Comparison key of a term: lowercase, with a plain plural ``s`` dropped per word.
+
+    "Knowledge Graphs" and "knowledge graph" share a key; "class" keeps its "ss".
+    """
+    words = term.lower().split()
+    return " ".join(
+        word[:-1]
+        if len(word) > 3 and word.endswith("s") and not word.endswith("ss")
+        else word
+        for word in words
+    )
