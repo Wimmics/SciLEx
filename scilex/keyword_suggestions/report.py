@@ -3,7 +3,14 @@
 import logging
 import os
 
+import yaml
+
 logger = logging.getLogger(__name__)
+
+SNIPPET_HEADER = (
+    "# Suggested terms for scilex.yml. As bonus_keywords they raise the\n"
+    "# relevance score; add a term to a keyword group to search for it.\n"
+)
 
 
 def generate_keyword_report(
@@ -50,12 +57,13 @@ def generate_keyword_report(
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md_content)
 
-    # YAML snippet (ready to paste into scilex.config.yml)
-    yml_lines = ["# Suggested keywords for scilex.config.yml", "keywords:"]
-    for s in suggestions:
-        yml_lines.append(f'  - "{s["term"]}"')
-
-    yml_content = "\n".join(yml_lines) + "\n"
+    # YAML snippet in the scilex.yml shape: bonus keywords only boost the
+    # ranking; a term must join a keyword group to be searched.
+    yml_content = SNIPPET_HEADER + yaml.safe_dump(
+        {"search": {"bonus_keywords": [s["term"] for s in suggestions]}},
+        allow_unicode=True,
+        sort_keys=False,
+    )
     with open(yml_path, "w", encoding="utf-8") as f:
         f.write(yml_content)
 

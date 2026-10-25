@@ -19,7 +19,10 @@ import sys
 
 import pandas as pd
 
-from scilex.keyword_suggestions.extractor import extract_suggestions
+from scilex.keyword_suggestions.extractor import (
+    configured_keywords,
+    extract_suggestions,
+)
 from scilex.keyword_suggestions.report import generate_keyword_report
 from scilex.logging_config import setup_logging
 from scilex.pipeline_utils import (
@@ -83,10 +86,7 @@ def main():
                 pd.to_numeric(df["cluster_id"], errors="coerce").fillna(-1).astype(int)
             )
 
-        # Get existing keywords from config
-        existing_keywords = config.get("keywords", [])
-        if isinstance(existing_keywords, str):
-            existing_keywords = [k.strip() for k in existing_keywords.split(",")]
+        existing_keywords = configured_keywords(config)
         logger.info(f"Existing keywords: {len(existing_keywords)}")
 
         # Extract suggestions

@@ -129,8 +129,7 @@ class TestGenerateKeywordReport:
         )
         with open(yml_path) as f:
             data = yaml.safe_load(f)
-        assert "keywords" in data
-        assert "graph neural network" in data["keywords"]
+        assert "graph neural network" in data["search"]["bonus_keywords"]
 
     def test_empty_suggestions(self, tmp_path):
         """Empty suggestions produce minimal reports."""
@@ -139,3 +138,20 @@ class TestGenerateKeywordReport:
         assert os.path.exists(yml_path)
         with open(md_path) as f:
             assert "0 new terms" in f.read()
+
+
+def test_configured_keywords_flattens_groups_and_bonus():
+    from scilex.keyword_suggestions import configured_keywords
+
+    config = {
+        "keywords": [["knowledge graph", "KG"], ["metabolomics"]],
+        "bonus_keywords": ["LC-MS"],
+    }
+    assert configured_keywords(config) == [
+        "knowledge graph",
+        "KG",
+        "metabolomics",
+        "LC-MS",
+    ]
+    assert configured_keywords({"keywords": "a, b"}) == ["a", "b"]
+    assert configured_keywords({}) == []

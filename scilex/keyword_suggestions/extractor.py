@@ -59,6 +59,26 @@ _TITLE_STOPWORDS = frozenset(
 )
 
 
+def _flatten(value) -> list[str]:
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, (list, tuple, set)):
+        return [item for element in value for item in _flatten(element)]
+    return []
+
+
+def configured_keywords(config: dict) -> list[str]:
+    """Terms already searched: every keyword group plus the bonus keywords.
+
+    ``keywords`` is a list of groups (``[["a", "b"], ["c"]]``); a flat list
+    or a comma-separated string is accepted too.
+    """
+    terms = []
+    for source in (config.get("keywords"), config.get("bonus_keywords")):
+        terms.extend(_flatten(source.split(",") if isinstance(source, str) else source))
+    return terms
+
+
 def extract_suggestions(
     df: pd.DataFrame,
     existing_keywords: list[str],
@@ -70,7 +90,7 @@ def extract_suggestions(
     Args:
         df: Clusters DataFrame with ``cluster_id``, and optionally
             ``tags``/``keywords``, ``title``.
-        existing_keywords: Keywords already in ``scilex.config.yml``.
+        existing_keywords: Terms already searched (see ``configured_keywords``).
         top_k: Maximum number of suggestions to return.
         min_freq: Minimum frequency across corpus.
 

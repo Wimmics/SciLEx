@@ -248,22 +248,6 @@ def _read_clusters(csv_path: str) -> pd.DataFrame:
     return df
 
 
-def _flatten_keywords(value) -> list[str]:
-    """Flatten keyword groups (lists nested at any depth) into a flat list of strings."""
-    if isinstance(value, str):
-        return [value.strip()] if value.strip() else []
-    if isinstance(value, (list, tuple, set)):
-        return [item for element in value for item in _flatten_keywords(element)]
-    return []
-
-
-def _existing_keywords(config: SciLExConfig) -> list[str]:
-    keywords = config.main.get("keywords", [])
-    if isinstance(keywords, str):
-        keywords = keywords.split(",")
-    return _flatten_keywords(keywords)
-
-
 def run_keywords(
     config: SciLExConfig,
     progress: ProgressFn,
@@ -273,7 +257,10 @@ def run_keywords(
     cancel_event: CancelEvent = None,
 ) -> AnalysisResult:
     """Suggest new keywords from the clusters (``scilex-suggest-keywords``)."""
-    from scilex.keyword_suggestions.extractor import extract_suggestions
+    from scilex.keyword_suggestions.extractor import (
+        configured_keywords,
+        extract_suggestions,
+    )
     from scilex.keyword_suggestions.report import generate_keyword_report
 
     collect_dir = collect_dir_of(config)
@@ -287,7 +274,7 @@ def run_keywords(
     progress(30, "Extracting frequent terms…")
     suggestions = extract_suggestions(
         _read_clusters(csv_path),
-        _existing_keywords(config),
+        configured_keywords(config.main),
         top_k=top_k,
         min_freq=min_freq,
     )
