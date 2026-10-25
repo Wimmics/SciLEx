@@ -1,6 +1,7 @@
 """Tests for pure functions in scilex.crawlers.aggregate module."""
 
 import pandas as pd
+import pytest
 
 from scilex.constants import MISSING_VALUE
 from scilex.crawlers.aggregate import (
@@ -239,6 +240,21 @@ def _minimal_openalex_row(**overrides):
     }
     row.update(overrides)
     return row
+
+
+@pytest.mark.parametrize(
+    "work_type, item_type",
+    [
+        ("preprint", "preprint"),
+        ("review", "journalArticle"),
+        ("dissertation", "thesis"),
+        ("article", "journalArticle"),
+        ("paratext", "Manuscript"),
+    ],
+)
+def test_openalex_work_types(work_type, item_type):
+    row = _minimal_openalex_row(type=work_type)
+    assert OpenAlextoZoteroFormat(row)["itemType"] == item_type
 
 
 class TestOpenAlexPdfUrl:

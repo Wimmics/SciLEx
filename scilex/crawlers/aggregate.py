@@ -58,6 +58,12 @@ _OPENALEX_TYPE_TO_ITEM_TYPE = {
     "book": "book",
     "book-chapter": "bookSection",
     "proceedings-article": "conferencePaper",
+    # Other OpenAlex work types used to fall back to "Manuscript".
+    "preprint": "preprint",
+    "posted-content": "preprint",
+    "review": "journalArticle",  # review articles, published in journals
+    "dissertation": "thesis",
+    "report": "report",
 }
 _IEEE_CONTENT_TYPE_TO_ITEM_TYPE = {
     "Journals": "journalArticle",
