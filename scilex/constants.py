@@ -311,3 +311,9 @@ def parse_archive_apis(value) -> list[str]:
         )
         if name
     ]
+
+
+# Marker files written in each query directory by the collectors (not result pages)
+COMPLETE_FILE_NAME = "_complete"  # query fully collected
+STATE_FILE_NAME = "_state"  # query started but not finished
+QUERY_MARKER_FILES = frozenset({COMPLETE_FILE_NAME, STATE_FILE_NAME})

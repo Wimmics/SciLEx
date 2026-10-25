@@ -25,7 +25,7 @@ from pathlib import Path
 import requests
 from tqdm import tqdm
 
-from scilex.constants import normalize_doi
+from scilex.constants import QUERY_MARKER_FILES, normalize_doi
 
 # ---------------------------------------------------------------------------
 # Persistent DOI → abstract cache  (SQLite backend)
@@ -291,7 +291,7 @@ def _iter_page_files(dir_collect: str):
             except ValueError:
                 continue
             for filename in os.listdir(query_path):
-                if filename == "_complete":
+                if filename in QUERY_MARKER_FILES:
                     continue
                 fp = os.path.join(query_path, filename)
                 if os.path.isfile(fp):

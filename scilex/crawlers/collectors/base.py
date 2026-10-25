@@ -8,7 +8,12 @@ from datetime import date
 import requests
 
 from scilex.config_defaults import get_rate_limit
-from scilex.constants import CircuitBreakerConfig, RateLimitBackoffConfig
+from scilex.constants import (  # noqa: F401 (marker names re-exported)
+    COMPLETE_FILE_NAME,
+    STATE_FILE_NAME,
+    CircuitBreakerConfig,
+    RateLimitBackoffConfig,
+)
 from scilex.crawlers.adaptive_rate_limiter import AdaptiveRateLimiterRegistry
 from scilex.crawlers.circuit_breaker import (
     CircuitBreakerOpenError,
@@ -22,10 +27,6 @@ from scilex.crawlers.key_pool import (
 )
 from scilex.crawlers.utils import sanitize_secrets
 from scilex.since_utils import parse_since, query_start_date
-
-# Marker files written in each query directory (see CollectCollection._query_is_complete)
-COMPLETE_FILE_NAME = "_complete"  # query fully collected
-STATE_FILE_NAME = "_state"  # query started but not finished
 
 
 class Filter_param:

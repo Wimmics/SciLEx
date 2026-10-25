@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 from scilex.constants import (
     MISSING_VALUE,
+    QUERY_MARKER_FILES,
     extract_year,
     is_valid,
     normalize_doi,
@@ -310,10 +311,11 @@ def parallel_load_all_files(
             if not os.path.exists(query_dir):
                 continue
 
-            # Collect all files in this directory (skip _complete sentinels)
+            # Collect all result pages (skip _complete/_state markers: a partial
+            # collection has _state, which is not JSON)
             try:
                 for f_entry in os.scandir(query_dir):
-                    if f_entry.name == "_complete":
+                    if f_entry.name in QUERY_MARKER_FILES:
                         continue
                     if f_entry.is_file(follow_symlinks=False):
                         file_tasks.append((f_entry.path, api_name, keywords))

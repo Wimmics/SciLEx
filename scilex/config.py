@@ -90,7 +90,10 @@ class SciLExConfig:
 
     @classmethod
     def from_collection(
-        cls, collection: str | None, config_dir: Path | None = None
+        cls,
+        collection: str | None,
+        config_dir: Path | None = None,
+        use_current_config: bool = False,
     ) -> "SciLExConfig":
         """Load configuration for an existing collection.
 
@@ -104,6 +107,11 @@ class SciLExConfig:
         Args:
             collection: Collection name, full path, or None.
             config_dir: Directory containing config files (default: scilex/).
+            use_current_config: Replay mode. Keep the current configuration
+                (filters, ranking, keywords...) and only point it at the
+                collection's directory, instead of loading the collection's
+                ``config_used.yml`` snapshot. Aggregation still reads the
+                snapshot for the query-to-keywords mapping.
 
         Returns:
             SciLExConfig for the requested collection.
@@ -137,6 +145,18 @@ class SciLExConfig:
             collect_dir = os.path.join(output_dir, collection)
 
         config_path = Path(collect_dir) / "config_used.yml"
+        if use_current_config:
+            if not config_path.is_file():
+                raise FileNotFoundError(
+                    f"Cannot find saved config at {config_path}. Make sure the "
+                    "collection name or path is correct and the collection has "
+                    "been started at least once."
+                )
+            current = cls.from_files(config_dir if config_dir != _PACKAGE_DIR else None)
+            collect_path = Path(collect_dir)
+            current.main["output_dir"] = str(collect_path.parent)
+            current.main["collect_name"] = collect_path.name
+            return current
         if not config_path.is_file():
             raise FileNotFoundError(
                 f"Cannot find saved config at {config_path}. Make sure the "

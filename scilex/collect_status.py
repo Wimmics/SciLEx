@@ -17,6 +17,7 @@ import sys
 from itertools import product
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
+from scilex.constants import QUERY_MARKER_FILES
 from scilex.crawlers.utils import load_yaml_config
 from scilex.settings.cli import (
     add_config_arguments,
@@ -87,7 +88,7 @@ def _query_state(query_dir: str) -> str:
         return "not_started"
     if os.path.isfile(os.path.join(query_dir, "_complete")):
         return "done"
-    files = [f for f in os.listdir(query_dir) if f != "_complete"]
+    files = [f for f in os.listdir(query_dir) if f not in QUERY_MARKER_FILES]
     return "partial" if files else "not_started"
 
 

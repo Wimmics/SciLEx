@@ -34,6 +34,16 @@ def main():
         ),
     )
     parser.add_argument(
+        "--use-current-config",
+        action="store_true",
+        help=(
+            "Replay mode, with --collection: aggregate that collection with the "
+            "current scilex.yml (filters, ranking, keywords) instead of its "
+            "config_used.yml snapshot. Without --collection the current "
+            "scilex.yml is always used."
+        ),
+    )
+    parser.add_argument(
         "--resume", action="store_true", help="Resume from checkpoint if available"
     )
     parser.add_argument(
@@ -111,7 +121,9 @@ def main():
 
     # Load configuration (from a previous collection's snapshot if --collection)
     try:
-        config = SciLExConfig.from_collection(args.collection)
+        config = SciLExConfig.from_collection(
+            args.collection, use_current_config=args.use_current_config
+        )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
