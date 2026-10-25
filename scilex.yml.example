@@ -69,7 +69,7 @@ llm_screening:                   # optional LLM relevance scoring (needs openrou
   model: deepseek/deepseek-v4-flash
   threshold: null                # drop papers scoring below this value
   max_papers: 500                # cap of papers (not cached) sent to the model
-  workers: 4
+  workers: 16                    # concurrent OpenRouter requests (1-64)
   price_input_per_m: 0.091       # USD per million tokens, for the cost estimate
   price_output_per_m: 0.182
 

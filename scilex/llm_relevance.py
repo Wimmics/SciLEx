@@ -17,7 +17,7 @@ import os
 import re
 import threading
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 import pandas as pd
@@ -40,7 +40,8 @@ PROGRESS_EVERY = 25  # requests between progress reports and cache saves
 API_KEY_ENV_VAR = "OPENROUTER_API_KEY"
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
-DEFAULT_WORKERS = 4
+DEFAULT_WORKERS = 16
+MAX_WORKERS = 64
 DEFAULT_MAX_PAPERS = 500
 DEFAULT_PRICE_INPUT_PER_M = 0.091
 DEFAULT_PRICE_OUTPUT_PER_M = 0.182
@@ -58,6 +59,19 @@ SYSTEM_PROMPT = (
 )
 
 _JSON_OBJECT = re.compile(r"\{[^{}]*\}")
+
+# One HTTP session per worker thread: keep-alive reuses the TLS connection
+# instead of a new handshake for every paper.
+_thread_local = threading.local()
+
+
+def _get_session() -> requests.Session:
+    """Return the calling thread's HTTP session (created on first use)."""
+    session = getattr(_thread_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        _thread_local.session = session
+    return session
 
 
 class LLMScreeningError(RuntimeError):
@@ -92,7 +106,7 @@ class LLMScreeningConfig:
             model=str(raw.get("model") or DEFAULT_MODEL),
             threshold=None if threshold is None else float(threshold),
             max_papers=int(raw.get("max_papers", DEFAULT_MAX_PAPERS)),
-            workers=max(1, int(raw.get("workers", DEFAULT_WORKERS))),
+            workers=min(MAX_WORKERS, max(1, int(raw.get("workers", DEFAULT_WORKERS)))),
             price_input_per_m=float(
                 raw.get("price_input_per_m", DEFAULT_PRICE_INPUT_PER_M)
             ),
@@ -211,16 +225,33 @@ def parse_score(content: str) -> float:
     raise ValueError(f"No valid score in LLM answer: {text[:80]!r}")
 
 
+def _stop_retrying(retry_state) -> bool:
+    """Stop after 4 attempts, or at once when the call's cancel event is set."""
+    cancel_event = retry_state.kwargs.get("cancel_event")
+    if cancel_event is not None and cancel_event.is_set():
+        return True
+    return stop_after_attempt(4)(retry_state)
+
+
 @retry(
     retry=retry_if_exception_type(_RetryableLLMError),
-    stop=stop_after_attempt(4),
+    stop=_stop_retrying,
     wait=wait_exponential(multiplier=1, min=1, max=20),
     reraise=True,
 )
 def request_score(
-    title, abstract, topic: str, model: str, api_key: str, timeout: int = 60
+    title,
+    abstract,
+    topic: str,
+    model: str,
+    api_key: str,
+    timeout: int = 60,
+    cancel_event: threading.Event | None = None,
 ) -> float:
-    """Ask OpenRouter for the relevance score of one paper (with retries)."""
+    """Ask OpenRouter for the relevance score of one paper (with retries).
+
+    Retries stop as soon as ``cancel_event`` (passed by keyword) is set.
+    """
     payload = {
         "model": model,
         "temperature": 0,
@@ -235,7 +266,7 @@ def request_score(
         "Content-Type": "application/json",
     }
     try:
-        response = requests.post(
+        response = _get_session().post(
             OPENROUTER_URL, headers=headers, json=payload, timeout=timeout
         )
     except requests.exceptions.RequestException as error:
@@ -330,6 +361,7 @@ def score_dataframe(
                 config.topic,
                 config.model,
                 api_key,
+                cancel_event=cancel_event,
             )
         except Exception as error:
             logger.warning(f"LLM scoring failed for {row.get('title')!r}: {error}")
@@ -338,16 +370,26 @@ def score_dataframe(
         return position, value
 
     if to_score:
-        with ThreadPoolExecutor(max_workers=config.workers) as executor:
-            for done, (position, value) in enumerate(
-                executor.map(score_position, to_score), start=1
-            ):
+        total = len(to_score)
+        workers = min(config.workers, total)
+        # Results are collected in completion order, so one slow request no
+        # longer holds back the progress bar or the periodic cache saves.
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = [
+                executor.submit(score_position, position) for position in to_score
+            ]
+            for done, future in enumerate(as_completed(futures), start=1):
+                position, value = future.result()
                 scores[position] = value
-                if done % PROGRESS_EVERY == 0:
+                if done % PROGRESS_EVERY == 0 or done == total:
                     cache.save()
-                    logger.info(f"LLM screening: {done}/{len(to_score)} scored")
+                    logger.info(f"LLM screening: {done}/{total} scored")
                     if progress_callback:
-                        progress_callback(done, len(to_score))
+                        progress_callback(done, total)
+                if cancel_event is not None and cancel_event.is_set():
+                    for pending_future in futures:
+                        pending_future.cancel()
+                    break
         cache.save()
 
     df[SCORE_COLUMN] = pd.Series(scores, index=df.index, dtype="float64")

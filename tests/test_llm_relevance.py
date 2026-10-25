@@ -53,7 +53,7 @@ def test_api_key_resolution(monkeypatch):
 def test_request_score_retries_then_succeeds():
     responses = [_response("", 503), _response("garbage"), _response('{"score": 0.4}')]
     with (
-        patch.object(llm.requests, "post", side_effect=responses) as post,
+        patch.object(llm._get_session(), "post", side_effect=responses) as post,
         patch("tenacity.nap.time.sleep"),
     ):
         assert llm.request_score("t", "a", "topic", "m", "key") == 0.4
@@ -63,7 +63,9 @@ def test_request_score_retries_then_succeeds():
 def test_request_score_network_error_exhausts():
     with (
         patch.object(
-            llm.requests, "post", side_effect=requests.exceptions.ConnectionError("x")
+            llm._get_session(),
+            "post",
+            side_effect=requests.exceptions.ConnectionError("x"),
         ),
         patch("tenacity.nap.time.sleep"),
         pytest.raises(llm._RetryableLLMError),
@@ -88,7 +90,7 @@ def test_apply_screening_threshold_and_cache(tmp_path):
     cache_path = str(tmp_path / "cache.json")
     answers = {"Good": 0.9, "Bad": 0.1, "Other": 0.6}
 
-    def fake_request(title, abstract, topic, model, api_key):
+    def fake_request(title, abstract, topic, model, api_key, **kwargs):
         return answers[title]
 
     with patch.object(llm, "request_score", side_effect=fake_request) as request:
@@ -151,3 +153,38 @@ def test_estimate_cost_scales_with_papers():
     _, _, small = llm.estimate_cost(_frame().iloc[:1], config)
     _, _, large = llm.estimate_cost(_frame(), config)
     assert 0 < small < large
+
+
+def test_scoring_runs_requests_concurrently():
+    """Workers overlap: 8 papers taking 0.2 s each finish well under 1.6 s."""
+    import threading
+    import time
+
+    df = pd.DataFrame({"title": [f"paper {index}" for index in range(8)]})
+    config = llm.LLMScreeningConfig(enabled=True, topic="kg", workers=8)
+    active = 0
+    peak = 0
+    lock = threading.Lock()
+
+    def slow_request(*args, **kwargs):
+        nonlocal active, peak
+        with lock:
+            active += 1
+            peak = max(peak, active)
+        time.sleep(0.2)
+        with lock:
+            active -= 1
+        return 0.5
+
+    start = time.monotonic()
+    with patch.object(llm, "request_score", side_effect=slow_request):
+        scored = llm.score_dataframe(df, config, "key")
+    assert time.monotonic() - start < 1.0
+    assert peak > 1
+    assert scored[llm.SCORE_COLUMN].tolist() == [0.5] * 8
+
+
+def test_workers_capped():
+    assert (
+        llm.LLMScreeningConfig.from_dict({"workers": 1000}).workers == llm.MAX_WORKERS
+    )

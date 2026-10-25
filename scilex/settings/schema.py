@@ -311,7 +311,7 @@ class LLMScreeningSettings(BaseModel):
     model: str = "deepseek/deepseek-v4-flash"
     threshold: float | None = None
     max_papers: Integer = Field(default=500, ge=1)
-    workers: Integer = Field(default=4, ge=1)
+    workers: Integer = Field(default=16, ge=1, le=64)
     price_input_per_m: float = Field(default=0.091, ge=0)
     price_output_per_m: float = Field(default=0.182, ge=0)
 

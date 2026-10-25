@@ -56,7 +56,7 @@ def test_llm_scoring_stops_when_cancelled(monkeypatch):
     requests_sent = []
     monkeypatch.setattr(
         "scilex.llm_relevance.request_score",
-        lambda *args: requests_sent.append(args) or 5.0,
+        lambda *args, **kwargs: requests_sent.append(args) or 5.0,
     )
     cancel_event = threading.Event()
     cancel_event.set()
@@ -100,7 +100,7 @@ def test_llm_scoring_reports_progress(monkeypatch):
     from scilex.llm_relevance import LLMScreeningConfig, score_dataframe
 
     monkeypatch.setattr("scilex.llm_relevance.PROGRESS_EVERY", 2)
-    monkeypatch.setattr("scilex.llm_relevance.request_score", lambda *args: 5.0)
+    monkeypatch.setattr("scilex.llm_relevance.request_score", lambda *args, **kwargs: 5.0)
     papers = pd.DataFrame(
         {
             "title": list("abcde"),
@@ -115,4 +115,4 @@ def test_llm_scoring_reports_progress(monkeypatch):
         papers, config, "key", progress_callback=lambda *args: reports.append(args)
     )
 
-    assert reports == [(2, 5), (4, 5)]
+    assert reports == [(2, 5), (4, 5), (5, 5)]
