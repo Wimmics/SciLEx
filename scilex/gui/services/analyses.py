@@ -9,6 +9,7 @@ All outputs go to the review's collection directory.
 
 from __future__ import annotations
 
+import csv
 import importlib.util
 import logging
 import os
@@ -21,6 +22,7 @@ from pathlib import Path
 import pandas as pd
 
 from scilex.config import SciLExConfig
+from scilex.io_utils import write_aggregated_csv
 from scilex.pipeline_utils import (
     extract_corpus_dois,
     find_clusters_csv,
@@ -507,7 +509,7 @@ def run_snowball(
         return AnalysisResult("No paper passed the quality filters.")
     merged = merge_with_corpus(corpus_df, filtered)
     output_csv = collect_dir / SNOWBALL_FILENAME
-    merged.to_csv(output_csv, index=False)
+    write_aggregated_csv(merged, str(output_csv), quoting=csv.QUOTE_NONNUMERIC)
     return AnalysisResult(
         f"{len(filtered)} new papers added ({len(merged)} in total).", [output_csv]
     )

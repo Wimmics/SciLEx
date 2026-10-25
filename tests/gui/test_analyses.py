@@ -403,3 +403,29 @@ async def test_busy_reason_is_visible_and_chart_caption_is_file_name(
         release.set()
         user.find(marker="analysis-tab-enrich").click()
         await user.should_see("Completed", retries=50)
+
+
+def test_snowball_output_uses_the_aggregated_csv_format(ctx, tmp_path, monkeypatch):
+    from scilex.io_utils import AGGREGATED_CSV_SEP
+
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = ctx.workspace.load_config(review)
+    review.collection_dir.mkdir(parents=True)
+    merged = pd.DataFrame(
+        {"title": ["A, B"], "authors": ["Ann Smith;Bob Lee"], "DOI": ["10.1/a"]}
+    )
+    for target, value in {
+        "scilex.io_utils.load_aggregated_data": lambda main: merged,
+        "scilex.graph_analysis.loader.load_citation_caches": lambda d: ({}, {}),
+        "scilex.snowball.candidates.extract_candidates": lambda *a, **k: [
+            ("10.1/a", 2)
+        ],
+        "scilex.snowball.fetcher.fetch_metadata_batch": lambda dois, api_key: [{}],
+        "scilex.snowball.filter.apply_snowball_filters": lambda papers: merged,
+        "scilex.snowball.merge.merge_with_corpus": lambda corpus, new: merged,
+    }.items():
+        monkeypatch.setattr(target, value)
+
+    result = service.run_snowball(config, lambda percent, message: None)
+    written = pd.read_csv(result.files[0], sep=AGGREGATED_CSV_SEP, dtype=str)
+    assert written.to_dict("records") == merged.to_dict("records")

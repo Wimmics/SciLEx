@@ -14,6 +14,7 @@ Output is written to:
 """
 
 import argparse
+import csv
 import logging
 import os
 import sys
@@ -25,7 +26,7 @@ from scilex.config_defaults import (
 )
 from scilex.crawlers.key_pool import first_key
 from scilex.graph_analysis.loader import load_citation_caches
-from scilex.io_utils import load_aggregated_data
+from scilex.io_utils import load_aggregated_data, write_aggregated_csv
 from scilex.logging_config import setup_logging
 from scilex.pipeline_utils import (
     extract_corpus_dois,
@@ -135,7 +136,8 @@ def main():
 
         # Export
         output_csv = os.path.join(collect_dir, "aggregated_results_snowball.csv")
-        merged_df.to_csv(output_csv, index=False)
+        # Same format as aggregated_results.csv (';', quoted, atomic).
+        write_aggregated_csv(merged_df, output_csv, quoting=csv.QUOTE_NONNUMERIC)
 
         separator = "=" * 60
         logger.info(
