@@ -29,6 +29,23 @@ from scilex.crawlers.utils import sanitize_secrets
 from scilex.since_utils import parse_since, query_start_date
 
 
+def _describe_unexpected_response(response) -> str:
+    """Explain a response that could not be parsed (HTML page, bot check...)."""
+    headers = getattr(response, "headers", None) or {}
+    content_type = str(headers.get("Content-Type", ""))
+    if "html" not in content_type.lower():
+        return f" Response type: {type(response)}."
+    status = getattr(response, "status_code", "?")
+    text = str(getattr(response, "text", ""))[:2000].lower()
+    hint = (
+        " The site served an anti-bot check instead of data: retry later or "
+        "remove this API from search.apis."
+        if "bot" in text or "captcha" in text or "challenge" in text
+        else ""
+    )
+    return f" The API returned an HTML page (HTTP {status}) instead of JSON.{hint}"
+
+
 class Filter_param:
     def __init__(self, year, keywords, max_articles_per_query=-1, since=None):
         # Initialize the parameters
@@ -694,7 +711,7 @@ class API_collector:
                 logging.error(
                     f"Error processing results on page {page} from "
                     f"{self.api_name} (query {self.collectId}): "
-                    f"{sanitize_secrets(parse_exc)}. Response type: {type(response)}."
+                    f"{sanitize_secrets(parse_exc)}.{_describe_unexpected_response(response)}"
                 )
                 return False
 

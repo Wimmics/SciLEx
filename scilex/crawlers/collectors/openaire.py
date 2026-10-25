@@ -28,7 +28,8 @@ class OpenAIRE_collector(API_collector):
         Returns:
             str: URL template with {} placeholder for page number.
         """
-        # Each keyword group is quoted for exact-phrase matching, joined with AND
+        # Each keyword is quoted for exact-phrase matching. Terms are joined by a
+        # space (implicit AND): the API now answers HTTP 409 to an explicit "AND".
         all_keywords = []
         for keyword_group in self.get_keywords():
             if isinstance(keyword_group, list):
@@ -36,7 +37,7 @@ class OpenAIRE_collector(API_collector):
             else:
                 all_keywords.append(keyword_group)
 
-        keywords_str = " AND ".join(f'"{kw}"' for kw in all_keywords)
+        keywords_str = " ".join(f'"{kw}"' for kw in all_keywords)
         encoded_keywords = urllib.parse.quote(keywords_str, safe="")
 
         year = self.get_year()
@@ -52,7 +53,6 @@ class OpenAIRE_collector(API_collector):
             f"&size={self.max_by_page}"
             f"&page={{}}"
         )
-
 
         logging.debug(f"OpenAIRE configured URL: {url}")
         return url

@@ -160,7 +160,6 @@ class SemanticScholar_collector(API_collector):
         url = (
             f"{base_url}?query={encoded_keywords}"
             f"&{self._date_param()}"
-            f"&fieldsOfStudy=Computer%20Science"
             f"&fields={fields}"
             f"&limit={self.max_by_page}&offset={{}}"  # Add pagination: limit=100, offset placeholder
         )

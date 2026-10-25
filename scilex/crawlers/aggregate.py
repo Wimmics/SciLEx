@@ -88,6 +88,9 @@ _HAL_DOC_TYPE_TO_ITEM_TYPE = {
     "ART": "journalArticle",
     "COMM": "conferencePaper",
     "PROCEEDINGS": "conferencePaper",
+    "UNDEFINED": "preprint",  # HAL label: "Preprint, working paper"
+    "OUV": "book",
+    "COUV": "bookSection",
     "Informal Publications": "Manuscript",
 }
 
