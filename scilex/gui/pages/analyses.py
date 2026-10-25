@@ -176,6 +176,8 @@ def _render_analysis(
                 return result.message
 
             ctx.runner.start_task(review, kind_of(name), body)
+            # Disable at once: the panel timer would leave a double-click window.
+            run_button.set_enabled(False)
         except (
             SettingsError,
             FileNotFoundError,

@@ -135,7 +135,27 @@ class JobPanel:
         tail = job.logs[-LOG_LINES_SHOWN:]
         if tail == self._tail:
             return
-        self.log_view.clear()
-        for line in tail:
+        new_lines = _lines_after(self._tail, tail)
+        if new_lines is None:
+            self.log_view.clear()
+            new_lines = tail
+        # ui.log keeps at most LOG_LINES_SHOWN lines: push only what is new
+        # instead of re-sending the whole view on every tick.
+        for line in new_lines:
             self.log_view.push(line)
         self._tail = tail
+
+
+def _lines_after(previous: list[str], current: list[str]) -> list[str] | None:
+    """Lines of ``current`` that follow ``previous`` (None if they do not overlap).
+
+    ``current`` is the latest window of the log; it is a continuation of
+    ``previous`` when one of its prefixes is a suffix of ``previous``.
+    """
+    if not previous:
+        return current
+    for start in range(len(previous)):
+        overlap = previous[start:]
+        if current[: len(overlap)] == overlap:
+            return current[len(overlap) :]
+    return None

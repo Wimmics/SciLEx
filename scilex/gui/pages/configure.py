@@ -68,7 +68,8 @@ def _raw_editor(review: Review, expanded: bool) -> None:
                 show_error("Cannot save scilex.yml", exc)
                 return
             ui.notify(f"Saved {review.config_path.name}", type="positive")
-            ui.navigate.to(f"/review/{review.id}/configure")
+            # Same-route navigation does not re-render a sub page: reload it.
+            ui.navigate.reload()
 
         text_area.on_value_change(lambda _event: save_file.set_enabled(False))
         with ui.row().classes("items-center gap-3"):
@@ -123,12 +124,13 @@ def render(ctx: AppContext, review: Review) -> None:
     if unknown:
         _unknown_keys_banner(review, unknown)
     ui.label(
-        "Edit the settings of this review. Saving rewrites scilex.yml: only the "
-        "values that differ from the defaults are written, and comments in the "
-        "file are not kept."
+        "Edit the settings of this review. Saving rewrites scilex.yml: the values "
+        "already in the file and those that differ from the defaults are written; "
+        "the comment block at the top is kept, other comments are not."
     ).classes("text-gray-500")
 
     error_labels: dict[str, ui.label] = {}
+    unsaved = {"changes": False}
 
     # -- state access ------------------------------------------------------
     def get(path: tuple[str, ...]) -> Any:
@@ -142,6 +144,7 @@ def render(ctx: AppContext, review: Review) -> None:
         for key in path[:-1]:
             node = node[key]
         node[path[-1]] = value
+        unsaved["changes"] = True
         revalidate()
 
     def error_slot(path: tuple[str, ...]) -> None:
@@ -584,14 +587,20 @@ def render(ctx: AppContext, review: Review) -> None:
         with ui.row().classes("items-center gap-3"):
             save_button = ui.button("Save", icon="save").mark("config-save")
             ui.button(
-                "Go to ② Collect",
+                "Save and go to ② Collect",
                 icon="arrow_forward",
-                on_click=lambda: ui.navigate.to(f"/review/{review.id}/collect"),
+                on_click=lambda: save_and_collect(),
             ).props("outline").mark("config-next")
+            unsaved_label = (
+                ui.label("Unsaved changes")
+                .classes("text-warning text-sm")
+                .mark("config-unsaved")
+            )
 
     def revalidate() -> None:
         problems = editor.validate(data)
         save_button.set_enabled(not problems)
+        unsaved_label.set_visibility(unsaved["changes"])
         summary.refresh(problems)
         for dotted, label in error_labels.items():
             messages = [
@@ -602,16 +611,25 @@ def render(ctx: AppContext, review: Review) -> None:
             label.set_text("; ".join(messages))
             label.set_visibility(bool(messages))
 
-    def save() -> None:
+    def save() -> bool:
         try:
             editor.save(review, data)
         except SettingsError as exc:
             show_error("Cannot save scilex.yml", exc, expected=True)
-            return
+            return False
         except OSError as exc:
             show_error("Cannot save scilex.yml", exc)
-            return
+            return False
+        unsaved["changes"] = False
+        unsaved_label.set_visibility(False)
         ui.notify(f"Saved {review.config_path.name}", type="positive")
+        return True
+
+    def save_and_collect() -> None:
+        # Collect reads scilex.yml from disk: unsaved edits would be ignored.
+        if unsaved["changes"] and not save():
+            return
+        ui.navigate.to(f"/review/{review.id}/collect")
 
     save_button.on_click(save)
     revalidate()

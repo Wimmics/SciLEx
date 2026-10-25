@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from nicegui import ui
+from nicegui import run, ui
 
 from scilex.gui.components.errors import show_error
 from scilex.gui.components.job_panel import BusyNotice, JobPanel
@@ -54,27 +54,46 @@ def render(ctx: AppContext, review: Review) -> None:
     ui.label("Export").classes("text-2xl font-bold")
     ui.label("Choose which papers to export, then a format.").classes("text-gray-500")
 
-    included, total = exports.scope_counts(review)
-    options = {
-        exports.SCOPE_INCLUDED: f"Included papers only ({included})",
-        exports.SCOPE_ALL: f"All papers ({total})",
-    }
     scope = ui.radio(
-        options, value=exports.SCOPE_INCLUDED if included else exports.SCOPE_ALL
+        {
+            exports.SCOPE_INCLUDED: "Included papers only (…)",
+            exports.SCOPE_ALL: "All papers (…)",
+        },
+        value=exports.SCOPE_ALL,
     ).mark("export-scope")
-    if not included:
-        # A radio cannot disable one option: refuse it and say why.
-        ui.label(
-            "Included papers only is unavailable: no paper is included yet "
-            "(mark papers as included in ③ Screen)."
-        ).classes("text-sm text-gray-500")
-        scope.on_value_change(
-            lambda e: (
-                scope.set_value(exports.SCOPE_ALL)
-                if e.value == exports.SCOPE_INCLUDED
-                else None
-            )
+    scope_note = ui.column().classes("gap-0")
+    has_included = {"value": False}
+
+    def refuse_empty_scope(event) -> None:
+        # A radio cannot disable one option: refuse it (the note says why).
+        if event.value == exports.SCOPE_INCLUDED and not has_included["value"]:
+            scope.set_value(exports.SCOPE_ALL)
+
+    async def load_counts() -> None:
+        # Counting reads the whole results CSV: keep it off the event loop.
+        try:
+            included, total = await run.io_bound(exports.scope_counts, review)
+        except Exception as exc:
+            with scope_note:
+                show_error("Cannot read the results", exc)
+            return
+        has_included["value"] = bool(included)
+        scope.set_options(
+            {
+                exports.SCOPE_INCLUDED: f"Included papers only ({included})",
+                exports.SCOPE_ALL: f"All papers ({total})",
+            },
+            value=exports.SCOPE_INCLUDED if included else exports.SCOPE_ALL,
         )
+        if not included:
+            with scope_note:
+                ui.label(
+                    "Included papers only is unavailable: no paper is included yet "
+                    "(mark papers as included in ③ Screen)."
+                ).classes("text-sm text-gray-500")
+
+    scope.on_value_change(refuse_empty_scope)
+    ui.timer(0, load_counts, once=True)
     config_error = None
     zotero_ready = False
     try:
@@ -160,12 +179,13 @@ def render(ctx: AppContext, review: Review) -> None:
     )
     show_history()
 
-    def confirm_zotero() -> None:
+    async def confirm_zotero() -> None:
         """Ask before anything is sent to Zotero."""
         chosen = scope.value
         try:
             settings = exports.zotero_settings(Workspace.load_config(review))
-            count = len(exports.select_papers(review, chosen))
+            papers = await run.io_bound(exports.select_papers, review, chosen)
+            count = len(papers)
         except Exception as exc:
             show_error("Cannot prepare the Zotero push", exc)
             return
@@ -211,11 +231,15 @@ def render(ctx: AppContext, review: Review) -> None:
             return f"Exported {job.result.name}"
 
         try:
-            ctx.runner.start_task(review, KIND, body)
+            job = ctx.runner.start_task(review, KIND, body)
         except JobConflictError as exc:
             show_error("Cannot start the export", exc, expected=True)
+            return
         except Exception as exc:
             show_error("Cannot start the export", exc)
+            return
+        # Disable at once: the panel timer would leave a double-click window.
+        update_buttons(job)
 
     for fmt, button in buttons.items():
         if fmt == exports.ZOTERO:

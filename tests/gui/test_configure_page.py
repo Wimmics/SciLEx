@@ -140,3 +140,15 @@ async def test_bad_value_still_fixable_in_form(ctx, tmp_path):
         user.find(marker="config-save").click()
         await user.should_see("Saved scilex.yml")
     assert written(review)["search"]["years"] in ([2023, 2024], "2023-2024")
+
+
+async def test_unsaved_changes_are_flagged_and_saved_before_collect(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/configure")
+        await user.should_not_see("Unsaved changes")
+        user.find(marker="config-name").type("_v2")
+        await user.should_see("Unsaved changes")
+        user.find(marker="config-next").click()
+        await user.should_see("Saved scilex.yml")
+    assert written(review)["name"] == "rag_kg_v2"

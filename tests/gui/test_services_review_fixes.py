@@ -112,3 +112,16 @@ def test_hf_cancel_drops_queued_searches(monkeypatch):
             progress_callback=cancel_at_first_progress,
         )
     assert len(searched) < 20
+
+
+# --- Job panel log ------------------------------------------------------------------
+
+
+def test_lines_after_returns_only_new_lines():
+    from scilex.gui.components.job_panel import _lines_after
+
+    assert _lines_after([], ["a", "b"]) == ["a", "b"]
+    assert _lines_after(["a", "b"], ["a", "b", "c"]) == ["c"]
+    # The window slid: the oldest lines were trimmed.
+    assert _lines_after(["a", "b", "c"], ["b", "c", "d", "e"]) == ["d", "e"]
+    assert _lines_after(["a", "b"], ["x", "y"]) is None
