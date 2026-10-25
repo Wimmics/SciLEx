@@ -229,6 +229,8 @@ def _render_options(name: str) -> dict:
         widgets[key] = ui.checkbox(label).mark(f"analysis-opt-{name}-{key}")
 
     with ui.row().classes("items-center gap-4"):
+        if name in ("keywords", "summaries"):
+            select("clusters", "Clusters", service.CLUSTER_CHOICES, "auto")
         if name == "keywords":
             number("top_k", "Max suggestions", 30, min=1, precision=0)
             number("min_freq", "Min frequency", 2, min=1, precision=0)

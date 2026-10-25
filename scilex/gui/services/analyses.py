@@ -255,12 +255,41 @@ def _read_clusters(csv_path: str) -> pd.DataFrame:
     return df
 
 
+CLUSTER_CHOICES = {
+    "auto": "Automatic (co-citation if available)",
+    "cocitation": "Co-citation",
+    "coupling": "Bibliographic coupling",
+}
+GRAPH_LABELS = {"cocitation": "co-citation", "coupling": "bibliographic coupling"}
+
+
+def _clusters_csv(analysis_dir: str, clusters: str) -> tuple[str, str]:
+    """Return the clusters CSV to read and the name of its graph.
+
+    ``clusters`` is ``"auto"`` (co-citation first) or a graph of ``CLUSTER_CHOICES``.
+    """
+    try:
+        csv_path = find_clusters_csv(
+            analysis_dir, None if clusters == "auto" else clusters
+        )
+    except FileNotFoundError as exc:
+        if clusters == "auto":
+            raise AnalysisError(str(exc)) from exc
+        raise AnalysisError(
+            f"No {GRAPH_LABELS[clusters]} clusters yet: run the Graph analysis "
+            f"with Graph set to {CLUSTER_CHOICES[clusters]} or Both."
+        ) from exc
+    graph = Path(csv_path).stem.removeprefix("clusters_")
+    return csv_path, GRAPH_LABELS.get(graph, graph)
+
+
 def run_keywords(
     config: SciLExConfig,
     progress: ProgressFn,
     *,
     top_k: int = 30,
     min_freq: int = 2,
+    clusters: str = "auto",
     cancel_event: CancelEvent = None,
 ) -> AnalysisResult:
     """Suggest new keywords from the clusters (``scilex-suggest-keywords``)."""
@@ -272,10 +301,7 @@ def run_keywords(
 
     collect_dir = collect_dir_of(config)
     analysis_dir = str(graph_dir_of(collect_dir))
-    try:
-        csv_path = find_clusters_csv(analysis_dir)
-    except FileNotFoundError as exc:
-        raise AnalysisError(str(exc)) from exc
+    csv_path, graph_label = _clusters_csv(analysis_dir, clusters)
     if _cancelled(cancel_event):
         return AnalysisResult("Cancelled.")
     progress(30, "Extracting frequent terms…")
@@ -291,7 +317,7 @@ def run_keywords(
         suggestions, analysis_dir, collect_name=config.main["collect_name"]
     )
     return AnalysisResult(
-        f"{len(suggestions)} keyword suggestions.",
+        f"{len(suggestions)} keyword suggestions from the {graph_label} clusters.",
         existing_outputs(collect_dir, "keywords"),
     )
 
@@ -594,7 +620,11 @@ def run_graph(
 
 
 def run_summaries(
-    config: SciLExConfig, progress: ProgressFn, *, cancel_event: CancelEvent = None
+    config: SciLExConfig,
+    progress: ProgressFn,
+    *,
+    clusters: str = "auto",
+    cancel_event: CancelEvent = None,
 ) -> AnalysisResult:
     """Write the community summary report (``scilex-summarize``)."""
     from scilex.summarize.report import generate_report
@@ -602,10 +632,7 @@ def run_summaries(
 
     collect_dir = collect_dir_of(config)
     analysis_dir = graph_dir_of(collect_dir)
-    try:
-        csv_path = find_clusters_csv(str(analysis_dir))
-    except FileNotFoundError as exc:
-        raise AnalysisError(str(exc)) from exc
+    csv_path, graph_label = _clusters_csv(str(analysis_dir), clusters)
     if _cancelled(cancel_event):
         return AnalysisResult("Cancelled.")
     progress(30, "Computing cluster statistics…")
@@ -615,14 +642,14 @@ def run_summaries(
     if all(cluster.size <= 1 for cluster in stats):
         # A graph without edges leaves every paper alone in its own community.
         return AnalysisResult(
-            "No co-citation links found: fetch citations for more papers in the "
+            f"No links found in the {graph_label} graph: fetch citations for more papers in the "
             "Citations tab. A summary of one-paper communities would be meaningless."
         )
     report_path = analysis_dir / "summary_report.md"
     generate_report(stats, str(report_path), collect_name=config.main["collect_name"])
     communities = sum(1 for cluster in stats if cluster.size > 1)
     return AnalysisResult(
-        f"Summary of {communities} communities "
+        f"Summary of {communities} communities from the {graph_label} graph "
         f"({len(stats) - communities} one-paper communities left out).",
         [report_path],
     )
@@ -633,7 +660,7 @@ def run_summaries(
 # name -> {option: caster}; options not listed are dropped.
 OPTION_CASTS: dict[str, dict[str, Callable]] = {
     "report": {},
-    "keywords": {"top_k": int, "min_freq": int},
+    "keywords": {"top_k": int, "min_freq": int, "clusters": str},
     "enrich": {"dry_run": bool, "limit": int, "threshold": int},
     "citations": {"limit": int, "skip_citers": bool, "no_fallback": bool},
     "snowball": {
@@ -643,7 +670,7 @@ OPTION_CASTS: dict[str, dict[str, Callable]] = {
         "dry_run": bool,
     },
     "graph": {"graph_type": str, "resolution": float, "min_weight": int, "fmt": str},
-    "summaries": {},
+    "summaries": {"clusters": str},
 }
 
 

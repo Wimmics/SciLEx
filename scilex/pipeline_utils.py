@@ -47,22 +47,28 @@ def extract_corpus_dois(df: pd.DataFrame, doi_column: str = "DOI") -> set[str]:
     return {str(d).strip() for d in df[doi_column] if is_valid(d) and str(d).strip()}
 
 
-def find_clusters_csv(analysis_dir: str) -> str:
-    """Auto-detect a clusters CSV in *analysis_dir*.
+CLUSTER_GRAPHS = ("cocitation", "coupling")
 
-    Prefers ``clusters_cocitation.csv``, falls back to ``clusters_coupling.csv``.
+
+def find_clusters_csv(analysis_dir: str, graph: str | None = None) -> str:
+    """Find a clusters CSV in *analysis_dir*.
+
+    Args:
+        analysis_dir: Directory of the graph analysis outputs.
+        graph: ``"cocitation"`` or ``"coupling"`` for that graph's clusters;
+            None prefers ``clusters_cocitation.csv`` and falls back to
+            ``clusters_coupling.csv``.
 
     Raises:
-        FileNotFoundError: If no clusters CSV exists.
+        FileNotFoundError: If no matching clusters CSV exists.
     """
-    candidates = [
-        os.path.join(analysis_dir, "clusters_cocitation.csv"),
-        os.path.join(analysis_dir, "clusters_coupling.csv"),
-    ]
+    graphs = [graph] if graph else list(CLUSTER_GRAPHS)
+    candidates = [os.path.join(analysis_dir, f"clusters_{name}.csv") for name in graphs]
     csv_path = next((p for p in candidates if os.path.exists(p)), None)
     if csv_path is None:
+        which = f"{graph} clusters CSV" if graph else "clusters CSV"
         raise FileNotFoundError(
-            f"No clusters CSV found in {analysis_dir}. Run scilex-analyze first."
+            f"No {which} found in {analysis_dir}. Run scilex-analyze first."
         )
     return csv_path
 
