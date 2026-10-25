@@ -334,11 +334,13 @@ def run_enrich(
         raise AnalysisError(str(exc)) from exc
     if result.disabled:
         raise AnalysisError("HuggingFace enrichment is disabled in scilex.yml.")
-    verb = "would be updated" if dry_run else "updated"
+    # A dry run updates nothing: every matched paper is one that would be.
+    changed = (
+        f"{result.matched} would be updated" if dry_run else f"{result.updated} updated"
+    )
     files = [Path(result.output_path)] if result.output_path else []
     return AnalysisResult(
-        f"{result.matched} of {result.total} papers matched, {result.updated} {verb}.",
-        files,
+        f"{result.matched} of {result.processed} papers matched, {changed}.", files
     )
 
 

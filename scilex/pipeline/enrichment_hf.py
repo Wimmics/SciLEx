@@ -243,6 +243,11 @@ def process_paper_for_csv(
     return result
 
 
+def _rows_to_process(data: pd.DataFrame, limit: int | None) -> pd.DataFrame:
+    """Return the rows an enrichment run handles: the first ``limit`` ones, or all."""
+    return data.head(limit) if limit else data
+
+
 def _enrich_rows(
     data: pd.DataFrame,
     hf_client: HFClient,
@@ -267,7 +272,8 @@ def _enrich_rows(
         options: Run options (``limit``, ``dry_run`` and ``workers`` are used here).
         use_papers_api: Enable the Papers API search.
         progress_callback: Optional ``callback(processed, total, stats)``,
-            called after every row.
+            called after every row; ``total`` is the number of rows to
+            process (``options.limit`` applied).
 
     Returns:
         ``(updates, stats)``: ``updates`` is the list of ``(row_label, result)``
@@ -276,7 +282,7 @@ def _enrich_rows(
     """
     stats = {"total": len(data), "matched": 0, "skipped": 0}
     updates: list[tuple[object, dict]] = []
-    rows = data.head(options.limit) if options.limit else data
+    rows = _rows_to_process(data, options.limit)
 
     def search_row(item):
         """Run one paper's search; errors are returned, not raised."""
@@ -318,7 +324,7 @@ def _enrich_rows(
                     logging.info(f"  GitHub: {result['github_repo']}")
 
             if progress_callback:
-                progress_callback(stats["matched"] + stats["skipped"], len(data), stats)
+                progress_callback(stats["matched"] + stats["skipped"], len(rows), stats)
     finally:
         executor.shutdown(wait=True, cancel_futures=True)
 
@@ -405,7 +411,11 @@ def run_enrichment(
     processed = stats["matched"] + stats["skipped"]
     if progress_callback:
         # Final progress report
-        progress_callback(processed, len(data), {**stats, "updated": updated})
+        progress_callback(
+            processed,
+            len(_rows_to_process(data, options.limit)),
+            {**stats, "updated": updated},
+        )
 
     output_path = None
     if not options.dry_run:

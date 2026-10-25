@@ -88,11 +88,16 @@ def test_dry_run_does_not_write(csv_dir, config, fake_hf):
 
 
 def test_limit_stops_early(csv_dir, config, fake_hf):
+    calls = []
     result = run_enrichment(
-        config, EnrichmentOptions(collect_dir=str(csv_dir), limit=2)
+        config,
+        EnrichmentOptions(collect_dir=str(csv_dir), limit=2),
+        lambda done, total, stats: calls.append((done, total)),
     )
     assert fake_hf == ["Alpha", "Beta"]
     assert (result.processed, result.matched) == (2, 1)
+    # Progress is out of the limited rows, not the whole CSV.
+    assert calls == [(1, 2), (2, 2), (2, 2)]
 
 
 def test_disabled_in_config(csv_dir, fake_hf):

@@ -80,7 +80,9 @@ def test_run_enrich_passes_options(ctx, tmp_path, monkeypatch):
     def fake_enrichment(config, options, progress_callback):
         seen["options"] = options
         progress_callback(1, 2, {})
-        return enrichment_hf.EnrichmentResult(total=2, matched=1, updated=0)
+        return enrichment_hf.EnrichmentResult(
+            total=2, processed=2, matched=1, updated=0
+        )
 
     monkeypatch.setattr(enrichment_hf, "run_enrichment", fake_enrichment)
     review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
@@ -429,3 +431,16 @@ def test_snowball_output_uses_the_aggregated_csv_format(ctx, tmp_path, monkeypat
     result = service.run_snowball(config, lambda percent, message: None)
     written = pd.read_csv(result.files[0], sep=AGGREGATED_CSV_SEP, dtype=str)
     assert written.to_dict("records") == merged.to_dict("records")
+
+
+def test_run_enrich_message_counts_processed_papers(ctx, tmp_path, monkeypatch):
+    from scilex.pipeline import enrichment_hf
+
+    def fake_enrichment(config, options, progress_callback):
+        return enrichment_hf.EnrichmentResult(total=500, processed=15, matched=2)
+
+    monkeypatch.setattr(enrichment_hf, "run_enrichment", fake_enrichment)
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = ctx.workspace.load_config(review)
+    result = service.run_enrich(config, lambda p, m: None, dry_run=True, limit=15)
+    assert result.message == "2 of 15 papers matched, 2 would be updated."
