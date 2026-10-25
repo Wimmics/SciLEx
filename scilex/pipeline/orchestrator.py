@@ -46,6 +46,7 @@ from scilex.duplicate_tracking import (
     analyze_and_report_duplicates,
     generate_itemtype_distribution_report,
 )
+from scilex.io_utils import write_aggregated_csv
 from scilex.keyword_validation import generate_keyword_validation_report
 from scilex.llm_relevance import (
     CACHE_FILENAME,
@@ -66,7 +67,11 @@ from scilex.pipeline.enrichment import (
 )
 from scilex.pipeline.itemtype_filter import apply_itemtype_bypass, apply_itemtype_filter
 from scilex.pipeline.ranking import apply_relevance_ranking
-from scilex.pipeline.report import write_aggregation_report, write_prisma_report
+from scilex.pipeline.report import (
+    collection_warning,
+    write_aggregation_report,
+    write_prisma_report,
+)
 from scilex.pipeline.tracker import FilteringTracker
 from scilex.quality_validation import (
     apply_quality_filters,
@@ -886,14 +891,10 @@ def _write_results(
 
     output_path = os.path.join(ctx.dir_collect, ctx.output_filename)
     logging.info(f"Saving {len(df)} aggregated papers to {output_path}")
-    df.to_csv(
-        output_path,
-        sep=";",
-        quotechar='"',
-        quoting=csv.QUOTE_NONNUMERIC,
-    )
+    write_aggregated_csv(df, output_path, quoting=csv.QUOTE_NONNUMERIC)
     logging.info(f"Aggregation complete! Results saved to {output_path}")
 
+    warning_lines = collection_warning(ctx.dir_collect, ctx.main_config)
     write_aggregation_report(
         dir_collect=ctx.dir_collect,
         collect_name=ctx.collect_name,
@@ -905,6 +906,7 @@ def _write_results(
         citation_stats=citation_stats,
         url_stats=url_stats,
         df_clean=df,
+        collection_warning_lines=warning_lines,
     )
 
     # PRISMA 2020 flow report (reuses the tracker and parallel stats numbers)
@@ -917,6 +919,7 @@ def _write_results(
                 parallel_stats=parallel_stats,
                 filtering_tracker=ctx.tracker,
                 final_count=len(df),
+                collection_warning_lines=warning_lines,
             )
         except OSError as e:
             logging.warning(f"Could not write PRISMA report: {e}")
@@ -989,6 +992,7 @@ def run_aggregation(
 
     ctx.report_progress("filtering", 30, "Applying filters...")
     df, url_stats = _recover_dois_and_fill_urls(ctx, df)
+    _check_cancelled(ctx)
     df = _apply_itemtype_whitelist(ctx, df)
     if len(df) == 0:
         return df
@@ -998,7 +1002,9 @@ def run_aggregation(
     ctx.report_progress("filtering", 45, "Applying quality filters...")
     df = _apply_quality_filters_with_bypass(ctx, df)
     df = _report_and_filter_abstracts(ctx, df)
+    _check_cancelled(ctx)
     df = _screen_with_llm(ctx, df)
+    _check_cancelled(ctx)
 
     ctx.report_progress("citations", 55, "Fetching citations...")
     df, citation_stats = _process_citations(ctx, df)

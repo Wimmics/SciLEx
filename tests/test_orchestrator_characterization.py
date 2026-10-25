@@ -129,7 +129,7 @@ def _run(config, **option_overrides):
 
 
 def _snapshot(collect_dir, df, calls):
-    written = pd.read_csv(collect_dir / "aggregated.csv", sep=";", index_col=0)
+    written = pd.read_csv(collect_dir / "aggregated.csv", sep=";")
     summary = json.loads((collect_dir / "filtering_summary.json").read_text())
     return {
         "columns": list(written.columns),

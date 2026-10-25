@@ -9,6 +9,35 @@ import pandas as pd
 from scilex.constants import is_valid, parse_archive_apis
 
 
+def collection_warning(dir_collect, main_config) -> list[str]:
+    """Markdown lines warning that the collection is incomplete (empty if complete).
+
+    Reports built from a partial collection must say so: the counts of a
+    PRISMA flow are only meaningful when every query finished.
+    """
+    try:
+        from scilex.collect_status import build_status
+
+        status = build_status(dir_collect, main_config)
+    except Exception as e:
+        logging.warning(f"Could not check collection completeness: {e}")
+        return []
+    totals = status["totals"]
+    if totals["total"] == 0 or totals["done"] == totals["total"]:
+        return []
+    incomplete = [
+        f"{api} ({counts['done']}/{counts['total']})"
+        for api, counts in status["apis"].items()
+        if counts["done"] < counts["total"]
+    ]
+    return [
+        f"> **Warning — partial collection:** {totals['done']} of {totals['total']} "
+        f"queries completed. Incomplete APIs: {', '.join(incomplete)}. "
+        "Run the collection again to resume the missing queries.",
+        "",
+    ]
+
+
 def write_aggregation_report(
     dir_collect,
     collect_name,
@@ -20,6 +49,7 @@ def write_aggregation_report(
     citation_stats,
     url_stats,
     df_clean,
+    collection_warning_lines=(),
 ):
     """Write aggregation report (Markdown + CSV) to dir_collect."""
     flat_stats = {}
@@ -127,6 +157,7 @@ def write_aggregation_report(
         f"**Duration:** {duration_seconds:.1f} s ({duration_seconds / 60:.1f} min)  "
     )
     md.append("")
+    md.extend(collection_warning_lines)
 
     # --- Configuration ---
     md.append("## Configuration")
@@ -339,6 +370,7 @@ def build_prisma_report(
     parallel_stats,
     filtering_tracker,
     final_count,
+    collection_warning_lines=(),
 ) -> str:
     """Build the PRISMA 2020 Markdown report (tables + Mermaid flow diagram)."""
     loading = parallel_stats.get("loading", {})
@@ -358,6 +390,7 @@ def build_prisma_report(
         f"**Date:** {run_date.strftime('%Y-%m-%d %H:%M:%S')}  ",
         "Flow of records following the PRISMA 2020 statement.",
         "",
+        *collection_warning_lines,
         "## Identification",
         "",
         "| Source | Records identified |",
@@ -434,10 +467,16 @@ def write_prisma_report(
     parallel_stats,
     filtering_tracker,
     final_count,
+    collection_warning_lines=(),
 ) -> str:
     """Write ``prisma_report.md`` into *dir_collect* and return its path."""
     content = build_prisma_report(
-        collect_name, run_date, parallel_stats, filtering_tracker, final_count
+        collect_name,
+        run_date,
+        parallel_stats,
+        filtering_tracker,
+        final_count,
+        collection_warning_lines,
     )
     path = os.path.join(dir_collect, "prisma_report.md")
     with open(path, "w", encoding="utf-8") as handle:

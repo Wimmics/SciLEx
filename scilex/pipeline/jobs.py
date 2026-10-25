@@ -54,10 +54,12 @@ class WorkerThreadFilter(logging.Filter):
     """Keep only log records emitted by a job's worker threads.
 
     Worker threads register their id in ``thread_ids``. Threads spawned by the
-    collector are plain ``threading.Thread`` instances with default
-    ``Thread-N`` names; they are accepted too, which is only correct while a
-    single job runs at a time (both runners enforce it).
+    pipeline itself (``Worker-<api>`` collector threads, ``ThreadPoolExecutor``
+    pools, default ``Thread-N`` names) are accepted too, which is only correct
+    while a single job runs at a time (both runners enforce it).
     """
+
+    PIPELINE_THREAD_PREFIXES = ("Thread-", "Worker-", "ThreadPoolExecutor-")
 
     def __init__(self, thread_ids: set[int]):
         """Accept records from the threads whose ids are in ``thread_ids``."""
@@ -68,4 +70,4 @@ class WorkerThreadFilter(logging.Filter):
         """Return True if ``record`` comes from one of the job's threads."""
         if record.thread in self.thread_ids:
             return True
-        return (record.threadName or "").startswith("Thread-")
+        return (record.threadName or "").startswith(self.PIPELINE_THREAD_PREFIXES)

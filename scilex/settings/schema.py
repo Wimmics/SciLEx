@@ -112,6 +112,16 @@ class SearchSettings(BaseModel):
             raise ValueError("expected 1 or 2 keyword groups")
         if any(not group for group in value):
             raise ValueError("a keyword group must not be empty")
+        if any(not keyword.strip() for group in value for keyword in group):
+            raise ValueError("keywords must not be empty strings")
+        return value
+
+    @field_validator("bonus_keywords")
+    @classmethod
+    def _check_bonus_keywords(cls, value: list[str]) -> list[str]:
+        """Reject empty bonus keywords (they would match every paper)."""
+        if any(not keyword.strip() for keyword in value):
+            raise ValueError("bonus keywords must not be empty strings")
         return value
 
     @field_validator("years", mode="before")
@@ -331,6 +341,18 @@ class ScilexSettings(BaseModel):
     report: ReportSettings = Field(default_factory=ReportSettings)
     collect: CollectSettings = Field(default_factory=CollectSettings)
     llm_screening: LLMScreeningSettings = Field(default_factory=LLMScreeningSettings)
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, value: str) -> str:
+        """The name is a folder under ``output_dir``: keep it a single plain component."""
+        if not value.strip():
+            raise ValueError("name must not be blank")
+        if "/" in value or "\\" in value or value.startswith("."):
+            raise ValueError(
+                "name is used as a folder name: no '/', '\\' and no leading '.'"
+            )
+        return value
 
 
 class KeysSettings(BaseModel):

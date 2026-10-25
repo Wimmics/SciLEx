@@ -5,6 +5,7 @@ HuggingFace enrichment). This module centralises path resolution, delimiter
 detection and atomic writing so they cannot drift apart.
 """
 
+import csv
 import logging
 import os
 import tempfile
@@ -89,15 +90,23 @@ def load_aggregated_data(
     )
 
 
-def write_aggregated_csv(data: pd.DataFrame, path: str) -> None:
-    """Write ``data`` to ``path`` atomically (temp file in same dir + os.replace)."""
+def write_aggregated_csv(
+    data: pd.DataFrame, path: str, quoting: int = csv.QUOTE_MINIMAL
+) -> None:
+    """Write ``data`` to ``path`` atomically (temp file in same dir + os.replace).
+
+    Args:
+        data: Papers to write (the index is not written).
+        path: Destination file.
+        quoting: ``csv`` quoting mode passed to ``DataFrame.to_csv``.
+    """
     directory = os.path.dirname(os.path.abspath(path))
     file_descriptor, temp_path = tempfile.mkstemp(
         dir=directory, prefix=".aggregated_", suffix=".tmp"
     )
     try:
         with os.fdopen(file_descriptor, "w", encoding="utf-8", newline="") as handle:
-            data.to_csv(handle, sep=AGGREGATED_CSV_SEP, index=False)
+            data.to_csv(handle, sep=AGGREGATED_CSV_SEP, index=False, quoting=quoting)
         os.replace(temp_path, path)
     except BaseException:
         if os.path.exists(temp_path):

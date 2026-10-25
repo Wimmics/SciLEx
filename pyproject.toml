@@ -52,6 +52,7 @@ build = [
 ]
 
 [project.scripts]
+scilex = "scilex.__main__:main"
 scilex-collect = "scilex.run_collection:main"
 scilex-aggregate = "scilex.aggregate_collect:main"
 scilex-enrich = "scilex.enrich_with_hf:main"

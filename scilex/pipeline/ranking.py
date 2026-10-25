@@ -84,6 +84,12 @@ def build_relevance_scorer(
         **DEFAULT_RELEVANCE_WEIGHTS,
         **(quality_filters.get("relevance_weights") or {}),
     }
+    # Keep the score on 0-10 when user weights do not sum to 1.
+    weight_total = sum(
+        weights[name] for name in ("keywords", "quality", "itemtype", "citations")
+    )
+    if weight_total > 0 and not math.isclose(weight_total, 1.0):
+        weights = {name: value / weight_total for name, value in weights.items()}
     itemtype_weights = quality_filters.get(
         "itemtype_relevance_weights", DEFAULT_ITEMTYPE_RELEVANCE_WEIGHTS
     )
