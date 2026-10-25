@@ -120,7 +120,7 @@ def extract_suggestions(
         # Extract bigrams from titles
         title = row.get("title")
         if is_valid(title):
-            for bigram in _title_bigrams(str(title)):
+            for bigram in title_bigrams(str(title)):
                 _register_term(bigram, cluster_id, term_freq, term_clusters)
 
     # Filter: remove existing keywords and low-frequency terms
@@ -164,7 +164,7 @@ def _register_term(
     term_clusters[term].add(cluster_id)
 
 
-def _title_bigrams(title: str) -> list[str]:
+def title_bigrams(title: str) -> list[str]:
     """Extract lowercase bigrams from a title string.
 
     Filters out common stopwords to produce meaningful bigrams.

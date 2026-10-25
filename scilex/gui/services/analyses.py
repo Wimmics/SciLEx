@@ -609,7 +609,12 @@ def run_summaries(
         )
     report_path = analysis_dir / "summary_report.md"
     generate_report(stats, str(report_path), collect_name=config.main["collect_name"])
-    return AnalysisResult(f"Summary of {len(stats)} clusters.", [report_path])
+    communities = sum(1 for cluster in stats if cluster.size > 1)
+    return AnalysisResult(
+        f"Summary of {communities} communities "
+        f"({len(stats) - communities} one-paper communities left out).",
+        [report_path],
+    )
 
 
 # --- options coming from the page --------------------------------------------

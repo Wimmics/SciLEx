@@ -16,7 +16,8 @@ def generate_report(
     """Generate a Markdown summary report with Mermaid mindmap.
 
     Args:
-        stats: List of ClusterStats from compute_cluster_stats.
+        stats: List of ClusterStats from compute_cluster_stats; clusters of a
+            single paper are counted but not listed.
         output_path: Where to write the Markdown file.
         collect_name: Collection name for the report title.
 
@@ -24,12 +25,21 @@ def generate_report(
         The report as a string.
     """
     lines = []
+    # A paper with no link to the others forms a community of its own: listing
+    # hundreds of them would bury the real communities.
+    singletons = sum(1 for cs in stats if cs.size <= 1)
+    stats = [cs for cs in stats if cs.size > 1]
 
     # Header
     title = f"Cluster Summary: {collect_name}" if collect_name else "Cluster Summary"
     lines.append(f"# {title}")
     lines.append("")
     lines.append(f"**{len(stats)} communities** detected in the collection.")
+    if singletons:
+        lines.append(
+            f"{singletons} papers without links to the others are left out "
+            "(one-paper communities)."
+        )
     lines.append("")
 
     # Mermaid mindmap

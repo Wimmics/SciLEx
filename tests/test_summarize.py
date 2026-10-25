@@ -144,3 +144,33 @@ class TestGenerateReport:
         path = str(tmp_path / "report.md")
         report = generate_report([], path)
         assert "0 communities" in report
+
+
+class TestSummaryOnAggregatedColumns:
+    """The aggregated CSV has no tags column and many one-paper clusters."""
+
+    def _df(self):
+        return pd.DataFrame(
+            {
+                "title": [
+                    "Knowledge Graph Memory for Agents",
+                    "Knowledge Graph Reasoning with LLMs",
+                    "Unrelated Paper",
+                ],
+                "collect_keywords": ["Collect_KW1:Graph"] * 3,
+                "cluster_id": [0, 0, 1],
+                "pagerank": [0.5, 0.3, 0.0],
+            }
+        )
+
+    def test_keywords_fall_back_to_title_bigrams(self):
+        stats = compute_cluster_stats(self._df())
+        assert stats[0].top_keywords[0] == ("knowledge graph", 2)
+
+    def test_one_paper_communities_are_left_out(self, tmp_path):
+        stats = compute_cluster_stats(self._df())
+        report = generate_report(stats, str(tmp_path / "report.md"))
+        assert "**1 communities**" in report
+        assert "1 papers without links" in report
+        assert "### Cluster 1" not in report
+        assert "Cluster 0: knowledge graph" in report

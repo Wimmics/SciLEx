@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import pandas as pd
 
 from scilex.constants import is_valid
+from scilex.keyword_suggestions.extractor import title_bigrams
 from scilex.pipeline_utils import parse_keyword_values
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,11 @@ def compute_cluster_stats(
 
 
 def _extract_keywords(group: pd.DataFrame, top_n: int) -> list[tuple[str, int]]:
-    """Extract top keywords from a cluster group."""
+    """Extract top keywords from a cluster group.
+
+    Uses the ``tags``/``keywords`` columns; when they are absent or empty (the
+    aggregated CSV has none), falls back to title bigrams, counted once per paper.
+    """
     counter: Counter[str] = Counter()
 
     for col in ("tags", "keywords", "keyword"):
@@ -87,6 +92,11 @@ def _extract_keywords(group: pd.DataFrame, top_n: int) -> list[tuple[str, int]]:
                 continue
             for kw in parse_keyword_values(str(val)):
                 counter[kw] += 1
+
+    if not counter and "title" in group.columns:
+        for title in group["title"]:
+            if is_valid(title):
+                counter.update(set(title_bigrams(str(title))))
 
     return counter.most_common(top_n)
 
