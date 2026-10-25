@@ -355,8 +355,8 @@ def apply_llm_screening(
     api_key = resolve_api_key(api_config)
     if not api_key:
         raise LLMScreeningError(
-            f"No OpenRouter key: set openrouter.api_key in api.config.yml "
-            f"or {API_KEY_ENV_VAR}"
+            f"No OpenRouter key: set openrouter.api_key in keys.yml (API keys screen "
+            f"in the app) or {API_KEY_ENV_VAR}, or disable llm_screening in scilex.yml"
         )
     scored = score_dataframe(df, config, api_key, cache_path)
     if config.threshold is not None:
