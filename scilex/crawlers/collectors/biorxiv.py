@@ -113,6 +113,9 @@ class BioRxiv_collector(API_collector):
         total = None
 
         while True:
+            if self._cancelled():
+                # Caught by runCollect: the year cache stays without _complete.
+                raise RuntimeError("collection cancelled")
             url = self.get_configurated_url().format(cursor)
             logging.debug(f"BioRxiv: Fetching year {year}, cursor {cursor}")
 

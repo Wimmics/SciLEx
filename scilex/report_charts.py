@@ -19,7 +19,13 @@ from scilex.settings.cli import (
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-from scilex.constants import extract_year, is_missing, parse_archive_apis
+from scilex.config_defaults import DEFAULT_OUTPUT_DIR
+from scilex.constants import (
+    extract_year,
+    is_missing,
+    normalize_path_component,
+    parse_archive_apis,
+)
 
 CHART_DIR_NAME = "chart_aggregated_papers"
 CSV_NAMES = ("aggregated_results.csv", "aggregation_results.csv")
@@ -522,6 +528,16 @@ def plot_keyword_heatmap(df: pd.DataFrame, out_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _configured_collect_dir() -> Path:
+    """Collection folder of the current configuration (``output_dir/name``)."""
+    from scilex.settings.resolve import resolve_main_config
+
+    config = resolve_main_config()
+    return Path(
+        config.get("output_dir", DEFAULT_OUTPUT_DIR)
+    ) / normalize_path_component(config["collect_name"])
+
+
 @exit_on_config_error
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -530,13 +546,15 @@ def main() -> None:
     parser.add_argument(
         "collect_dir",
         type=Path,
-        help="Path to the collect directory containing aggregated_results.csv",
+        nargs="?",
+        help="Collect directory containing aggregated_results.csv "
+        "(default: output_dir/name from scilex.yml, like the other commands)",
     )
     add_config_arguments(parser)
     args = parser.parse_args()
     apply_config_arguments(args)
 
-    collect_dir: Path = args.collect_dir.resolve()
+    collect_dir: Path = (args.collect_dir or _configured_collect_dir()).resolve()
     if not collect_dir.is_dir():
         print(f"Error: '{collect_dir}' is not a directory.", file=sys.stderr)
         sys.exit(1)

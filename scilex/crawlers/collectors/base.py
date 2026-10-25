@@ -2,6 +2,7 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 from datetime import date
 
@@ -71,7 +72,9 @@ class Filter_param:
 
 
 class API_collector:
-    # Default rate limits (fallback if config not available)
+    # threading.Event of the job, set by the collection worker: checked
+    # between pages and during waits so a cancel stops the query quickly.
+    cancel_event: threading.Event | None = None
 
     def __init__(self, data_query, data_path, api_key):
         # api.config.yml accepts one key or a list: a list becomes a rotating pool
@@ -140,7 +143,9 @@ class API_collector:
         """
         if self.rate_limit <= 0:
             return
-        AdaptiveRateLimiterRegistry().get(self.api_name).wait(self.rate_limit)
+        AdaptiveRateLimiterRegistry().get(self.api_name).wait(
+            self.rate_limit, self.cancel_event
+        )
 
     def load_rate_limit_from_config(self, rate_limits=None):
         """Set ``self.rate_limit`` for this API (requests per second).
@@ -535,13 +540,8 @@ class API_collector:
                     response is not None
                     and response.status_code in self.THROTTLE_STATUS
                 ):
-                    new_delay = (
-                        AdaptiveRateLimiterRegistry().get(self.api_name).on_throttle()
-                    )
-                    logging.warning(
-                        f"{self.api_name} API: Throttle ({response.status_code}) persists after "
-                        f"{max_retries} attempts. Inter-request delay increased to +{new_delay:.0f}s."
-                    )
+                    # The limiter logs the new inter-request delay itself.
+                    AdaptiveRateLimiterRegistry().get(self.api_name).on_throttle()
                 logging.error(
                     f"{self.api_name} API: all {max_retries} attempts failed ({error_label})"
                 )
@@ -553,7 +553,17 @@ class API_collector:
                 f"{self.api_name} API {error_label}. "
                 f"Retrying in {wait_time:.0f}s (attempt {attempt + 1}/{max_retries})"
             )
-            time.sleep(wait_time)
+            self._sleep(wait_time)
+
+    def _cancelled(self) -> bool:
+        return self.cancel_event is not None and self.cancel_event.is_set()
+
+    def _sleep(self, seconds: float) -> None:
+        """Sleep ``seconds``, waking up early when the job is cancelled."""
+        if self.cancel_event is not None:
+            self.cancel_event.wait(seconds)
+        else:
+            time.sleep(seconds)
 
     def _get_api_endpoints(self):
         """URL templates to paginate through, in order (each has one ``{}`` offset slot).
@@ -675,6 +685,12 @@ class API_collector:
         first_results_logged = False
 
         while True:
+            if self._cancelled():
+                logging.info(
+                    f"{self.api_name} Q{self.collectId}: cancelled, the query "
+                    f"stays incomplete and will be resumed on the next run."
+                )
+                return False
             if self._max_articles_reached():
                 logging.info(
                     f"Reached max_articles_per_query limit "

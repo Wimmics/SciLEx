@@ -140,6 +140,7 @@ def _run_job_collects_worker(
                 current_coll = collector_class(data_query, repo, api_key)
 
             current_coll.vpn_config = vpn_config or {}
+            current_coll.cancel_event = cancel_event
 
             # Apply user-configured rate limits (api.config.yml `rate_limits`)
             current_coll.load_rate_limit_from_config(api_config.get("rate_limits"))
@@ -168,6 +169,8 @@ def _run_job_collects_worker(
                     "keywords": kw_str,
                     "year": year,
                     "success": True,
+                    # runCollect returns state 0 when a page failed (resumable)
+                    "complete": res.get("state") == 1,
                 }
             )
 
@@ -485,7 +488,9 @@ class CollectCollection:
         )
 
         # Per-API stats (no per-API bars — avoids multi-bar cursor-movement artifacts in WSL)
-        api_stats = defaultdict(lambda: {"completed": 0, "total": 0, "articles": 0})
+        api_stats = defaultdict(
+            lambda: {"completed": 0, "total": 0, "articles": 0, "incomplete": 0}
+        )
         for api_name, api_jobs in jobs_by_api.items():
             api_stats[api_name]["total"] = len(api_jobs)
 
@@ -547,6 +552,8 @@ class CollectCollection:
                         articles = result["articles_collected"]
                         api_stats[api_name]["completed"] += 1
                         api_stats[api_name]["articles"] += articles
+                        if not result.get("complete", result.get("success", False)):
+                            api_stats[api_name]["incomplete"] += 1
                         completed_count += 1
 
                         overall_bar.update(1)
@@ -582,12 +589,12 @@ class CollectCollection:
                         continue
 
         finally:
-            # Wait for all threads to complete (with timeout if cancelled)
-            join_timeout = (
-                5 if (self.cancel_event and self.cancel_event.is_set()) else None
-            )
+            # Wait for every worker, also after a cancel: collectors check the
+            # event between pages and during waits, so at most one in-flight
+            # request remains. Returning earlier would let a new job read
+            # files a worker is still writing.
             for thread in threads:
-                thread.join(timeout=join_timeout)
+                thread.join()
 
             overall_bar.close()
 
@@ -599,7 +606,14 @@ class CollectCollection:
                 print(
                     f"{api_name:20s}: {stats['completed']:3d} queries | {stats['articles']:,} papers"
                 )
-                logging.info(
-                    f"[{api_name}] Complete: {stats['articles']} papers from {stats['completed']} queries"
-                )
+                if stats["incomplete"]:
+                    logging.warning(
+                        f"[{api_name}] Partial: {stats['articles']} papers, "
+                        f"{stats['incomplete']} of {stats['total']} queries incomplete "
+                        f"(run the collection again to resume them)"
+                    )
+                else:
+                    logging.info(
+                        f"[{api_name}] Complete: {stats['articles']} papers from {stats['completed']} queries"
+                    )
             print("=" * 60 + "\n")

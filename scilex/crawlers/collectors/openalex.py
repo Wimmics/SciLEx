@@ -140,6 +140,8 @@ class OpenAlex_collector(API_collector):
         first_results_logged = False
 
         while cursor is not None:
+            if self._cancelled():
+                return False
             if self._max_articles_reached():
                 logging.info(
                     f"Reached max_articles_per_query limit "

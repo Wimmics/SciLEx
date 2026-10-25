@@ -56,7 +56,7 @@ def _api_error_lines(api: str, logs: list[str]) -> list[str]:
 def api_rows(
     api_stats: dict, logs: list[str], job_status: str | None, active: bool
 ) -> list[ApiRow]:
-    """Build the table rows from ``job.api_stats`` (``completed/total/articles``).
+    """Build the table rows from ``job.api_stats`` (``completed/total/articles/incomplete``).
 
     Errors are the ERROR log lines mentioning the API (the collector reports
     no error count in its progress callback).
@@ -67,8 +67,13 @@ def api_rows(
         papers = stats.get("articles", 0)
         error_lines = _api_error_lines(api, logs)
         reason = error_lines[-1].split("] ", 1)[-1] if error_lines else ""
-        if total and done >= total:
+        incomplete = stats.get("incomplete", 0)
+        if total and done >= total and not incomplete:
             state = "done"
+        elif total and done >= total:
+            # Every query ran, but some stopped on an error: resumable.
+            state = "partial"
+            reason = reason or f"{incomplete}/{total} queries incomplete"
         elif active:
             state = "running" if done else "waiting"
         elif job_status == job_states.FAILED and error_lines:
