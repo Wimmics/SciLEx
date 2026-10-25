@@ -444,3 +444,23 @@ def test_run_enrich_message_counts_processed_papers(ctx, tmp_path, monkeypatch):
     config = ctx.workspace.load_config(review)
     result = service.run_enrich(config, lambda p, m: None, dry_run=True, limit=15)
     assert result.message == "2 of 15 papers matched, 2 would be updated."
+
+
+def test_snowball_reports_failed_metadata_fetch(ctx, tmp_path, monkeypatch):
+    """All Semantic Scholar requests failed: say so, not 'no paper passed filters'."""
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = ctx.workspace.load_config(review)
+    review.collection_dir.mkdir(parents=True)
+    corpus = pd.DataFrame({"title": ["A"], "DOI": ["10.1/a"]})
+    for target, value in {
+        "scilex.io_utils.load_aggregated_data": lambda main: corpus,
+        "scilex.graph_analysis.loader.load_citation_caches": lambda d: ({}, {}),
+        "scilex.snowball.candidates.extract_candidates": lambda *a, **k: [
+            ("10.9/x", 2)
+        ],
+        "scilex.snowball.fetcher.fetch_metadata_batch": lambda dois, api_key: [],
+    }.items():
+        monkeypatch.setattr(target, value)
+
+    with pytest.raises(service.AnalysisError, match="No metadata could be fetched"):
+        service.run_snowball(config, lambda percent, message: None)

@@ -63,6 +63,11 @@ NO_EDGES_WARNING = (
     "Warning: no links found in the {graphs} graph: fetch citations for more "
     "papers in the Citations tab, then run the graph again."
 )
+SNOWBALL_NO_METADATA = (
+    "No metadata could be fetched for the {count} candidates: Semantic Scholar "
+    "requests failed (often rate limiting without a key). Add a Semantic Scholar "
+    "key in API keys, or try again later."
+)
 NO_SCIPY_WARNING = (
     "Warning: scipy is not installed, so papers are ranked by degree centrality "
     "instead of PageRank (communities are unaffected)."
@@ -506,9 +511,13 @@ def run_snowball(
     papers = fetch_metadata_batch([doi for doi, _ in candidates], api_key=api_key)
     if _cancelled(cancel_event):
         return AnalysisResult("Cancelled.")
+    if not papers:
+        raise AnalysisError(SNOWBALL_NO_METADATA.format(count=len(candidates)))
     filtered = apply_snowball_filters(papers)
     if filtered.empty:
-        return AnalysisResult("No paper passed the quality filters.")
+        return AnalysisResult(
+            f"None of the {len(papers)} candidates found passed the quality filters."
+        )
     merged = merge_with_corpus(corpus_df, filtered)
     output_csv = collect_dir / SNOWBALL_FILENAME
     write_aggregated_csv(merged, str(output_csv), quoting=csv.QUOTE_NONNUMERIC)

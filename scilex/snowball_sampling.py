@@ -124,6 +124,14 @@ def main():
         papers = fetch_metadata_batch(candidate_dois, api_key=ss_api_key)
         logger.info(f"Fetched {len(papers)} papers from Semantic Scholar")
 
+        if not papers:
+            print(
+                f"\nNo metadata could be fetched for the {len(candidate_dois)} "
+                "candidates: Semantic Scholar requests failed (often rate limiting "
+                "without a key). Add a Semantic Scholar key or try again later."
+            )
+            return
+
         # Apply quality filters (no keyword filter)
         filtered_df = apply_snowball_filters(papers)
 
