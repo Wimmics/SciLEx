@@ -74,7 +74,12 @@ def test_run_seed_writes_exportable_csv(tmp_path):
         _raw_paper("10.9/new2", "Graphs two"),
         _raw_paper("10.9/new1", "Graphs one duplicate"),
         _raw_paper("10.1/seed", "The seed itself"),
-        {**_raw_paper("10.9/noabs", "No abstract"), "abstract": None},
+        # Not a bypass type (journal/conference): the quality filters apply.
+        {
+            **_raw_paper("10.9/noabs", "No abstract"),
+            "abstract": None,
+            "publicationTypes": None,
+        },
     ]
     filters = get_default_quality_filters()
     filters["validate_year_range"] = False
@@ -135,6 +140,19 @@ def test_keyword_filter_applied_when_groups_given():
     filtered = seed.apply_filters(
         frame, filters, [["knowledge graph"], ["metabolomics"]]
     )
+    assert list(filtered["DOI"]) == ["10.9/a"]
+
+
+def test_journal_articles_with_short_abstracts_are_kept():
+    # S2 recommendations often have truncated abstracts; like the aggregation,
+    # journal articles bypass the quality filters, other types do not.
+    filters = get_default_quality_filters()
+    filters["validate_year_range"] = False
+    article = _raw_paper("10.9/a", "Graphs")
+    preprint = {**_raw_paper("10.9/b", "Other"), "publicationTypes": None}
+    frame = seed.recommendations_to_frame([article, preprint])
+    frame["abstract"] = "A short truncated abstract of thirty words or so."
+    filtered = seed.apply_filters(frame, filters)
     assert list(filtered["DOI"]) == ["10.9/a"]
 
 

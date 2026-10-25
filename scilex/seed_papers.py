@@ -204,13 +204,24 @@ def apply_filters(
     The keyword filter only runs when ``keyword_groups`` is given.
     """
     from scilex.pipeline.citation_filter import apply_time_aware_citation_filter
+    from scilex.pipeline.itemtype_filter import apply_itemtype_bypass
     from scilex.pipeline.text_filter import record_passes_text_filter
     from scilex.quality_validation import apply_quality_filters
 
     if frame.empty:
         return frame
 
-    frame, _report = apply_quality_filters(frame, quality_filters, False)
+    # Like the aggregation: trusted item types skip the quality filters.
+    # Recommendations often carry truncated abstracts (~30 words), which the
+    # 50-word minimum would otherwise reject wholesale.
+    bypass_types = quality_filters.get("bypass_item_types", [])
+    if quality_filters.get("enable_itemtype_bypass", False) and bypass_types:
+        bypassed, others = apply_itemtype_bypass(frame, bypass_types)
+    else:
+        bypassed, others = frame.iloc[0:0], frame
+    if len(others) > 0:
+        others, _report = apply_quality_filters(others, quality_filters, False)
+    frame = pd.concat([bypassed, others], ignore_index=True)
 
     if keyword_groups and len(frame) > 0:
         flat_keywords = [kw for group in keyword_groups for kw in group]
