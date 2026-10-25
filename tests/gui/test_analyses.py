@@ -194,27 +194,38 @@ def test_run_citations_writes_both_caches(ctx, tmp_path, monkeypatch):
     assert len(result.files) == 2
 
 
-def test_run_citations_skip_citers_and_batches(ctx, tmp_path, monkeypatch):
+def test_run_citations_skip_citers(ctx, tmp_path, monkeypatch):
     calls = []
     _fake_fetchers(monkeypatch, calls)
-    monkeypatch.setattr(service, "CITATION_BATCH_SIZE", 2)
     review = _review_with_dois(ctx, tmp_path, count=5)
     config = ctx.workspace.load_config(review)
     service.run_citations(config, lambda p, m: None, skip_citers=True)
-    assert [len(batch) for _, batch in calls] == [2, 2, 1]
+    assert [(name, len(dois)) for name, dois in calls] == [("citations_cache.json", 5)]
 
 
-def test_run_citations_stops_on_cancel(ctx, tmp_path, monkeypatch):
+def test_run_citations_passes_cancel_to_fetcher(ctx, tmp_path, monkeypatch):
+    """The fetcher gets a per-paper stop check, so cancel needs no batch boundary."""
     import threading
 
-    calls = []
+    from scilex.citations import reference_fetcher
+
     cancel = threading.Event()
-    _fake_fetchers(monkeypatch, calls, on_batch=cancel.set)
-    monkeypatch.setattr(service, "CITATION_BATCH_SIZE", 1)
+    calls = []
+
+    def fake(dois, api_key=None, cache_path=None, should_stop=None, **kwargs):
+        calls.append(cache_path)
+        assert should_stop() is False
+        cancel.set()
+        assert should_stop() is True
+        Path(cache_path).write_text("{}")
+        return {dois[0]: ["10.9/ref"]}
+
+    monkeypatch.setattr(reference_fetcher, "fetch_references_batch", fake)
+    monkeypatch.setattr(reference_fetcher, "fetch_citers_batch", fake)
     review = _review_with_dois(ctx, tmp_path, count=5)
     config = ctx.workspace.load_config(review)
     result = service.run_citations(config, lambda p, m: None, cancel_event=cancel)
-    assert len(calls) == 1
+    assert len(calls) == 1  # citers stage skipped
     assert "Cancelled" in result.message
 
 
@@ -286,6 +297,8 @@ async def test_run_buttons_disabled_while_another_job_runs(ctx, tmp_path, monkey
         buttons = user.find(marker="analysis-run-enrich").elements
         assert all(not button.enabled for button in buttons)
         release.set()
+        # Hidden tabs do not poll: the result shows on return to the job's tab.
+        user.find(marker="analysis-tab-report").click()
         await user.should_see("Completed", retries=50)
 
 
@@ -388,4 +401,5 @@ async def test_busy_reason_is_visible_and_chart_caption_is_file_name(
         user.find(marker="analysis-tab-report").click()
         await user.should_see("Another job is running (HuggingFace)", retries=50)
         release.set()
+        user.find(marker="analysis-tab-enrich").click()
         await user.should_see("Completed", retries=50)

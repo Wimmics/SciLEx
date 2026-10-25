@@ -408,3 +408,44 @@ class TestFetchCitersBatch:
         assert cache_file.exists()
         loaded = json.loads(cache_file.read_text())
         assert loaded["10.0/paper"] == ["10.5/citer"]
+
+
+class TestBatchCancellation:
+    @patch("scilex.citations.reference_fetcher.fetch_references_ss")
+    def test_references_stop_before_next_paper_and_keep_cache(self, mock_ss, tmp_path):
+        mock_ss.return_value = ["10.9/ref"]
+        cache = tmp_path / "refs.json"
+        progress = []
+        result = fetch_references_batch(
+            ["10.1/a", "10.1/b", "10.1/c"],
+            cache_path=str(cache),
+            should_stop=lambda: mock_ss.call_count >= 1,
+            on_progress=lambda done, total: progress.append((done, total)),
+        )
+        assert mock_ss.call_count == 1
+        assert result == {"10.1/a": ["10.9/ref"]}
+        assert json.loads(cache.read_text()) == {"10.1/a": ["10.9/ref"]}
+        assert progress == [(1, 3)]
+
+    @patch("scilex.citations.reference_fetcher._fetch_references_oc")
+    @patch("scilex.citations.reference_fetcher._fetch_references_crossref")
+    @patch("scilex.citations.reference_fetcher.fetch_references_ss")
+    def test_references_skip_fallbacks_when_stopped(self, mock_ss, mock_cr, mock_oc):
+        mock_ss.return_value = []
+        result = fetch_references_batch(
+            ["10.1/a"], should_stop=lambda: mock_ss.call_count >= 1
+        )
+        mock_cr.assert_not_called()
+        mock_oc.assert_not_called()
+        assert result == {}
+
+    @patch("scilex.citations.reference_fetcher._fetch_citers_oc")
+    @patch("scilex.citations.reference_fetcher.fetch_citers_ss")
+    def test_citers_stop_between_tiers(self, mock_ss, mock_oc):
+        mock_ss.return_value = []
+        result = fetch_citers_batch(
+            ["10.1/a", "10.1/b"], should_stop=lambda: mock_ss.call_count >= 1
+        )
+        mock_oc.assert_not_called()
+        assert mock_ss.call_count == 1
+        assert result == {}

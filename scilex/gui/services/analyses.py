@@ -35,7 +35,6 @@ SNOWBALL_FILENAME = "aggregated_results_snowball.csv"
 
 ProgressFn = Callable[[int, str], None]
 CancelEvent = threading.Event | None
-CITATION_BATCH_SIZE = 20  # DOIs fetched between two cancellation checks
 
 
 def _cancelled(cancel_event: CancelEvent) -> bool:
@@ -93,7 +92,7 @@ ANALYSES = (
         "Fetch the references and citing papers of the corpus (like scilex-enrich-citations). "
         "Needed by Snowball and Graph; slow without a Semantic Scholar key.",
         "results",
-        "Stops after the current batch of papers; fetched data is kept and reused next time.",
+        "Stops after the current paper; fetched data is kept and reused next time.",
     ),
     AnalysisInfo(
         "snowball",
@@ -366,8 +365,8 @@ def run_citations(
     """Fetch references and citers of the corpus (``scilex-enrich-citations``).
 
     Writes ``citations_cache.json`` and ``citers_cache.json`` in the collection
-    directory (what Snowball and Graph read). DOIs are fetched by batches so a
-    cancellation is honoured between batches; the caches are reused on rerun.
+    directory (what Snowball and Graph read). A cancellation is honoured before
+    each paper and between fallback sources; the caches are reused on rerun.
     """
     from scilex.citations.reference_fetcher import (
         fetch_citers_batch,
@@ -395,16 +394,21 @@ def run_citations(
     mailto = config.api.get("CrossRef", {}).get("mailto")
     collect_dir.mkdir(parents=True, exist_ok=True)
 
+    def should_stop() -> bool:
+        return _cancelled(cancel_event)
+
     stages = [
         (
             "references",
             collect_dir / "citations_cache.json",
-            lambda batch, cache: fetch_references_batch(
-                batch,
+            lambda cache, on_progress: fetch_references_batch(
+                dois,
                 api_key=api_key,
                 cache_path=str(cache),
                 fallback_opencitations=not no_fallback,
                 mailto=mailto,
+                should_stop=should_stop,
+                on_progress=on_progress,
             ),
         )
     ]
@@ -413,35 +417,37 @@ def run_citations(
             (
                 "citing papers",
                 collect_dir / "citers_cache.json",
-                lambda batch, cache: fetch_citers_batch(
-                    batch,
+                lambda cache, on_progress: fetch_citers_batch(
+                    dois,
                     api_key=api_key,
                     cache_path=str(cache),
                     fallback_opencitations=not no_fallback,
+                    should_stop=should_stop,
+                    on_progress=on_progress,
                 ),
             )
         )
-    batches = [
-        dois[start : start + CITATION_BATCH_SIZE]
-        for start in range(0, len(dois), CITATION_BATCH_SIZE)
-    ]
-    total_steps = len(stages) * len(batches)
-    step = 0
     started = time.time()
     found: dict[str, bool] = dict.fromkeys(dois, False)
-    for label, cache, fetch in stages:
-        for batch in batches:
-            if _cancelled(cancel_event):
-                return AnalysisResult(f"Cancelled; {step}/{total_steps} batches done.")
-            progress(
-                int(100 * step / total_steps),
-                f"Fetching {label}: batch {step % len(batches) + 1}/{len(batches)}",
-            )
-            fetched = fetch(batch, cache) or {}
-            for doi in batch:
-                if fetched.get(doi):
-                    found[doi] = True
-            step += 1
+    for index, (label, cache, fetch) in enumerate(stages):
+
+        def on_progress(done: int, to_fetch: int, index=index, label=label) -> None:
+            if should_stop():
+                return  # keep the "Cancelling…" message
+            fraction = (index + done / max(to_fetch, 1)) / len(stages)
+            progress(int(100 * fraction), f"Fetching {label}: {done}/{to_fetch}")
+
+        if should_stop():
+            break
+        progress(int(100 * index / len(stages)), f"Fetching {label}…")
+        fetched = fetch(cache, on_progress) or {}
+        for doi, links in fetched.items():
+            if links:
+                found[doi] = True
+    if should_stop():
+        return AnalysisResult(
+            "Cancelled; citation data fetched so far is kept and reused next time."
+        )
     files = [cache for _, cache, _ in stages if cache.is_file()]
     with_data = sum(found.values())
     if not with_data:

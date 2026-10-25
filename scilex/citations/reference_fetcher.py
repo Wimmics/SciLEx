@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import urllib.parse
+from collections.abc import Callable
 
 import requests
 from ratelimit import limits, sleep_and_retry
@@ -27,6 +28,14 @@ from tenacity import (
 from scilex.citations.citations_tools import getCitations, getReferences
 
 logger = logging.getLogger(__name__)
+
+StopFn = Callable[[], bool] | None
+ProgressFn = Callable[[int, int], None] | None
+
+
+def _stop_requested(should_stop: StopFn) -> bool:
+    return should_stop is not None and should_stop()
+
 
 SS_REFERENCES_URL = (
     "https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}/references"
@@ -219,6 +228,8 @@ def fetch_references_batch(
     cache_path: str | None = None,
     fallback_opencitations: bool = True,
     mailto: str | None = None,
+    should_stop: StopFn = None,
+    on_progress: ProgressFn = None,
 ) -> dict[str, list[str]]:
     """Fetch reference DOI lists for many papers with cache and three-tier fallback.
 
@@ -236,9 +247,13 @@ def fetch_references_batch(
         fallback_opencitations: If True, use OpenCitations when CrossRef also
             returns an empty list.
         mailto: Optional email for CrossRef polite pool (higher rate limits).
+        should_stop: Optional callable checked before each paper and between
+            fallback tiers; when it returns True, fetching stops and the papers
+            done so far are cached. Unfetched DOIs are absent from the result.
+        on_progress: Optional callable receiving (papers done, papers to fetch).
 
     Returns:
-        Dict mapping each DOI to its list of cited DOIs.
+        Dict mapping each fetched or cached DOI to its list of cited DOIs.
     """
     # Load existing cache
     cache: dict[str, list[str]] = {}
@@ -259,6 +274,8 @@ def fetch_references_batch(
     )
 
     for i, doi in enumerate(pending, 1):
+        if _stop_requested(should_stop):
+            break
         clean_doi = doi.replace("https://doi.org/", "").strip()
         if not clean_doi:
             results[doi] = []
@@ -266,6 +283,8 @@ def fetch_references_batch(
 
         # Tier 1: SemanticScholar
         refs = fetch_references_ss(clean_doi, api_key=api_key)
+        if not refs and _stop_requested(should_stop):
+            break
 
         # Tier 2: CrossRef (when SS returned nothing)
         if not refs:
@@ -277,6 +296,8 @@ def fetch_references_batch(
             except Exception as e:
                 logger.warning(f"CrossRef fetch failed for DOI {clean_doi}: {e}")
                 refs = []
+            if not refs and _stop_requested(should_stop):
+                break
 
         # Tier 3: OpenCitations (when CrossRef also returned nothing)
         if not refs and fallback_opencitations:
@@ -293,15 +314,27 @@ def fetch_references_batch(
 
         if i % 50 == 0 or i == len(pending):
             logger.info(f"  Progress: {i}/{len(pending)} fetched")
+        if on_progress is not None:
+            on_progress(i, len(pending))
 
-    # Merge cache + new results
+    return _finish_batch(dois, cache, results, cache_path)
+
+
+def _finish_batch(
+    dois: list[str],
+    cache: dict[str, list[str]],
+    results: dict[str, list[str]],
+    cache_path: str | None,
+) -> dict[str, list[str]]:
+    """Merge new results into the cache, save it and return the requested DOIs.
+
+    DOIs neither cached nor fetched (fetch stopped early) are left out, so the
+    caller can tell them apart from papers with no known links.
+    """
     combined = {**cache, **results}
-
     if cache_path:
         _save_cache(cache_path, combined)
-
-    # Return only the requested DOIs
-    return {doi: combined.get(doi, []) for doi in dois}
+    return {doi: combined[doi] for doi in dois if doi in combined}
 
 
 def _save_cache(cache_path: str, data: dict[str, list[str]]) -> None:
@@ -430,6 +463,8 @@ def fetch_citers_batch(
     api_key: str | None = None,
     cache_path: str | None = None,
     fallback_opencitations: bool = True,
+    should_stop: StopFn = None,
+    on_progress: ProgressFn = None,
 ) -> dict[str, list[str]]:
     """Fetch citing-paper DOI lists for many papers with cache and fallback.
 
@@ -446,9 +481,13 @@ def fetch_citers_batch(
         cache_path: Path to JSON cache file. Pass None to skip caching.
         fallback_opencitations: If True, use OpenCitations when SS returns
             an empty list.
+        should_stop: Optional callable checked before each paper and between
+            fallback tiers; when it returns True, fetching stops and the papers
+            done so far are cached. Unfetched DOIs are absent from the result.
+        on_progress: Optional callable receiving (papers done, papers to fetch).
 
     Returns:
-        Dict mapping each DOI to its list of citing DOIs.
+        Dict mapping each fetched or cached DOI to its list of citing DOIs.
     """
     cache: dict[str, list[str]] = {}
     if cache_path and os.path.exists(cache_path):
@@ -468,6 +507,8 @@ def fetch_citers_batch(
     )
 
     for i, doi in enumerate(pending, 1):
+        if _stop_requested(should_stop):
+            break
         clean_doi = doi.replace("https://doi.org/", "").strip()
         if not clean_doi:
             results[doi] = []
@@ -475,6 +516,8 @@ def fetch_citers_batch(
 
         # Tier 1: SemanticScholar
         citers = fetch_citers_ss(clean_doi, api_key=api_key)
+        if not citers and _stop_requested(should_stop):
+            break
 
         # Tier 2: OpenCitations
         if not citers and fallback_opencitations:
@@ -490,10 +533,7 @@ def fetch_citers_batch(
 
         if i % 50 == 0 or i == len(pending):
             logger.info(f"  Progress: {i}/{len(pending)} fetched")
+        if on_progress is not None:
+            on_progress(i, len(pending))
 
-    combined = {**cache, **results}
-
-    if cache_path:
-        _save_cache(cache_path, combined)
-
-    return {doi: combined.get(doi, []) for doi in dois}
+    return _finish_batch(dois, cache, results, cache_path)
