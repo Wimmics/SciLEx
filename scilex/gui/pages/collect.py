@@ -7,11 +7,13 @@ from scilex.gui.components.errors import show_error
 from scilex.gui.components.job_panel import BusyNotice, JobPanel
 from scilex.gui.services.collect_summary import (
     api_rows,
+    collected_api_dirs,
     detect_resume,
     load_summary,
     phase_steps,
     placeholder_keywords,
     preflight_line,
+    target_collection_dir,
 )
 from scilex.gui.services.jobs import PIPELINE, Job, JobConflictError
 from scilex.gui.services.screening import load_decisions
@@ -300,7 +302,7 @@ def render(ctx: AppContext, review: Review) -> None:
     panel.on_change = lambda job: (update_buttons(job), update_details(job))
     panel.refresh()
 
-    def start(*, resume: bool) -> None:
+    def start(*, resume: bool, confirmed: bool = False) -> None:
         since = (since_input.value or "").strip() or None
         try:
             if since:
@@ -312,12 +314,18 @@ def render(ctx: AppContext, review: Review) -> None:
             return
         try:
             config = Workspace.load_config(review)
+            if not resume and not confirmed:
+                previous = collected_api_dirs(target_collection_dir(config, since))
+                if previous:
+                    confirm_fresh_run(previous)
+                    return
             ctx.runner.start_pipeline(
                 review,
                 config,
                 skip_citations=skip_citations.value,
                 since=since,
                 resume=resume,
+                fresh=not resume,
             )
         except (SettingsError, FileNotFoundError, JobConflictError) as exc:
             show_error("Cannot start the collection", exc, expected=True)
@@ -325,6 +333,30 @@ def render(ctx: AppContext, review: Review) -> None:
             show_error("Cannot start the collection", exc)
         show_failure.refresh()
         refresh()
+
+    def confirm_fresh_run(previous: list) -> None:
+        """Ask before Run deletes the raw results of the previous collection."""
+        names = ", ".join(path.name for path in previous)
+        with one_shot_dialog() as dialog, ui.card().mark("fresh-confirm"):
+            ui.label("Start the collection from zero?").classes("text-lg")
+            ui.label(
+                f"The results already collected ({names}) will be deleted and "
+                "every query collected again. To continue an interrupted "
+                "collection instead, use Resume."
+            )
+            with ui.row().classes("justify-end w-full"):
+                ui.button("Cancel", on_click=dialog.close).props("flat").mark(
+                    "fresh-cancel"
+                )
+
+                def go() -> None:
+                    dialog.close()
+                    start(resume=False, confirmed=True)
+
+                ui.button("Delete and run", on_click=go).props("color=negative").mark(
+                    "fresh-run"
+                )
+        dialog.open()
 
     def aggregate_only() -> None:
         try:

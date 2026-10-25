@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -206,6 +207,49 @@ def resume_config(collection_dir: Path, config: SciLExConfig) -> SciLExConfig:
     main = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     main["output_dir"] = config.main["output_dir"]
     return SciLExConfig.from_dicts(main, config.api)
+
+
+def target_collection_dir(config: SciLExConfig, since: str | None = None) -> Path:
+    """Return the folder a collection run will write to.
+
+    A since-run (``since``, or ``since`` in the config) writes to the sibling
+    ``<collect_name>_since_<date>`` folder.
+    """
+    from scilex.config_defaults import DEFAULT_OUTPUT_DIR
+    from scilex.since_utils import parse_since, prepare_since_config
+
+    main = config.main
+    since_date = parse_since(since or main.get("since"))
+    if since_date:
+        main = prepare_since_config(main, since_date)
+    output_dir = main.get("output_dir", DEFAULT_OUTPUT_DIR)
+    return Path(output_dir) / str(main.get("collect_name", "unknown"))
+
+
+def collected_api_dirs(collection_dir: Path) -> list[Path]:
+    """Return the per-API folders of raw results in ``collection_dir``."""
+    from scilex.crawlers.collector_collection import api_collectors
+
+    if not collection_dir.is_dir():
+        return []
+    return [
+        path
+        for path in sorted(collection_dir.iterdir())
+        if path.is_dir() and path.name in api_collectors
+    ]
+
+
+def clear_collection(collection_dir: Path) -> None:
+    """Delete the raw API results so the next run starts from zero.
+
+    The collector skips queries whose results are on disk; removing the
+    per-API folders and the config snapshot makes it collect every query
+    again. Other files (aggregated results, reports) are left in place and
+    are overwritten by the new run.
+    """
+    for api_dir in collected_api_dirs(collection_dir):
+        shutil.rmtree(api_dir)
+    (collection_dir / CONFIG_USED_FILENAME).unlink(missing_ok=True)
 
 
 @dataclass(frozen=True)

@@ -11,10 +11,12 @@ from nicegui.testing import user_simulation
 from scilex.gui.app import build_root
 from scilex.gui.services.collect_summary import (
     api_rows,
+    collected_api_dirs,
     detect_resume,
     load_summary,
     phase_steps,
     resume_config,
+    target_collection_dir,
 )
 from scilex.gui.services.jobs import JobRunner
 from scilex.gui.services.workspace import Workspace
@@ -131,6 +133,33 @@ def test_start_pipeline_forwards_since_and_resume(tmp_path):
     assert seen["main"]["apis"] == ["OpenAlex"]
 
 
+def test_fresh_run_deletes_previous_raw_results(tmp_path):
+    seen = {}
+
+    def collection(config, progress_callback, cancel_event):
+        seen["left"] = sorted(p.name for p in review.collection_dir.iterdir())
+
+    runner = JobRunner(collection, lambda config, options, progress: None)
+    workspace = Workspace(registry_path=tmp_path / "reg.yml")
+    review = workspace.create_review(tmp_path / "rag", name="rag_kg")
+    _interrupted_collection(review)
+    (review.collection_dir / "aggregated_results.csv").write_text("kept")
+    config = Workspace.load_config(review)
+    assert target_collection_dir(config) == review.collection_dir
+    assert [p.name for p in collected_api_dirs(review.collection_dir)] == ["OpenAlex"]
+
+    _wait(runner.start_pipeline(review, config, fresh=True))
+    assert seen["left"] == ["aggregated_results.csv"]
+
+
+def test_target_collection_dir_of_since_run(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = Workspace.load_config(review)
+    target = target_collection_dir(config, "2024-03-01")
+    assert target.parent == review.collection_dir.parent
+    assert target.name.startswith("rag_kg_since_")
+
+
 def test_start_aggregation_skips_collection(tmp_path):
     calls = []
 
@@ -220,6 +249,26 @@ async def test_page_shows_previous_results_and_resume(ctx, tmp_path):
         await user.open(f"/review/{review.id}/collect")
         await user.should_see("Last results")
         await user.should_see(marker="resume")
+
+
+@pytest.mark.anyio
+async def test_page_run_asks_before_deleting_previous_collection(ctx, tmp_path):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    _interrupted_collection(review)
+    calls = []
+    ctx.runner = JobRunner(
+        lambda config, progress_callback, cancel_event: calls.append(1),
+        lambda config, options, progress: None,
+    )
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/collect")
+        user.find(marker="run").click()
+        await user.should_see(marker="fresh-confirm")
+        assert ctx.runner.active_job() is None
+        user.find(marker="fresh-run").click()
+        await user.should_see("Completed", retries=50)
+    assert calls == [1]
+    assert not (review.collection_dir / "OpenAlex").exists()
 
 
 @pytest.mark.anyio

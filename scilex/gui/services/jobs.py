@@ -155,6 +155,7 @@ class JobRunner:
         skip_citations: bool = False,
         since: str | None = None,
         resume: bool = False,
+        fresh: bool = False,
     ) -> Job:
         """Run collection then aggregation for ``review`` in a background thread.
 
@@ -166,13 +167,19 @@ class JobRunner:
                 (like ``scilex-collect --since``).
             resume: Resume the interrupted collection from its saved
                 configuration (like ``scilex-collect --resume``).
+            fresh: Delete the raw results already collected first, so every
+                query is collected again (ignored with ``resume``).
 
         Raises:
             JobConflictError: If another job is still active.
             ValueError: If ``since`` is not a valid date.
             FileNotFoundError: If ``resume`` is set but nothing can be resumed.
         """
-        from scilex.gui.services.collect_summary import resume_config
+        from scilex.gui.services.collect_summary import (
+            clear_collection,
+            resume_config,
+            target_collection_dir,
+        )
         from scilex.since_utils import parse_since
 
         if resume:
@@ -180,9 +187,13 @@ class JobRunner:
         if since:
             parse_since(since)
             config.main["since"] = since
+        clear_dir = target_collection_dir(config) if fresh and not resume else None
         job = self._new_job(review, PIPELINE)
 
         def body() -> str:
+            if clear_dir is not None:
+                job.message = "Deleting the previous collection…"
+                clear_collection(clear_dir)
             self._collect(job, config)
             if job.cancel_event.is_set():
                 return ""
