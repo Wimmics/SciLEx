@@ -74,6 +74,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from nicegui import app, ui
 
+    from scilex.gui.components.branding import ICON_PATH
     from scilex.gui.services.diagnostics import setup_file_logging
     from scilex.gui.state import AppContext
 
@@ -86,6 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     ui.run(
         build_root(ctx),
         title="SciLEx",
+        favicon=ICON_PATH,
         native=native,
         window_size=WINDOW_SIZE if native else None,
         port=args.port,

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from nicegui import app, ui
 
+from scilex.gui.components.branding import render_logo
 from scilex.gui.components.dialogs import one_shot_dialog
 from scilex.gui.components.errors import show_error
 from scilex.gui.services.workspace import Review
@@ -33,6 +34,7 @@ async def pick_folder(ctx: AppContext) -> str | None:
 def render(ctx: AppContext) -> None:
     """Draw the home screen."""
     with ui.column().classes("w-full max-w-5xl mx-auto p-6 gap-4"):
+        render_logo("w-56")
         with ui.row().classes("w-full items-center"):
             ui.label("My reviews").classes("text-2xl font-bold")
             ui.space()

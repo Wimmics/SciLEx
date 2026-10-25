@@ -18,7 +18,9 @@ SCILEX_DATA = [
     ("rdf/queries", "*.rq"),
     ("data/venue_rankings", "*.csv"),
     ("tagging", "*.csv"),
+    ("gui/assets", "*.png"),
 ]
+ASSETS = SCILEX / "gui" / "assets"
 
 datas = [
     (str(SCILEX / directory / pattern), f"scilex/{directory}")
@@ -52,6 +54,7 @@ exe = EXE(  # noqa: F821
     [],
     exclude_binaries=True,
     name="SciLEx",
+    icon=str(ASSETS / "icon.ico"),
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -72,6 +75,7 @@ if sys.platform == "darwin":
     app = BUNDLE(  # noqa: F821
         coll,
         name="SciLEx.app",
+        icon=str(ASSETS / "icon.icns"),
         bundle_identifier="fr.univ-cotedazur.scilex",
         info_plist={"NSHighResolutionCapable": True},
     )

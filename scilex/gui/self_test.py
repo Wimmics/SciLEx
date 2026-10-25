@@ -23,6 +23,7 @@ REQUIRED_DATA = {
     "rdf/queries": "*.rq",
     "data/venue_rankings": "*.csv",
     "tagging": "*.csv",
+    "gui/assets": "*.png",
 }
 
 REQUIRED_MODULES = (

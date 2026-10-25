@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 from nicegui import ui
 
+from scilex.gui.components.branding import render_logo
 from scilex.gui.services.workspace import Review
 
 
@@ -50,6 +51,7 @@ def render_sidebar(review: Review, active: str) -> None:
     """
     locked: list[ui.button] = []
     with ui.column().classes("w-52 gap-1 shrink-0"):
+        render_logo("w-36 mb-2 cursor-pointer").on("click", lambda: ui.navigate.to("/"))
         for step in PIPELINE_STEPS:
             _step_button(review, step, active, locked)
         ui.separator()
