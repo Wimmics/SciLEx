@@ -1,6 +1,6 @@
 project = "SciLEx"
-copyright = "2026, Celian Ringwald, Benjamin Navet"
-author = "Celian Ringwald, Benjamin Navet"
+copyright = "2026, Celian Ringwald, Benjamin Navet, Yousouf Taghzouti, Fabien Gandon"
+author = "Celian Ringwald, Benjamin Navet, Yousouf Taghzouti, Fabien Gandon"
 release = "1.0.0"
 
 extensions = [

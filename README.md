@@ -289,14 +289,14 @@ If you use SciLEx in your research, please cite:
 
 **Full text:**
 
-Célian Ringwald, Benjamin Navet. SciLEx, Science Literature Exploration Toolkit ⟨swh:1:dir:944639eb0260a034a5cbf8766d5ee9b74ca85330⟩.
+Célian Ringwald, Benjamin Navet, Yousouf Taghzouti, Fabien Gandon. SciLEx, Science Literature Exploration Toolkit ⟨swh:1:dir:944639eb0260a034a5cbf8766d5ee9b74ca85330⟩.
 
 **BibTeX:**
 
 ```bibtex
 @softwareversion{scilex2026,
   TITLE = {{SciLEx, Science Literature Exploration Toolkit}},
-  AUTHOR = {Ringwald, Célian and Navet, Benjamin},
+  AUTHOR = {Ringwald, Célian and Navet, Benjamin and Taghzouti, Yousouf and Gandon, Fabien},
   URL = {https://github.com/Wimmics/SciLEx},
   NOTE = {},
   INSTITUTION = {{University Côte d'Azur ; CNRS ; Inria}},
