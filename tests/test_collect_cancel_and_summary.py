@@ -60,3 +60,17 @@ def test_report_defaults_to_the_configured_collect_dir(monkeypatch, tmp_path):
     collect_dir = report_charts._configured_collect_dir()
     assert collect_dir.parent == Path(tmp_path)
     assert collect_dir.name  # normalized, non-empty folder name
+
+
+def test_summary_counts_queries_never_started(caplog):
+    from scilex.crawlers.collector_collection import _log_api_summary
+
+    stats = {"completed": 1, "total": 3, "articles": 5, "incomplete": 0}
+    with caplog.at_level("INFO"):
+        _log_api_summary("HAL", stats)
+    assert "Partial" in caplog.text and "2 of 3 queries not finished" in caplog.text
+
+    caplog.clear()
+    with caplog.at_level("INFO"):
+        _log_api_summary("HAL", {**stats, "completed": 3})
+    assert "Complete: 5 papers from 3 queries" in caplog.text

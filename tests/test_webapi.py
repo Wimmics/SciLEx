@@ -652,3 +652,20 @@ def test_stats_with_all_nan_citations(client, output_root):
     response = client.get(f"/results/{COLLECTION}/stats")
     assert response.status_code == 200
     assert "max_citations" not in response.json()["stats"]
+
+
+def test_info_lines_reach_the_job_log_under_a_warning_root(
+    client, monkeypatch, mocked_pipeline
+):
+    # `uvicorn scilex.webapi.scilex_api:app` leaves the root logger at WARNING.
+    root_logger = logging.getLogger()
+    monkeypatch.setattr(root_logger, "level", logging.WARNING)
+
+    def info_create(self):
+        logging.getLogger("test_webapi.info").info("collect milestone")
+
+    monkeypatch.setattr(FakeCollector, "create_collects_jobs", info_create)
+    job_id = client.post("/pipelines/start", json=_start_payload()).json()["job_id"]
+    logs = client.get(f"/pipelines/{job_id}/status").json()["logs"]
+    assert any("collect milestone" in line for line in logs)
+    assert root_logger.level == logging.WARNING  # restored after the job

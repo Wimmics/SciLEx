@@ -207,6 +207,23 @@ def _run_job_collects_worker(
     # using configured rate limits from api.config.yml
 
 
+def _log_api_summary(api_name: str, stats: dict) -> None:
+    """Log one API's end-of-collection line: Complete, or Partial if resumable."""
+    # Queries never started (cancel) are as unfinished as failed ones.
+    not_done = stats["total"] - stats["completed"] + stats["incomplete"]
+    if not_done > 0:
+        logging.warning(
+            f"[{api_name}] Partial: {stats['articles']} papers, "
+            f"{not_done} of {stats['total']} queries not finished "
+            f"(run the collection again to resume them)"
+        )
+    else:
+        logging.info(
+            f"[{api_name}] Complete: {stats['articles']} papers "
+            f"from {stats['completed']} queries"
+        )
+
+
 class CollectCollection:
     def __init__(
         self, main_config, api_config, progress_callback=None, cancel_event=None
@@ -599,21 +616,12 @@ class CollectCollection:
             overall_bar.close()
 
             print("\n" + "=" * 60)
-            print("Collection Complete - Summary:")
+            print("Collection Summary:")
             print("=" * 60)
             for api_name in sorted(api_stats.keys()):
                 stats = api_stats[api_name]
                 print(
                     f"{api_name:20s}: {stats['completed']:3d} queries | {stats['articles']:,} papers"
                 )
-                if stats["incomplete"]:
-                    logging.warning(
-                        f"[{api_name}] Partial: {stats['articles']} papers, "
-                        f"{stats['incomplete']} of {stats['total']} queries incomplete "
-                        f"(run the collection again to resume them)"
-                    )
-                else:
-                    logging.info(
-                        f"[{api_name}] Complete: {stats['articles']} papers from {stats['completed']} queries"
-                    )
+                _log_api_summary(api_name, stats)
             print("=" * 60 + "\n")

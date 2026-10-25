@@ -360,6 +360,11 @@ async def run_collection_task(
     log_handler.addFilter(JobThreadFilter(job))
     root_logger = logging.getLogger()
     root_logger.addHandler(log_handler)
+    # Under `uvicorn scilex.webapi.scilex_api:app` (run_interface.py) the root
+    # logger stays at WARNING: the job log would miss every INFO milestone.
+    previous_level = root_logger.level
+    if root_logger.getEffectiveLevel() > logging.INFO:
+        root_logger.setLevel(logging.INFO)
 
     try:
         _set_status(job, "running")  # refused if cancelled before start
@@ -544,6 +549,7 @@ async def run_collection_task(
             job["message"] = f"Error: {str(e)}"
     finally:
         root_logger.removeHandler(log_handler)
+        root_logger.setLevel(previous_level)
         if previous_config_env is None:
             os.environ.pop("SCILEX_CONFIG", None)
         else:
