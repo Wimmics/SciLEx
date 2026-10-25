@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, field_validator
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
+from scilex.constants import extract_year
 from scilex.crawlers.collector_collection import CollectCollection
 from scilex.pipeline.jobs import (
     ACTIVE_STATUSES,
@@ -44,7 +45,9 @@ logger = logging.getLogger(__name__)
 def _add_year_column(df: pd.DataFrame) -> None:
     """Derive a ``year`` column from ``date`` when it is missing (in place)."""
     if "year" not in df.columns and "date" in df.columns:
-        df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
+        # Not pd.to_datetime: it infers one format from the first value, so a
+        # bare "2024" after "2024-02-20" became NaT and dropped out of by_year.
+        df["year"] = pd.to_numeric(df["date"].map(extract_year), errors="coerce")
 
 
 class JobLogHandler(LogLinesHandler):

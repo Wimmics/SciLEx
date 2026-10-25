@@ -11,7 +11,7 @@ import streamlit as st
 import yaml
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
-from scilex.constants import doi_to_url, is_valid, parse_archive_apis
+from scilex.constants import doi_to_url, extract_year, is_valid, parse_archive_apis
 
 # Project root for config file paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
@@ -46,7 +46,9 @@ def get_available_collections(base_dir: str) -> dict[str, int | None]:
 def add_year_column(df: pd.DataFrame) -> pd.DataFrame:
     """Derive a ``year`` column from ``date`` when it is missing (in place)."""
     if "year" not in df.columns and "date" in df.columns:
-        df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
+        # Not pd.to_datetime: it infers one format from the first value, so a
+        # bare "2024" after "2024-02-20" became NaT and dropped out of by_year.
+        df["year"] = pd.to_numeric(df["date"].map(extract_year), errors="coerce")
     return df
 
 
