@@ -489,9 +489,17 @@ def _phase_opencitations(state, remaining, num_workers, checkpointer):
 # ---------------------------------------------------------------------------
 
 
-def _init_cache():
-    """Initialize the citation cache and purge expired entries; return its path."""
-    cache_path = cache.initialize_cache()
+def _init_cache(cache_dir=None):
+    """Initialize the citation cache and purge expired entries; return its path.
+
+    Args:
+        cache_dir: Folder holding ``citation_cache.db``. None falls back to
+            ``./output``, which fails when the working directory is read-only
+            (a packaged macOS app starts in ``/``).
+    """
+    cache_path = cache.initialize_cache(
+        cache.get_cache_path(cache_dir) if cache_dir else None
+    )
     logging.info(f"Citation cache initialized at {cache_path}")
     cache_stats = cache.get_cache_stats(cache_path)
     logging.info(
@@ -579,6 +587,7 @@ def fetch_citations_for_dataframe(
     use_cache=True,
     crossref_mailto=None,
     api_config=None,
+    cache_dir=None,
 ):
     """Fetch citation counts for every paper of a DataFrame.
 
@@ -596,6 +605,7 @@ def fetch_citations_for_dataframe(
         crossref_mailto: Email for the CrossRef polite pool (optional).
         api_config: Optional API config dict; its CrossRef mailto is used when
             ``crossref_mailto`` is not given.
+        cache_dir: Folder of the citation cache database (default: ``./output``).
 
     Returns:
         tuple: ``(extras, nb_citeds, nb_citations, stats)``. The three lists have
@@ -612,7 +622,7 @@ def fetch_citations_for_dataframe(
         nb_citeds=[None] * total_papers,
         nb_citations=[None] * total_papers,
         stats=dict.fromkeys(STAT_KEYS, 0),
-        cache_path=_init_cache() if use_cache else None,
+        cache_path=_init_cache(cache_dir) if use_cache else None,
     )
 
     if resume and checkpoint_path:

@@ -244,3 +244,23 @@ class TestUnresolvedValuesAndFallbacks:
 
         assert df["nb_citation"].iloc[0] == 4
         assert df["nb_cited"].iloc[0] == 2
+
+
+@patch(f"{CIT}.getRefandCitFormatted", return_value=OC_SUCCESS)
+@patch(f"{CIT}.getCrossRefCitationsBatch", return_value={})
+def test_cache_created_in_cache_dir_not_cwd(_cr, _oc, tmp_path, monkeypatch):
+    """A packaged app starts in a read-only cwd: the cache must follow cache_dir."""
+    from scilex.citations import cache
+
+    workdir = tmp_path / "cwd"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    cache_dir = tmp_path / "review_output"
+
+    try:
+        _run(_df(["10.1/a"]), use_cache=True, cache_dir=str(cache_dir))
+    finally:
+        cache.close_connections()
+
+    assert (cache_dir / "citation_cache.db").is_file()
+    assert not (workdir / "output").exists()

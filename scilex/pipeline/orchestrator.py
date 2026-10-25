@@ -721,6 +721,8 @@ def _process_citations(
         resume=ctx.options.resume,
         use_cache=not ctx.options.no_cache,
         crossref_mailto=crossref_mailto,
+        # Shared by every collection of the output folder; never cwd-relative.
+        cache_dir=os.path.dirname(ctx.dir_collect),
     )
 
     df["extra"] = extras
