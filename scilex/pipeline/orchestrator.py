@@ -656,6 +656,11 @@ def _screen_with_llm(ctx: _AggregationContext, df: pd.DataFrame) -> pd.DataFrame
         api_config=ctx.api_config,
         cache_path=os.path.join(ctx.dir_collect, CACHE_FILENAME),
         cancel_event=ctx.options.cancel_event,
+        progress_callback=lambda done, total: ctx.report_progress(
+            "filtering",
+            45 + round(10 * done / max(total, 1)),
+            f"LLM screening… {done}/{total} papers",
+        ),
     )
     _check_cancelled(ctx)
     if screening_config.threshold is not None:

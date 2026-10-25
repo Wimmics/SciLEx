@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 SCORE_COLUMN = "llm_relevance_score"
 CACHE_FILENAME = "llm_relevance_cache.json"
+PROGRESS_EVERY = 25  # requests between progress reports and cache saves
 API_KEY_ENV_VAR = "OPENROUTER_API_KEY"
 
 DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
@@ -280,8 +282,13 @@ def score_dataframe(
     api_key: str,
     cache_path: str | None = None,
     cancel_event: threading.Event | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> pd.DataFrame:
     """Add the ``llm_relevance_score`` column (NaN when not scored).
+
+    ``progress_callback(done, total)`` is called every ``PROGRESS_EVERY``
+    requests; the score cache is saved at the same pace, so an interrupted run
+    keeps what was already paid for.
 
     Setting ``cancel_event`` stops sending requests; scores already obtained
     are cached and the rest stay unscored.
@@ -332,8 +339,15 @@ def score_dataframe(
 
     if to_score:
         with ThreadPoolExecutor(max_workers=config.workers) as executor:
-            for position, value in executor.map(score_position, to_score):
+            for done, (position, value) in enumerate(
+                executor.map(score_position, to_score), start=1
+            ):
                 scores[position] = value
+                if done % PROGRESS_EVERY == 0:
+                    cache.save()
+                    logger.info(f"LLM screening: {done}/{len(to_score)} scored")
+                    if progress_callback:
+                        progress_callback(done, len(to_score))
         cache.save()
 
     df[SCORE_COLUMN] = pd.Series(scores, index=df.index, dtype="float64")
@@ -346,6 +360,7 @@ def apply_llm_screening(
     api_config: dict | None = None,
     cache_path: str | None = None,
     cancel_event: threading.Event | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> pd.DataFrame:
     """Score papers and drop those under ``config.threshold`` (if set).
 
@@ -365,7 +380,9 @@ def apply_llm_screening(
             f"No OpenRouter key: set openrouter.api_key in keys.yml (API keys screen "
             f"in the app) or {API_KEY_ENV_VAR}, or disable llm_screening in scilex.yml"
         )
-    scored = score_dataframe(df, config, api_key, cache_path, cancel_event)
+    scored = score_dataframe(
+        df, config, api_key, cache_path, cancel_event, progress_callback
+    )
     if config.threshold is not None:
         keep = scored[SCORE_COLUMN].isna() | (scored[SCORE_COLUMN] >= config.threshold)
         logger.info(

@@ -92,3 +92,27 @@ def test_aggregation_raises_when_cancelled(tmp_path):
 
     with pytest.raises(AggregationCancelled):
         run_aggregation(config, AggregationOptions(cancel_event=cancel_event))
+
+
+def test_llm_scoring_reports_progress(monkeypatch):
+    import pandas as pd
+
+    from scilex.llm_relevance import LLMScreeningConfig, score_dataframe
+
+    monkeypatch.setattr("scilex.llm_relevance.PROGRESS_EVERY", 2)
+    monkeypatch.setattr("scilex.llm_relevance.request_score", lambda *args: 5.0)
+    papers = pd.DataFrame(
+        {
+            "title": list("abcde"),
+            "DOI": ["NA"] * 5,
+            "abstract": ["x"] * 5,
+        }
+    )
+    config = LLMScreeningConfig.from_dict({"enabled": True, "topic": "t"})
+    reports = []
+
+    score_dataframe(
+        papers, config, "key", progress_callback=lambda *args: reports.append(args)
+    )
+
+    assert reports == [(2, 5), (4, 5)]
