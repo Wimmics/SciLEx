@@ -378,6 +378,14 @@ def main():
     except FileNotFoundError as error:
         logger.error(f"File not found: {error}")
         sys.exit(1)
+    except _RetryableSSError as error:
+        # Expected without a key: no traceback, say what to do.
+        logger.error(
+            f"Semantic Scholar did not answer ({error}, after 4 attempts). "
+            "Without an API key it rate-limits shared traffic: retry in a few "
+            "minutes, or set SemanticScholar.api_key in keys.yml."
+        )
+        sys.exit(1)
     except Exception as error:
         logger.error(f"Error during seed mode: {error}", exc_info=True)
         sys.exit(1)

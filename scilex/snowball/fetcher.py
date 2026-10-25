@@ -22,8 +22,10 @@ logger = logging.getLogger(__name__)
 
 SS_BATCH_URL = "https://api.semanticscholar.org/graph/v1/paper/batch"
 
+# No "DOI" field in the S2 API (HTTP 400 "Unrecognized or unsupported fields"):
+# the DOI comes from externalIds (see convert_ss_paper).
 SS_FIELDS = (
-    "title,abstract,authors,url,DOI,publicationTypes,publicationVenue,"
+    "title,abstract,authors,url,publicationTypes,publicationVenue,"
     "publicationDate,journal,venue,externalIds,openAccessPdf,"
     "citationCount,referenceCount,paperId"
 )

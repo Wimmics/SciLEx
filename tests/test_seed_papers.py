@@ -138,6 +138,27 @@ def test_keyword_filter_applied_when_groups_given():
     assert list(filtered["DOI"]) == ["10.9/a"]
 
 
+def test_requested_fields_are_valid_s2_fields():
+    # The S2 API answers 400 for an unknown field; the DOI is in externalIds.
+    from scilex.snowball.fetcher import SS_FIELDS
+
+    assert "DOI" not in SS_FIELDS.split(",")
+    assert "externalIds" in SS_FIELDS.split(",")
+
+
+def test_rate_limit_gives_a_clear_message(monkeypatch, capsys):
+    monkeypatch.setattr("sys.argv", ["scilex-seed", "--dois", "10.1/a"])
+    monkeypatch.setattr(seed, "_load_configs", lambda: ({"collect_name": "x"}, {}))
+    monkeypatch.setattr(
+        seed, "run_seed", MagicMock(side_effect=seed._RetryableSSError("HTTP 429"))
+    )
+    with pytest.raises(SystemExit):
+        seed.main()
+    output = capsys.readouterr()
+    assert "keys.yml" in output.out + output.err
+    assert "Traceback" not in output.out + output.err
+
+
 def test_main_without_seed_exits(monkeypatch):
     monkeypatch.setattr("sys.argv", ["scilex-seed"])
     with pytest.raises(SystemExit):
