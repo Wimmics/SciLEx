@@ -41,8 +41,10 @@ dev = [
 ]
 graph = [
     "python-louvain>=0.16",
+    "scipy>=1.11",  # networkx PageRank
 ]
 gui = [
+    "scilex[graph]",  # the app runs the Graph analysis
     "nicegui>=3.18.0",
     "platformdirs>=4.12.4",
     "pywebview>=6.2.1",
