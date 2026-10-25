@@ -44,3 +44,51 @@ def test_replay_uses_current_config_on_collection_dir(tmp_path, monkeypatch):
     assert replayed.main["output_dir"] == str(tmp_path / "out")
     assert replayed.main["collect_name"] == "review"
     assert replayed.main is current.main
+
+
+def test_llm_scoring_stops_when_cancelled(monkeypatch):
+    import threading
+
+    import pandas as pd
+
+    from scilex.llm_relevance import LLMScreeningConfig, score_dataframe
+
+    requests_sent = []
+    monkeypatch.setattr(
+        "scilex.llm_relevance.request_score",
+        lambda *args: requests_sent.append(args) or 5.0,
+    )
+    cancel_event = threading.Event()
+    cancel_event.set()
+    papers = pd.DataFrame(
+        {"title": ["a", "b"], "DOI": ["NA", "NA"], "abstract": ["x", "y"]}
+    )
+    config = LLMScreeningConfig.from_dict({"enabled": True, "topic": "t"})
+
+    scored = score_dataframe(papers, config, "key", cancel_event=cancel_event)
+
+    assert requests_sent == []
+    assert scored["llm_relevance_score"].isna().all()
+
+
+def test_aggregation_raises_when_cancelled(tmp_path):
+    import threading
+
+    import pytest
+
+    from scilex.pipeline.orchestrator import (
+        AggregationCancelled,
+        AggregationOptions,
+        run_aggregation,
+    )
+
+    collect_dir = tmp_path / "out" / "review"
+    _write_partial_collection(collect_dir)
+    config = SciLExConfig(
+        {"collect_name": "review", "output_dir": str(tmp_path / "out")}, {}
+    )
+    cancel_event = threading.Event()
+    cancel_event.set()
+
+    with pytest.raises(AggregationCancelled):
+        run_aggregation(config, AggregationOptions(cancel_event=cancel_event))

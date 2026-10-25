@@ -297,3 +297,22 @@ async def test_screening_kept_notice_when_decisions_exist(ctx, tmp_path):
     async with user_simulation(build_root(ctx)) as user:
         await user.open(f"/review/{review.id}/collect")
         await user.should_see(marker="screening-kept-notice")
+
+
+def test_cancel_during_aggregation_ends_cancelled(tmp_path):
+    from scilex.pipeline.orchestrator import AggregationCancelled
+
+    def aggregation(config, options, progress_callback):
+        assert options.cancel_event is not None
+        options.cancel_event.wait(5)
+        raise AggregationCancelled("stop")
+
+    runner = JobRunner(lambda *a, **k: None, aggregation)
+    workspace = Workspace(registry_path=tmp_path / "reg.yml")
+    review = workspace.create_review(tmp_path / "rag", name="rag_kg")
+    job = runner.start_aggregation(review, Workspace.load_config(review))
+
+    assert runner.cancel(job.id)
+    _wait(job, timeout=5)
+
+    assert job.status == job_states.CANCELLED

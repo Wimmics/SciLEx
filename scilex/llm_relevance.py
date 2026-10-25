@@ -279,8 +279,12 @@ def score_dataframe(
     config: LLMScreeningConfig,
     api_key: str,
     cache_path: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> pd.DataFrame:
     """Add the ``llm_relevance_score`` column (NaN when not scored).
+
+    Setting ``cancel_event`` stops sending requests; scores already obtained
+    are cached and the rest stay unscored.
 
     Cached scores are reused. At most ``config.max_papers`` uncached papers are
     sent to the LLM; the estimated cost is logged before any request.
@@ -309,6 +313,8 @@ def score_dataframe(
         )
 
     def score_position(position: int) -> tuple[int, float | None]:
+        if cancel_event is not None and cancel_event.is_set():
+            return position, None
         row = df.iloc[position]
         try:
             value = request_score(
@@ -339,6 +345,7 @@ def apply_llm_screening(
     config: LLMScreeningConfig,
     api_config: dict | None = None,
     cache_path: str | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> pd.DataFrame:
     """Score papers and drop those under ``config.threshold`` (if set).
 
@@ -358,7 +365,7 @@ def apply_llm_screening(
             f"No OpenRouter key: set openrouter.api_key in keys.yml (API keys screen "
             f"in the app) or {API_KEY_ENV_VAR}, or disable llm_screening in scilex.yml"
         )
-    scored = score_dataframe(df, config, api_key, cache_path)
+    scored = score_dataframe(df, config, api_key, cache_path, cancel_event)
     if config.threshold is not None:
         keep = scored[SCORE_COLUMN].isna() | (scored[SCORE_COLUMN] >= config.threshold)
         logger.info(

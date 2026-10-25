@@ -212,8 +212,8 @@ class JobRunner:
     def cancel(self, job_id: str) -> bool:
         """Request cancellation; returns False if the job is not active.
 
-        Collection stops at the next query; aggregation cannot be interrupted,
-        so a job cancelled during aggregation ends as cancelled once it returns.
+        Collection stops at the next query; aggregation stops at the next
+        stage boundary or LLM request (a long citation fetch finishes first).
         """
         job = self._jobs.get(job_id)
         if job is None or not self._set_status(job, job_states.CANCELLING):
@@ -282,7 +282,10 @@ class JobRunner:
         )
 
     def _aggregate(self, job: Job, config: SciLExConfig, skip_citations: bool) -> None:
-        from scilex.pipeline.orchestrator import AggregationOptions
+        from scilex.pipeline.orchestrator import (
+            AggregationCancelled,
+            AggregationOptions,
+        )
 
         job.phase = "aggregating"
         job.progress = AGGREGATE_RANGE[0]
@@ -293,6 +296,10 @@ class JobRunner:
             job.progress = _scale(percent / 100, AGGREGATE_RANGE)
             job.message = message
 
-        self._run_aggregation(
-            config, AggregationOptions(skip_citations=skip_citations), on_progress
+        options = AggregationOptions(
+            skip_citations=skip_citations, cancel_event=job.cancel_event
         )
+        try:
+            self._run_aggregation(config, options, on_progress)
+        except AggregationCancelled:
+            logger.info("Aggregation cancelled")

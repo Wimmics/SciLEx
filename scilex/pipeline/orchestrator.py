@@ -9,6 +9,7 @@ import csv
 import json
 import logging
 import os
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -80,6 +81,10 @@ from scilex.since_utils import (
 logger = logging.getLogger(__name__)
 
 
+class AggregationCancelled(Exception):
+    """Raised by run_aggregation() when ``options.cancel_event`` was set."""
+
+
 @dataclass
 class AggregationOptions:
     """Options for run_aggregation(), replacing argparse arguments."""
@@ -98,6 +103,9 @@ class AggregationOptions:
     enrich_workers: int = 4
     # Workers for JSON file loading (None = parallel_aggregate default)
     load_workers: int | None = None
+    # Set to stop the run at the next checkpoint (between stages, between LLM
+    # requests); run_aggregation then raises AggregationCancelled.
+    cancel_event: threading.Event | None = None
 
 
 def run_collection(
@@ -647,7 +655,9 @@ def _screen_with_llm(ctx: _AggregationContext, df: pd.DataFrame) -> pd.DataFrame
         screening_config,
         api_config=ctx.api_config,
         cache_path=os.path.join(ctx.dir_collect, CACHE_FILENAME),
+        cancel_event=ctx.options.cancel_event,
     )
+    _check_cancelled(ctx)
     if screening_config.threshold is not None:
         ctx.tracker.add_stage(
             "LLM Screening",
@@ -897,6 +907,13 @@ def _write_results(
     return df
 
 
+def _check_cancelled(ctx: _AggregationContext) -> None:
+    """Raise AggregationCancelled if the caller asked to stop."""
+    event = ctx.options.cancel_event
+    if event is not None and event.is_set():
+        raise AggregationCancelled("Aggregation cancelled")
+
+
 def _log_collection_status(ctx: _AggregationContext) -> None:
     """Print the collection completeness report (best effort)."""
     try:
@@ -949,7 +966,9 @@ def run_aggregation(
     config_used = _load_collection_metadata(ctx.dir_collect)
 
     _enrich_source_abstracts(ctx)
+    _check_cancelled(ctx)
     df, parallel_stats = _load_and_deduplicate(ctx, config_used)
+    _check_cancelled(ctx)
     ctx.tracker.set_initial(len(df), "Papers after deduplication")
 
     ctx.report_progress("filtering", 30, "Applying filters...")
@@ -959,6 +978,7 @@ def run_aggregation(
         return df
 
     df = _report_duplicates_and_score(ctx, df)
+    _check_cancelled(ctx)
     ctx.report_progress("filtering", 45, "Applying quality filters...")
     df = _apply_quality_filters_with_bypass(ctx, df)
     df = _report_and_filter_abstracts(ctx, df)
@@ -966,7 +986,9 @@ def run_aggregation(
 
     ctx.report_progress("citations", 55, "Fetching citations...")
     df, citation_stats = _process_citations(ctx, df)
+    _check_cancelled(ctx)
     df = _enrich_metadata(ctx, df)
+    _check_cancelled(ctx)
 
     ctx.report_progress("ranking", 85, "Applying relevance ranking...")
     df = _rank_papers(ctx, df)
