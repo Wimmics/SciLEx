@@ -42,8 +42,15 @@ def paper_key(row) -> str:
         normalised = normalize_doi(doi)
         if normalised:
             return f"doi:{normalised}"
-    title = str(row.get("title") or "").lower()
+    raw_title = row.get("title")
+    title = str(raw_title).lower() if is_valid(raw_title) else ""
     title = re.sub(r"[^a-z0-9]+", " ", title).strip()
+    if not title:
+        # Without DOI or title, a NaN title would give every such paper the
+        # same "title:nan" key and merge them into one screening decision.
+        for field in ("archiveID", "url"):
+            if is_valid(row.get(field)):
+                return f"{field}:{row.get(field)}"
     year = extract_year(row.get("date")) if is_valid(row.get("date")) else None
     return f"title:{title}|{year or ''}"
 

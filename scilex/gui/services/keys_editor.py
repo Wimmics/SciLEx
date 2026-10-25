@@ -10,6 +10,7 @@ from pathlib import Path
 import requests
 import yaml
 
+from scilex.gui.services.config_editor import leading_comments
 from scilex.settings.loader import (
     KEY_BLOCK_NAMES,
     RESERVED_ENV_VARIABLES,
@@ -150,6 +151,8 @@ def save_keys(data: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     text = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
     if path.is_file():
+        # Keep the header comments of the user's file (yaml drops comments).
+        text = leading_comments(path.read_text(encoding="utf-8")) + text
         _backup_previous(path)
     fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=".keys-", suffix=".tmp")
     try:

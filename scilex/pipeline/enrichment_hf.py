@@ -295,7 +295,10 @@ def _enrich_rows(
             return idx, row, None, error
 
     # map() yields in row order; counting and callbacks stay on this thread.
-    with ThreadPoolExecutor(max_workers=max(1, options.workers or 4)) as executor:
+    # map() queues every row at once: if a callback raises (GUI cancel), the
+    # queued searches are dropped instead of all running before the exit.
+    executor = ThreadPoolExecutor(max_workers=max(1, options.workers or 4))
+    try:
         outcomes = executor.map(search_row, rows.iterrows())
         for idx, row, result, error in tqdm(
             outcomes, total=len(rows), desc="Processing papers"
@@ -316,6 +319,8 @@ def _enrich_rows(
 
             if progress_callback:
                 progress_callback(stats["matched"] + stats["skipped"], len(data), stats)
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
 
     return updates, stats
 

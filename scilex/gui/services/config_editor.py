@@ -248,11 +248,42 @@ def _compact_years(years: Any) -> Any:
     return years
 
 
-def to_file_dict(data: dict) -> dict:
-    """Return the minimal dict to write for ``data`` (non-defaults + required)."""
+def _keep_explicit(result: dict, data: dict, explicit: dict) -> None:
+    """Copy into ``result`` the values of ``data`` the user wrote in the file.
+
+    A value equal to the code default is still written when the file had it:
+    otherwise a later change of that default would silently change the review.
+    """
+    for key, written in explicit.items():
+        if key not in data:
+            continue
+        value = data[key]
+        if isinstance(written, dict) and isinstance(value, dict):
+            nested = result.get(key)
+            nested = nested if isinstance(nested, dict) else {}
+            _keep_explicit(nested, value, written)
+            if nested:
+                result[key] = nested
+        elif key not in result:
+            result[key] = copy.deepcopy(value)
+
+
+def to_file_dict(data: dict, explicit: dict | None = None) -> dict:
+    """Return the minimal dict to write for ``data``.
+
+    Args:
+        data: Full form data.
+        explicit: Mapping already written in the file; its keys are kept even
+            when their value equals the default.
+
+    Returns:
+        Non-default values, required keys and the file's explicit keys.
+    """
     preset = data.get("preset")
     changed = _diff(data, base_dict(preset if isinstance(preset, str) else None))
     result: dict = {} if changed is _SAME else changed
+    if explicit:
+        _keep_explicit(result, data, explicit)
     for path in REQUIRED_PATHS:
         source, target = data, result
         for key in path[:-1]:
@@ -289,10 +320,29 @@ def save(review: Review, data: dict) -> Path:
         raise SettingsError(
             "\n".join(f"{path}: {message}" for path, message in problems)
         )
-    text = yaml.safe_dump(to_file_dict(data), sort_keys=False, allow_unicode=True)
     target = review.config_path
-    _atomic_write(target, text)
+    previous = target.read_text(encoding="utf-8") if target.is_file() else ""
+    try:
+        explicit = yaml.safe_load(previous) if previous.strip() else None
+    except yaml.YAMLError:
+        explicit = None
+    body = yaml.safe_dump(
+        to_file_dict(data, explicit if isinstance(explicit, dict) else None),
+        sort_keys=False,
+        allow_unicode=True,
+    )
+    _atomic_write(target, leading_comments(previous) + body)
     return target
+
+
+def leading_comments(text: str) -> str:
+    """Return the comment block at the top of ``text`` (template header)."""
+    header = []
+    for line in text.splitlines(keepends=True):
+        if not line.lstrip().startswith("#"):
+            break
+        header.append(line)
+    return "".join(header)
 
 
 # ---------------------------------------------------------------------------
@@ -423,13 +473,16 @@ def remove_unknown_keys(review: Review) -> list[str]:
     The keys are deleted line by line so the comments elsewhere survive; the
     file is dumped from the parsed data only if that edit does not validate.
 
+    Other problems may remain in the written file: the page reloads and shows them.
+
     Raises:
-        SettingsError: If the file is not valid YAML or other problems remain.
+        SettingsError: If the file is not valid YAML, or has problems but no
+            unknown key to remove.
     """
     text = read_text(review)
     check = check_text(text)
     raw = yaml.safe_load(text) if text.strip() else {}
-    if not isinstance(raw, dict) or check.problems and not check.unknown_keys:
+    if not isinstance(raw, dict) or (check.problems and not check.unknown_keys):
         raise SettingsError("\n".join(check.problems))
     removed = [dotted for dotted, _ in check.unknown_keys]
     edited: str | None = text

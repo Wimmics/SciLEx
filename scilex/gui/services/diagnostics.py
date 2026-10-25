@@ -1,6 +1,7 @@
 """Diagnostic report and log file for user-facing error reports."""
 
 import logging
+import logging.handlers
 import platform
 import sys
 import traceback
@@ -41,7 +42,9 @@ def setup_file_logging(log_dir: Path | None = None) -> Path:
         log_dir = user_log_path("scilex")
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "scilex-gui.log"
-    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler = logging.handlers.RotatingFileHandler(
+        log_path, maxBytes=5_000_000, backupCount=3, encoding="utf-8"
+    )
     handler.setFormatter(
         logging.Formatter(
             "%(asctime)s %(threadName)s [%(levelname)s] %(name)s: %(message)s"

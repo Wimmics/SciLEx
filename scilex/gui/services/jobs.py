@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import traceback
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -20,6 +21,7 @@ from datetime import datetime
 from typing import Any
 
 from scilex.config import SciLExConfig
+from scilex.crawlers.utils import sanitize_secrets
 from scilex.gui.services.workspace import Review
 from scilex.pipeline import jobs as job_states
 from scilex.pipeline.jobs import LogLinesHandler, WorkerThreadFilter
@@ -261,10 +263,14 @@ class JobRunner:
             if self._cancelled(job):
                 return
             self._finish(job, job_states.COMPLETED, message)
-        except Exception as exc:
-            logger.exception("Job %s (%s) failed", job.id, job.kind)
-            job.error = str(exc)
-            self._finish(job, job_states.FAILED, f"Error: {exc}")
+        except BaseException as exc:
+            # BaseException too: a SystemExit raised by pipeline code must not
+            # leave the job RUNNING, which would block every later job.
+            error = sanitize_secrets(str(exc) or type(exc).__name__)
+            trace = sanitize_secrets("".join(traceback.format_exception(exc)))
+            logger.error("Job %s (%s) failed: %s\n%s", job.id, job.kind, error, trace)
+            job.error = error
+            self._finish(job, job_states.FAILED, f"Error: {error}")
         finally:
             root_logger.removeHandler(handler)
 
