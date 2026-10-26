@@ -65,3 +65,29 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
           if-no-files-found: error
+
+  # On a gui-v* tag, attach the three builds to a GitHub Release so users get a
+  # permanent download link (workflow artifacts need a login and expire).
+  release:
+    if: startsWith(github.ref, 'refs/tags/gui-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" release/* --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" release/* -R "$GITHUB_REPOSITORY" \
+              --title "SciLEx desktop app ${TAG#gui-v}" --generate-notes
+          fi

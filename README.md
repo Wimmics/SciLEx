@@ -257,8 +257,8 @@ See the [Quick Start Guide](https://scilex.readthedocs.io/en/latest/getting-star
 
 **Option C — 🖥️ Desktop app**
 
-Ready-to-run builds for macOS (`.dmg`), Windows (`.zip`) and Linux (`.tar.gz`) are published as artifacts of the
-[GUI build workflow](https://github.com/Wimmics/SciLEx/actions/workflows/gui-build.yml) (the macOS app is not signed yet:
+Ready-to-run builds for macOS (`.dmg`), Windows (`.zip`) and Linux (`.tar.gz`) are attached to each
+[GitHub Release](https://github.com/Wimmics/SciLEx/releases/latest) (the macOS app is not signed yet:
 right-click → **Open** the first time). A review goes through ① Configure, ② Collect, ③ Screen, ④ Export and ⑤ Analyses;
 API keys are set once for all reviews.
 

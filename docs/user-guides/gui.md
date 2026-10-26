@@ -10,8 +10,8 @@ API keys. Screen, Export and Analyses unlock once a collection has been aggregat
 
 ## Install
 
-Download the archive for your system from the project's GitHub Actions artifacts
-(workflow "GUI build"), then:
+Download the archive for your system from the
+[latest release](https://github.com/Wimmics/SciLEx/releases/latest), then:
 
 - **macOS** (`SciLEx-macos.dmg`): open the image and drag `SciLEx.app` to Applications.
   The app is not signed yet: the first time, right-click the app, choose **Open**, then
@@ -19,6 +19,10 @@ Download the archive for your system from the project's GitHub Actions artifacts
 - **Windows** (`SciLEx-windows.zip`): extract the folder and run `SciLEx.exe`.
   SmartScreen may warn about an unknown publisher: click **More info**, then **Run anyway**.
 - **Linux** (`SciLEx-linux.tar.gz`): extract it and run `SciLEx/SciLEx`.
+
+Maintainers publish a release by pushing a `gui-v*` tag (for example
+`git tag gui-v0.1.0 && git push origin gui-v0.1.0`): the "GUI build" workflow builds the
+three archives, self-tests them and attaches them to the GitHub Release of that tag.
 
 From a development checkout instead:
 
