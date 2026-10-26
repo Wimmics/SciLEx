@@ -6,7 +6,7 @@
 </div>
 
 <p align="center">
-    <em>Systematic literature search across 12 academic APIs</em>
+    <em>Systematic literature search across 14 academic APIs</em>
 </p>
 
 <p align="center">
@@ -44,7 +44,8 @@
 
 ## Overview
 
-**SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. It crawls 14 academic APIs in parallel, deduplicates results using DOI-based and normalized title exact matching, and applies a 5-phase quality filtering pipeline before exporting to Zotero or BibTeX.
+**SciLEx** (Science Literature Exploration) is a Python toolkit for systematic literature reviews. It crawls 14 academic APIs in parallel, deduplicates results using DOI-based and normalized title exact matching, and applies a 5-phase quality filtering pipeline before exporting to Zotero, BibTeX or RDF/Turtle.
+It runs from the command line or from a desktop app (macOS, Windows, Linux) that works on the same review folders.
 
 
 ---
@@ -66,9 +67,12 @@
   4. **Citation Filter** — time-aware thresholds (e.g. ≥1 citation after 18 months, ≥10 after 3 years)
   5. **Relevance Ranking** — composite score (0–10) from keyword density, metadata completeness, venue type, and citation impact
 - Citation count enrichment via CrossRef, OpenCitations, OpenAlex and Semantic Scholar
+- Optional CORE/SJR venue ranking, open-access lookup (Unpaywall) and LLM relevance screening (OpenRouter)
 - HuggingFace enrichment: query HuggingFace Hub to retrieve associated ML models, datasets, and GitHub repositories
-- Export to Zotero (bulk upload) or BibTeX (with PDF links)
-- Idempotent collections for safe re-runs
+- Analyses: co-authorship graphs and communities, snowball sampling, seed papers, cluster summaries, keyword suggestions
+- Export to Zotero (bulk upload), BibTeX (with PDF links) or RDF/Turtle
+- Desktop app: configure, collect, screen, export and analyse a review without the command line
+- Idempotent, resumable collections (`--resume`, incremental `--since`)
 
 ### Supported APIs
 
@@ -252,11 +256,19 @@ Other commands:
 See the [Quick Start Guide](https://scilex.readthedocs.io/en/latest/getting-started/quick-start.html) for a complete walkthrough.
 
 **Option C — 🖥️ Desktop app**
+
+Ready-to-run builds for macOS (`.dmg`), Windows (`.zip`) and Linux (`.tar.gz`) are published as artifacts of the
+[GUI build workflow](https://github.com/Wimmics/SciLEx/actions/workflows/gui-build.yml) (the macOS app is not signed yet:
+right-click → **Open** the first time). A review goes through ① Configure, ② Collect, ③ Screen, ④ Export and ⑤ Analyses;
+API keys are set once for all reviews.
+
+From a checkout:
 ```sh
 ❯ uv sync --extra gui
 ❯ uv run scilex-gui              # native window
 ❯ uv run scilex-gui --browser    # same UI in a browser tab (--port N, --no-open)
 ❯ uv run scilex-gui --self-test  # check the installation without opening a window
+❯ scripts/build_gui.sh           # build a standalone app with PyInstaller (dist/), then self-test it
 ```
 See the [desktop app guide](docs/user-guides/gui.md).
 
