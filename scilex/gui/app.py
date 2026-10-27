@@ -106,6 +106,9 @@ def main(argv: list[str] | None = None) -> int:
 
     native = _use_native_window(args)
     ctx = AppContext(native=native)
+    if native:
+        # pywebview disables text selection by default: logs could not be copied.
+        app.native.window_args["text_select"] = True
     ui.run(
         build_root(ctx),
         title="SciLEx",

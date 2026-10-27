@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from nicegui import ui
 
+from scilex.gui.services import clipboard
 from scilex.gui.services.jobs import Job
 from scilex.gui.services.workspace import Review
 from scilex.gui.state import AppContext
@@ -76,13 +77,18 @@ class JobPanel:
         self.status = ui.label().classes("font-bold").mark(f"{kind}-status")
         self.progress = ui.linear_progress(value=0, show_value=False).classes("w-full")
         self.message = ui.label().classes("text-sm")
-        self.log_view = (
-            ui.log(max_lines=LOG_LINES_SHOWN)
-            .classes("w-full max-w-full h-64 text-xs")
-            .style("width: 100%")
-            if show_logs
-            else None
-        )
+        self.log_view = None
+        if show_logs:
+            self.log_view = (
+                ui.log(max_lines=LOG_LINES_SHOWN)
+                .classes("w-full max-w-full h-64 text-xs select-text")
+                .style("width: 100%")
+            )
+            self.copy_button = (
+                ui.button("Copy log", icon="content_copy", on_click=self.copy_log)
+                .props("flat dense no-caps")
+                .mark(f"{kind}-copy-log")
+            )
         self._tail: list[str] = []
         # Jobs already finished when the page opened are not reported again;
         # any other job is reported once it ends, even if it ended between two
@@ -127,6 +133,19 @@ class JobPanel:
             self._reported.add(job.id)
             if self.on_finished is not None:
                 self.on_finished(job)
+
+    def copy_log(self) -> None:
+        """Copy the whole log of the job (not only the lines shown) to the clipboard."""
+        job = self.job
+        if job is None or not job.logs:
+            ui.notify("No log to copy yet.")
+            return
+        text = "\n".join(job.logs)
+        if clipboard.copy_text(text):
+            ui.notify(f"Copied {len(job.logs)} log lines.", type="positive")
+        else:
+            ui.clipboard.write(text)  # browser fallback (needs a secure context)
+            ui.notify("Log sent to the browser clipboard.")
 
     def _append_new_logs(self, job: Job) -> None:
         if self.log_view is None:
