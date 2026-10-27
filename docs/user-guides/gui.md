@@ -18,7 +18,10 @@ Download the archive for your system from the
   **Open** again in the warning dialog. Later launches work normally.
 - **Windows** (`SciLEx-windows.zip`): extract the folder and run `SciLEx.exe`.
   SmartScreen may warn about an unknown publisher: click **More info**, then **Run anyway**.
-- **Linux** (`SciLEx-linux.tar.gz`): extract it and run `SciLEx/SciLEx`.
+- **Linux** (`SciLEx-linux.tar.gz`, needs glibc 2.34+, e.g. Ubuntu 22.04 or later): extract
+  it and run `SciLEx/SciLEx` (double-click it in the file manager, or run it from a terminal).
+  If the window cannot open (no display, missing system library), the app says why in the
+  terminal and opens in your web browser instead; every feature works there too.
 
 Maintainers publish a release by pushing a `gui-v*` tag (for example
 `git tag gui-v0.1.0 && git push origin gui-v0.1.0`): the "GUI build" workflow builds the

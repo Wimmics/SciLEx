@@ -40,7 +40,8 @@ REQUIRED_MODULES = (
 )
 # The Linux build ships Qt WebEngine for the native window.
 if sys.platform.startswith("linux"):
-    REQUIRED_MODULES += ("qtpy", "PyQt6.QtWebEngineWidgets", "webview.platforms.qt")
+    # PyQt6 first: qtpy hides the reason why the bindings fail to load.
+    REQUIRED_MODULES += ("PyQt6.QtWebEngineWidgets", "qtpy", "webview.platforms.qt")
 
 
 def _square(value: int) -> int:

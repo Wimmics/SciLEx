@@ -44,5 +44,9 @@ Mainteneur unique, en Python. Spec : `docs/superpowers/specs/2026-10-23-gui-desk
   interruptible (le job se termine « annulé » à sa fin).
 - Les tests de pages utilisent `nicegui.testing.user_simulation` avec des marqueurs
   (`.mark(...)`), sans navigateur ni fenêtre.
-- Linux : le moteur de rendu de pywebview (GTK ou Qt) reste à choisir et à valider ; le lot 0
-  livre une archive `.tar.gz` plutôt qu'une AppImage.
+- Linux : pywebview tourne sur Qt WebEngine (`pywebview[qt]`, embarqué dans le build, ~380 Mo
+  compressés) ; GTK exigerait des liaisons Python système impossibles à embarquer. Le build
+  installe les bibliothèques système de Qt, sinon PyInstaller omet ses plugins (fenêtre
+  impossible). Au démarrage, un processus enfant (`--probe-native`) vérifie que la fenêtre peut
+  s'ouvrir ; sinon l'app s'ouvre dans le navigateur, avec un sélecteur de dossier dans la page.
+  Archive `.tar.gz` plutôt qu'une AppImage.
