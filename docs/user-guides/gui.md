@@ -37,8 +37,9 @@ uv run scilex-gui --browser  # same UI in a browser tab (useful for debugging)
 
 ## First steps
 
-1. **New review**: choose a folder (created if needed; a relative name such as `Test`
-   is created in your home folder), a name and optionally a template. The app writes
+1. **New review**: give a name, optionally a folder and a template. Without a folder,
+   the review goes to `~/SciLEx/<name>`; a relative folder such as `Test` also starts
+   in `~/SciLEx` (an absolute path is used as is). The app writes
    `scilex.yml` there. Or **Open a folder** that already contains a `scilex.yml`.
 2. **API keys** (once for all reviews), then **① Configure**, **② Collect**,
    **③ Screen**, **④ Export**, and optionally **⑤ Analyses**.

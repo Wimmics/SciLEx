@@ -9,7 +9,7 @@ from scilex.gui.components.branding import render_logo
 from scilex.gui.components.dialogs import one_shot_dialog
 from scilex.gui.components.errors import show_error
 from scilex.gui.components.folder_picker import pick_folder_in_page
-from scilex.gui.services.workspace import Review
+from scilex.gui.services.workspace import Review, reviews_home
 from scilex.gui.state import AppContext
 from scilex.init_templates import list_templates
 from scilex.settings.schema import SettingsError
@@ -167,9 +167,9 @@ def new_review_dialog(ctx: AppContext) -> None:
     """Ask for a folder, a name and a template, then create the review."""
     with one_shot_dialog() as dialog, ui.card().classes("w-[32rem]"):
         ui.label("New review").classes("text-lg font-bold")
-        folder = _folder_input(ctx, "Folder (created if needed)")
+        folder = _folder_input(ctx, "Folder (optional, created if needed)")
         folder.props(
-            'hint="Relative paths start at your home folder, e.g. Documents/reviews/rag"'
+            f'hint="Empty: {reviews_home()}/<name>. Relative paths start in that folder."'
         )
         name = (
             ui.input("Name", placeholder="e.g. rag_knowledge_graphs")
@@ -181,12 +181,14 @@ def new_review_dialog(ctx: AppContext) -> None:
         ).classes("w-full")
 
         def create() -> None:
-            if not folder.value or not name.value:
-                ui.notify("Folder and name are required", type="warning")
+            if not name.value or not name.value.strip():
+                ui.notify("A name is required", type="warning")
                 return
+            # A relative folder (or the name) lands in ~/SciLEx.
+            target = (folder.value or "").strip() or name.value.strip()
             try:
                 review = ctx.workspace.create_review(
-                    Path(folder.value),
+                    Path(target),
                     name=name.value.strip(),
                     template=None if template.value == NO_TEMPLATE else template.value,
                 )

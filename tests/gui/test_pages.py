@@ -101,3 +101,17 @@ async def test_invalid_review_disables_other_steps(ctx, tmp_path):
         assert not user.find(marker="step-collect").elements.pop().enabled
         assert user.find(marker="step-configure").elements.pop().enabled
         assert user.find(marker="step-keys").elements.pop().enabled
+
+
+async def test_create_review_without_folder_goes_to_scilex_home(
+    ctx, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    async with user_simulation(root=build_root(ctx)) as user:
+        await user.open("/")
+        user.find(marker="new-review").click()
+        user.find(marker="name").type("rag_kg")
+        user.find(marker="create").click()
+        await user.should_see(marker="step-configure")
+
+    assert (tmp_path / "home" / "SciLEx" / "rag_kg" / "scilex.yml").is_file()

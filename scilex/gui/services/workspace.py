@@ -74,15 +74,20 @@ class Review:
         return self.results_path.is_file()
 
 
+def reviews_home() -> Path:
+    """Default parent folder of the reviews: ``~/SciLEx``."""
+    return Path.home() / "SciLEx"
+
+
 def resolve_folder(folder: str | Path) -> Path:
-    """Return ``folder`` as an absolute path; relative paths start at the home folder.
+    """Return ``folder`` as an absolute path; relative paths start at ``~/SciLEx``.
 
     The app's working directory is meaningless for the user (``/`` for a
     macOS app bundle, read-only), so it is never used.
     """
     path = Path(folder).expanduser()
     if not path.is_absolute():
-        path = Path.home() / path
+        path = reviews_home() / path
     return path.resolve()
 
 

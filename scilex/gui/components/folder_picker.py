@@ -10,6 +10,7 @@ from pathlib import Path
 from nicegui import ui
 
 from scilex.gui.components.dialogs import one_shot_dialog
+from scilex.gui.services.workspace import resolve_folder, reviews_home
 
 
 def list_subfolders(folder: Path) -> list[Path]:
@@ -29,14 +30,11 @@ def list_subfolders(folder: Path) -> list[Path]:
 
 
 def _start_folder(initial: str | None) -> Path:
-    if initial:
-        path = Path(initial).expanduser()
-        if not path.is_absolute():
-            path = Path.home() / path  # same rule as the folder inputs
-        # The typed folder may not exist yet: start at its closest parent.
-        for candidate in (path, *path.parents):
-            if candidate.is_dir():
-                return candidate
+    # The typed folder may not exist yet: start at its closest parent.
+    path = resolve_folder(initial) if initial else reviews_home()
+    for candidate in (path, *path.parents):
+        if candidate.is_dir():
+            return candidate
     return Path.home()
 
 
