@@ -37,6 +37,16 @@ hiddenimports = collect_submodules(
 )
 # rdflib loads its parsers and serializers as plugins, by name.
 hiddenimports += collect_submodules("rdflib.plugins")
+if sys.platform.startswith("linux"):
+    # pywebview imports its Qt backend lazily; Linux ships Qt WebEngine
+    # (see scilex/gui/native_window.py).
+    hiddenimports += [
+        "webview.platforms.qt",
+        "qtpy",
+        "PyQt6.QtWebEngineWidgets",
+        "PyQt6.QtWebEngineCore",
+        "PyQt6.QtWebChannel",
+    ]
 
 a = Analysis(  # noqa: F821
     [str(ROOT / "packaging" / "launch_gui.py")],

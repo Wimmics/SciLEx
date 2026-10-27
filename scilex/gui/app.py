@@ -52,7 +52,24 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="browser mode: do not open a browser tab (automated UI tests)",
     )
+    # Internal: run by the app itself in a child process (see native_window.py).
+    parser.add_argument("--probe-native", action="store_true", help=argparse.SUPPRESS)
     return parser
+
+
+def _use_native_window(args: argparse.Namespace) -> bool:
+    """False in browser mode, or when no native window can open on this machine."""
+    if args.browser:
+        return False
+    from scilex.gui.native_window import native_window_problem
+
+    problem = native_window_problem()
+    if problem is None:
+        return True
+    message = f"Cannot open the SciLEx window, opening it in your web browser instead. Reason: {problem}"
+    logger.warning(message)
+    print(message, file=sys.stderr)
+    return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,6 +83,11 @@ def main(argv: list[str] | None = None) -> int:
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w")  # noqa: SIM115
     args = build_parser().parse_args(argv)
+
+    if args.probe_native:
+        from scilex.gui.native_window import run_probe
+
+        return run_probe()
 
     if args.self_test:
         from scilex.gui.self_test import run_self_test
@@ -82,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Starting SciLEx GUI (log file: %s)", log_path)
     app.on_exception(lambda exc: logger.error("Unhandled UI error", exc_info=exc))
 
-    native = not args.browser
+    native = _use_native_window(args)
     ctx = AppContext(native=native)
     ui.run(
         build_root(ctx),

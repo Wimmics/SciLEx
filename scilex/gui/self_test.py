@@ -38,6 +38,9 @@ REQUIRED_MODULES = (
     "scilex.export_to_bibtex",
     "scilex.gui.app",
 )
+# The Linux build ships Qt WebEngine for the native window.
+if sys.platform.startswith("linux"):
+    REQUIRED_MODULES += ("qtpy", "PyQt6.QtWebEngineWidgets", "webview.platforms.qt")
 
 
 def _square(value: int) -> int:

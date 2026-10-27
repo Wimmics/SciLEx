@@ -8,6 +8,7 @@ from nicegui import app, ui
 from scilex.gui.components.branding import render_logo
 from scilex.gui.components.dialogs import one_shot_dialog
 from scilex.gui.components.errors import show_error
+from scilex.gui.components.folder_picker import pick_folder_in_page
 from scilex.gui.services.workspace import Review
 from scilex.gui.state import AppContext
 from scilex.init_templates import list_templates
@@ -19,10 +20,10 @@ NO_TEMPLATE = "(blank)"
 CARDS_POLL_SECONDS = 2.0
 
 
-async def pick_folder(ctx: AppContext) -> str | None:
-    """Ask for a folder with the native dialog; None in browser mode or if cancelled."""
+async def pick_folder(ctx: AppContext, initial: str | None = None) -> str | None:
+    """Ask for a folder (native dialog, or in-page picker in a browser); None if cancelled."""
     if not ctx.native:
-        return None
+        return await pick_folder_in_page(initial)
     import webview
 
     selection = await app.native.main_window.create_file_dialog(
@@ -150,14 +151,15 @@ def _card_menu(ctx: AppContext, review: Review, on_forget: Callable[[], None]) -
 def _folder_input(ctx: AppContext, label: str) -> ui.input:
     with ui.row().classes("w-full items-center no-wrap"):
         folder = ui.input(label).classes("grow").mark("folder")
-        if ctx.native:
 
-            async def browse() -> None:
-                chosen = await pick_folder(ctx)
-                if chosen:
-                    folder.value = chosen
+        async def browse() -> None:
+            chosen = await pick_folder(ctx, folder.value)
+            if chosen:
+                folder.value = chosen
 
-            ui.button(icon="folder", on_click=browse).props("flat").tooltip("Browse…")
+        ui.button(icon="folder", on_click=browse).props("flat").tooltip("Browse…").mark(
+            "browse"
+        )
     return folder
 
 

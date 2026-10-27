@@ -48,6 +48,8 @@ gui = [
     "nicegui>=3.18.0",
     "platformdirs>=4.12.4",
     "pywebview>=6.2.1",
+    # Linux has no system web view Python bindings to rely on: ship Qt WebEngine.
+    "pywebview[qt]>=6.2.1; sys_platform == 'linux'",
 ]
 build = [
     "pyinstaller>=6.22.3",
