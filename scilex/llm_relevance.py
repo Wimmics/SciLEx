@@ -255,7 +255,11 @@ def request_score(
     payload = {
         "model": model,
         "temperature": 0,
-        "max_tokens": 50,
+        # Room for a short answer even if a model reasons despite the switch below.
+        "max_tokens": 200,
+        # Reasoning models (e.g. deepseek-v4-flash) otherwise spend the whole
+        # token budget thinking and return an empty or truncated answer.
+        "reasoning": {"enabled": False},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_user_prompt(topic, title, abstract)},

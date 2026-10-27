@@ -188,3 +188,14 @@ def test_workers_capped():
     assert (
         llm.LLMScreeningConfig.from_dict({"workers": 1000}).workers == llm.MAX_WORKERS
     )
+
+
+def test_request_score_disables_reasoning():
+    """Reasoning models must not spend the token budget before answering."""
+    with patch.object(
+        llm._get_session(), "post", return_value=_response('{"score": 0.6}')
+    ) as post:
+        assert llm.request_score("t", "a", "topic", "m", "key") == 0.6
+    payload = post.call_args.kwargs["json"]
+    assert payload["reasoning"] == {"enabled": False}
+    assert payload["max_tokens"] >= 100
