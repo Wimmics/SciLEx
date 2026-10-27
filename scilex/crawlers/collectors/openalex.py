@@ -85,11 +85,13 @@ class OpenAlex_collector(API_collector):
             f"&per-page={self.max_by_page}"
         )
 
-        # OpenAlex polite pool: pass email as mailto (not api_key).
-        # A real premium API key would use &api_key=, but the configured value
-        # is an email address used for the free polite pool.
+        # OpenAlex authenticates with api_key= (free key, own daily budget).
+        # Without it, requests share a small per-IP budget and fail with 401
+        # once it is spent. An email address is still accepted for old configs,
+        # but OpenAlex no longer raises the limit for mailto=.
         if self.api_key:
-            api_url += f"&mailto={self.api_key}"
+            key_param = "mailto" if "@" in str(self.api_key) else "api_key"
+            api_url += f"&{key_param}={self.api_key}"
 
         logging.debug(f"Configured URL: {self._sanitize_url(api_url)}")
         return api_url
