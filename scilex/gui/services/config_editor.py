@@ -46,44 +46,6 @@ REQUIRED_PATHS = (
     ("search", "apis"),
 )
 
-FIELD_HELP: dict[str, str] = {
-    "name": "Name of the review; the collection is written to <output folder>/<name>.",
-    "output_dir": "Folder receiving the collected data, relative to the review folder.",
-    "preset": "Starting point for the filters: 'literature_review' (default rules) or 'bibliometrics' (no filter, no size cap).",
-    "search.bonus_keywords": "Optional terms that raise the relevance score of a paper (they never exclude any).",
-    "search.max_articles_per_query": "Stop after this many articles per query and API. Empty means no limit.",
-    "search.semantic_scholar_mode": "'bulk' is about 10x faster but needs approval from Semantic Scholar.",
-    "search.since": "Incremental re-collection: only papers published from this date (YYYY-MM-DD).",
-    "filters.item_types": "Document types to keep (e.g. journalArticle). Empty means all types.",
-    "filters.always_keep": "Document types kept whatever the other filters say.",
-    "filters.require": "Fields a paper must have to be kept.",
-    "filters.min_authors": "Minimum number of authors.",
-    "filters.abstract_words": "Allowed abstract length as 'min, max' words.",
-    "filters.abstract_quality": "Minimum abstract quality score (0-100). Empty disables the check.",
-    "filters.check_year_range": "Drop papers published outside the years of the search.",
-    "filters.citations": "Apply the time-aware minimum citation threshold.",
-    "citations.fetch": "Fetch citation counts (slower, but needed by the citation filter and ranking).",
-    "citations.fallbacks": "Sources tried, in order, when the first one has no citation count.",
-    "citations.discrepancy_threshold": "Relative gap above which two citation counts are flagged as inconsistent.",
-    "ranking.enabled": "Compute a 0-10 relevance score and sort papers by it.",
-    "ranking.max_papers": "Keep at most this many top-ranked papers. Empty means no cap.",
-    "ranking.weights": "Weight of each ranking criterion (>= 0).",
-    "ranking.itemtype_weights": "Advanced: YAML mapping of document type -> true/false.",
-    "ranking.venue_ranking": "Use CORE/SJR venue rankings in the score.",
-    "enrichment.recover_dois": "Try to find the DOI of papers lacking one.",
-    "enrichment.doi_recovery_min_similarity": "Minimum title similarity (0-1) to accept a recovered DOI.",
-    "enrichment.unpaywall": "Look up open-access links (needs an email in the API keys).",
-    "enrichment.author_hindex": "Fetch author h-index values.",
-    "enrichment.huggingface.enabled": "Attach HuggingFace papers/models/datasets information.",
-    "report.quality_report": "Write a data quality report.",
-    "report.track_duplicates": "Remember which APIs returned each duplicate.",
-    "report.prisma": "Write a PRISMA-style flow report.",
-    "collect.enabled": "Turn off to only aggregate data already collected.",
-    "collect.vpn": "Advanced: VPN rotation block as YAML (empty = none).",
-    "llm_screening.enabled": "Screen papers with an LLM through OpenRouter (needs an OpenRouter key).",
-    "llm_screening.topic": "Plain-language description of what is relevant. Required when enabled.",
-    "llm_screening.threshold": "Minimum score to keep a paper. Empty means no threshold.",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -602,3 +564,153 @@ def years_as_range(years: Any) -> tuple[int, int] | None:
     ):
         return min(years), max(years)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Guidance for the form (ADR 0005)
+# ---------------------------------------------------------------------------
+
+
+def estimate_queries(data: dict) -> int:
+    """Number of queries a collection would send (rules of ``queryCompositor``).
+
+    Two non-empty keyword groups give one query per pair of terms; otherwise
+    one per term of the first group. Each is sent for every year and source.
+    """
+    search = data.get("search") or {}
+    groups = [g for g in (search.get("keywords") or []) if isinstance(g, list)]
+    if len(groups) == 2 and groups[0] and groups[1]:
+        combinations = len(groups[0]) * len(groups[1])
+    elif groups and groups[0]:
+        combinations = len(groups[0])
+    else:
+        combinations = 0
+    years = search.get("years")
+    year_count = len(years) if isinstance(years, list) else 0
+    return combinations * year_count * len(search.get("apis") or [])
+
+
+def default_value(dotted: str, preset: str | None = None) -> Any:
+    """Value of ``dotted`` without the file (defaults, then ``preset``)."""
+    node: Any = base_dict(preset)
+    for key in dotted.split("."):
+        if not isinstance(node, dict) or key not in node:
+            return None
+        node = node[key]
+    return node
+
+
+def format_default(value: Any) -> str:
+    """Short readable form of a default value for the help line."""
+    if value is None or value == [] or value == {}:
+        return "empty"
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    if isinstance(value, dict):
+        return ", ".join(f"{key} {item}" for key, item in value.items())
+    return str(value)
+
+
+def _has_key(keys: dict, block: str, field_name: str = "api_key") -> bool:
+    from scilex.gui.services.keys_editor import env_overrides, get_keys_list
+
+    if f"{block}.{field_name.lower()}" in env_overrides():
+        return True
+    entry = keys.get(block)
+    return bool(get_keys_list(entry if isinstance(entry, dict) else None, field_name))
+
+
+def key_status(api: str, keys: dict) -> str:
+    """``"ok"``, ``"missing"`` (required key absent) or ``"advised"`` (recommended)."""
+    from scilex.gui.services.field_catalog import API_INFO
+
+    info = API_INFO.get(api)
+    if info is None or info.key == "none" or not info.key_block:
+        return "ok"
+    if _has_key(keys, info.key_block):
+        return "ok"
+    return "missing" if info.key == "required" else "advised"
+
+
+def dependency_warnings(data: dict, keys: dict) -> list[tuple[str, str]]:
+    """Settings that will not work as the user expects: ``(path, message)``."""
+    from scilex.gui.services.field_catalog import API_INFO
+
+    warnings: list[tuple[str, str]] = []
+    for api in data.get("search", {}).get("apis") or []:
+        if key_status(api, keys) == "missing":
+            warnings.append(
+                (
+                    "search.apis",
+                    f"{API_INFO[api].label} needs an API key: add it on the API "
+                    "keys page or untick it, otherwise it returns nothing.",
+                )
+            )
+    citations_fetched = data.get("citations", {}).get("fetch", True)
+    if not citations_fetched and data.get("filters", {}).get("citations"):
+        warnings.append(
+            (
+                "filters.citations",
+                "The citation threshold has no effect while 'Fetch citation "
+                "counts' is off.",
+            )
+        )
+    if data.get("enrichment", {}).get("unpaywall") and not _has_key(
+        keys, "Unpaywall", "email"
+    ):
+        warnings.append(
+            (
+                "enrichment.unpaywall",
+                "Unpaywall needs an email address on the API keys page.",
+            )
+        )
+    if data.get("llm_screening", {}).get("enabled") and not _has_key(
+        keys, "openrouter"
+    ):
+        warnings.append(
+            (
+                "llm_screening.enabled",
+                "LLM screening needs an OpenRouter key on the API keys page.",
+            )
+        )
+    if estimate_queries(data) > 2000:
+        warnings.append(
+            (
+                "search.keywords",
+                "Over 2000 queries: the collection may take hours. Use fewer "
+                "terms, years or sources, or set a max per query.",
+            )
+        )
+    return warnings
+
+
+_MESSAGE_REWRITES: tuple[tuple[str, str], ...] = (
+    ("Input should be a valid integer", "must be a whole number"),
+    ("Input should be a valid number", "must be a number"),
+    ("Input should be greater than or equal to", "must be at least"),
+    ("Input should be less than or equal to", "must be at most"),
+    ("Input should be greater than", "must be more than"),
+    ("String should have at least 1 character", "must not be empty"),
+    ("Input should be a valid list", "must be a list"),
+    ("Input should be a valid dictionary", "must be a mapping"),
+    ("Input should be a valid string", "must be text"),
+    ("year range start is after its end", "'From' is after 'To'"),
+)
+
+
+def readable_problem(path: str, message: str) -> str:
+    """``"<Field label>: <plain message>"`` for the summary under the form."""
+    from scilex.gui.services.field_catalog import label_of
+
+    known = set(known_paths())
+    parts = path.split(".")
+    # A list item ("search.years.0") or a sub-key: name the field it belongs to.
+    while len(parts) > 1 and ".".join(parts) not in known:
+        parts.pop()
+    for raw, plain in _MESSAGE_REWRITES:
+        if message.startswith(raw):
+            message = plain + message[len(raw) :]
+            break
+    return f"{label_of('.'.join(parts))}: {message}"
