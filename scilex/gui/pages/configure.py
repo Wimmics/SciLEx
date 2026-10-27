@@ -301,7 +301,7 @@ def render(ctx: AppContext, review: Review) -> None:
         if dotted == "llm_screening.topic":
             ui.textarea(
                 value=get(path) or "", placeholder=meta.example, on_change=changed
-            ).props("dense outlined autogrow").classes("w-full max-w-2xl").mark(
+            ).props("dense outlined autogrow rows=3").classes("w-full max-w-2xl").mark(
                 f"field-{dotted}"
             )
             return
@@ -525,7 +525,6 @@ def render(ctx: AppContext, review: Review) -> None:
 
         # Preset, shown as readable choices with their effect.
         caption("preset")
-        preset_help = ui.label().classes("text-xs text-gray-500 max-w-2xl")
 
         def preset_changed(event) -> None:
             value = event.value or NONE_CHOICE
@@ -538,6 +537,7 @@ def render(ctx: AppContext, review: Review) -> None:
             value=current_preset,
             on_change=preset_changed,
         ).props("inline").mark("field-preset")
+        preset_help = ui.label().classes("text-xs text-gray-500 max-w-2xl")
         preset_help.set_text(
             catalog.PRESETS_INFO.get(current_preset, catalog.PRESETS_INFO[""]).help
         )
@@ -588,7 +588,7 @@ def render(ctx: AppContext, review: Review) -> None:
                         groups[index],
                         lambda _items: put(("search", "keywords"), groups),
                         f"keyword-{index}",
-                        "Type a term, press Enter (e.g. knowledge graph)",
+                        "Type a term, press Enter",
                         suggestions,
                     )
             if len(groups) < editor.MAX_KEYWORD_GROUPS:
