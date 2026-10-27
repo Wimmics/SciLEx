@@ -79,6 +79,7 @@ addopts = "-v"
 pythonpath = ["."]
 markers = [
     "live: tests that require network access and local data (deselect with '-m \"not live\"')",
+    "real_batch: reference_fetcher tests that exercise the SemanticScholar batch lookup (mocked HTTP)",
 ]
 
 [tool.coverage.run]

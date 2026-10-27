@@ -6,6 +6,7 @@ All HTTP calls are mocked; no real network access.
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
 import requests
 
 from scilex.citations.reference_fetcher import (
@@ -14,10 +15,22 @@ from scilex.citations.reference_fetcher import (
     _fetch_references_oc,
     _is_retryable_ss_error,
     _save_cache,
+    _ss_batch_lookup,
     fetch_citers_batch,
     fetch_references_batch,
     fetch_references_ss,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_ss_batch(request, monkeypatch):
+    """Keep the batch lookup offline; its own tests opt out with ``real_batch``."""
+    if "real_batch" in request.keywords:
+        return
+    monkeypatch.setattr(
+        "scilex.citations.reference_fetcher._ss_batch_lookup",
+        lambda *args, **kwargs: {},
+    )
 
 
 class TestIsRetryableSsError:
@@ -449,3 +462,61 @@ class TestBatchCancellation:
         mock_oc.assert_not_called()
         assert mock_ss.call_count == 1
         assert result == {}
+
+
+def _batch_response(payload):
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = payload
+    resp.raise_for_status.return_value = None
+    return resp
+
+
+@pytest.mark.real_batch
+class TestSSBatchLookup:
+    @patch("scilex.citations.reference_fetcher.requests.post")
+    def test_maps_references_and_unknown_papers(self, mock_post):
+        mock_post.return_value = _batch_response(
+            [
+                {
+                    "paperId": "a",
+                    "references": [
+                        {"paperId": "r1", "externalIds": {"DOI": "10.1/r1 "}},
+                        {"paperId": "r2", "externalIds": None},
+                    ],
+                },
+                None,
+            ]
+        )
+        result = _ss_batch_lookup(["10.0/a", "10.0/unknown"], "references", "key")
+        assert result == {"10.0/a": ["10.1/r1"], "10.0/unknown": []}
+        kwargs = mock_post.call_args.kwargs
+        assert kwargs["json"] == {"ids": ["DOI:10.0/a", "DOI:10.0/unknown"]}
+        assert kwargs["params"] == {"fields": "references.externalIds"}
+        assert kwargs["headers"] == {"x-api-key": "key"}
+
+    @patch("scilex.citations.reference_fetcher.SS_BATCH_SIZE", 2)
+    @patch("scilex.citations.reference_fetcher.requests.post")
+    def test_splits_into_chunks(self, mock_post):
+        mock_post.side_effect = [
+            _batch_response([{"citations": []}, {"citations": []}]),
+            _batch_response([{"citations": [{"externalIds": {"DOI": "10.9/c"}}]}]),
+        ]
+        result = _ss_batch_lookup(["10.0/a", "10.0/b", "10.0/c"], "citations")
+        assert mock_post.call_count == 2
+        assert result["10.0/c"] == ["10.9/c"]
+
+    @patch("scilex.citations.reference_fetcher._post_ss_batch")
+    def test_failed_chunk_left_out(self, mock_batch):
+        mock_batch.side_effect = requests.exceptions.HTTPError("400")
+        assert _ss_batch_lookup(["10.0/a"], "references") == {}
+
+    @patch("scilex.citations.reference_fetcher.fetch_references_ss")
+    @patch("scilex.citations.reference_fetcher._post_ss_batch")
+    def test_batch_answer_skips_single_request(self, mock_batch, mock_single):
+        mock_batch.return_value = [
+            {"references": [{"externalIds": {"DOI": "10.1/r"}}]},
+        ]
+        result = fetch_references_batch(["https://doi.org/10.0/a"], cache_path=None)
+        assert result == {"https://doi.org/10.0/a": ["10.1/r"]}
+        mock_single.assert_not_called()

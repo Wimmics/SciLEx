@@ -41,6 +41,10 @@ SS_REFERENCES_URL = (
     "https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}/references"
 )
 SS_CITATIONS_URL = "https://api.semanticscholar.org/graph/v1/paper/DOI:{doi}/citations"
+SS_BATCH_URL = "https://api.semanticscholar.org/graph/v1/paper/batch"
+# Papers per batch request: the API accepts 500, but the response is capped at
+# 10 MB and nested reference lists are large.
+SS_BATCH_SIZE = 100
 CROSSREF_WORKS_URL = "https://api.crossref.org/works/{doi}"
 
 
@@ -72,8 +76,8 @@ def _is_retryable_ss_error(exc: BaseException) -> bool:
 
 @retry(
     retry=retry_if_exception(_is_retryable_ss_error),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=2, max=60),
     reraise=True,
 )
 @sleep_and_retry
@@ -85,12 +89,12 @@ def _fetch_ss_no_key(doi: str) -> list[str]:
 
 @retry(
     retry=retry_if_exception(_is_retryable_ss_error),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=2, max=60),
     reraise=True,
 )
 @sleep_and_retry
-@limits(calls=10, period=1)  # SS with key: 10 req/sec (conservative vs 100 max)
+@limits(calls=1, period=1)  # SS keys default to 1 req/sec
 def _fetch_ss_with_key(doi: str, api_key: str) -> list[str]:
     """Fetch reference DOIs from SemanticScholar with an API key."""
     return _do_ss_request(doi, api_key=api_key)
@@ -132,6 +136,87 @@ def _do_ss_request(doi: str, api_key: str | None) -> list[str]:
             result.append(cited_doi.strip())
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# SemanticScholar batch lookup (one request for SS_BATCH_SIZE papers)
+# ---------------------------------------------------------------------------
+
+
+@retry(
+    retry=retry_if_exception(_is_retryable_ss_error),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=2, max=60),
+    reraise=True,
+)
+@sleep_and_retry
+@limits(calls=1, period=1)  # SS: 1 req/sec, with or without a key
+def _post_ss_batch(ids: list[str], fields: str, api_key: str | None) -> list:
+    """POST one chunk of paper ids to the SemanticScholar batch endpoint."""
+    headers = {"x-api-key": api_key} if api_key else {}
+    resp = requests.post(
+        SS_BATCH_URL,
+        params={"fields": fields},
+        json={"ids": ids},
+        headers=headers,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _ss_batch_lookup(
+    dois: list[str],
+    link_field: str,
+    api_key: str | None = None,
+    should_stop: StopFn = None,
+) -> dict[str, list[str]]:
+    """Fetch linked DOIs for many papers with the SemanticScholar batch endpoint.
+
+    Args:
+        dois: Clean DOI strings.
+        link_field: ``"references"`` (cited papers) or ``"citations"`` (citers).
+        api_key: Optional SemanticScholar API key.
+        should_stop: Optional callable checked between chunks.
+
+    Returns:
+        Dict mapping each DOI SemanticScholar answered for to its linked DOIs.
+        DOIs from a failed chunk are absent, so the caller can retry them one
+        by one.
+    """
+    linked_key = "citedPaper" if link_field == "references" else "citingPaper"
+    answered: dict[str, list[str]] = {}
+    chunks = [dois[i : i + SS_BATCH_SIZE] for i in range(0, len(dois), SS_BATCH_SIZE)]
+    for chunk_index, chunk in enumerate(chunks, 1):
+        if _stop_requested(should_stop):
+            break
+        try:
+            papers = _post_ss_batch(
+                [f"DOI:{doi}" for doi in chunk], f"{link_field}.externalIds", api_key
+            )
+        except (requests.exceptions.RequestException, OSError, ValueError) as e:
+            logger.warning(
+                f"SS batch {chunk_index}/{len(chunks)} failed ({e}); "
+                "its papers will be fetched one by one"
+            )
+            continue
+        for doi, paper in zip(chunk, papers, strict=False):
+            links = (paper or {}).get(link_field) or []
+            answered[doi] = [
+                linked_doi.strip()
+                for item in links
+                if (
+                    linked_doi := (
+                        (item.get(linked_key, item) or {}).get("externalIds") or {}
+                    ).get("DOI")
+                )
+            ]
+        logger.info(f"  SS batch {chunk_index}/{len(chunks)} done")
+    return answered
+
+
+def _clean(doi: str) -> str:
+    return doi.replace("https://doi.org/", "").strip()
 
 
 def fetch_references_ss(doi: str, api_key: str | None = None) -> list[str]:
@@ -242,7 +327,7 @@ def fetch_references_batch(
 
     Args:
         dois: List of DOI strings to look up.
-        api_key: Optional SemanticScholar API key (enables 10 req/sec vs 1).
+        api_key: Optional SemanticScholar API key.
         cache_path: Path to JSON cache file. Pass None to skip caching.
         fallback_opencitations: If True, use OpenCitations when CrossRef also
             returns an empty list.
@@ -272,6 +357,12 @@ def fetch_references_batch(
         f"Fetching references: {len(dois)} DOIs total, "
         f"{len(cache)} cached, {len(pending)} to fetch"
     )
+    ss_answers = _ss_batch_lookup(
+        [d for d in dict.fromkeys(_clean(d) for d in pending) if d],
+        "references",
+        api_key=api_key,
+        should_stop=should_stop,
+    )
 
     for i, doi in enumerate(pending, 1):
         if _stop_requested(should_stop):
@@ -281,8 +372,11 @@ def fetch_references_batch(
             results[doi] = []
             continue
 
-        # Tier 1: SemanticScholar
-        refs = fetch_references_ss(clean_doi, api_key=api_key)
+        # Tier 1: SemanticScholar (batch answer, else one request)
+        if clean_doi in ss_answers:
+            refs = ss_answers[clean_doi]
+        else:
+            refs = fetch_references_ss(clean_doi, api_key=api_key)
         if not refs and _stop_requested(should_stop):
             break
 
@@ -351,8 +445,8 @@ def _save_cache(cache_path: str, data: dict[str, list[str]]) -> None:
 
 @retry(
     retry=retry_if_exception(_is_retryable_ss_error),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=2, max=60),
     reraise=True,
 )
 @sleep_and_retry
@@ -364,12 +458,12 @@ def _fetch_ss_citers_no_key(doi: str) -> list[str]:
 
 @retry(
     retry=retry_if_exception(_is_retryable_ss_error),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=2, max=60),
     reraise=True,
 )
 @sleep_and_retry
-@limits(calls=10, period=1)  # SS with key: 10 req/sec (conservative vs 100 max)
+@limits(calls=1, period=1)  # SS keys default to 1 req/sec
 def _fetch_ss_citers_with_key(doi: str, api_key: str) -> list[str]:
     """Fetch citing-paper DOIs from SemanticScholar with an API key."""
     return _do_ss_citers_request(doi, api_key=api_key)
@@ -477,7 +571,7 @@ def fetch_citers_batch(
 
     Args:
         dois: List of DOI strings to look up.
-        api_key: Optional SemanticScholar API key (enables 10 req/sec vs 1).
+        api_key: Optional SemanticScholar API key.
         cache_path: Path to JSON cache file. Pass None to skip caching.
         fallback_opencitations: If True, use OpenCitations when SS returns
             an empty list.
@@ -505,6 +599,12 @@ def fetch_citers_batch(
         f"Fetching citers: {len(dois)} DOIs total, "
         f"{len(cache)} cached, {len(pending)} to fetch"
     )
+    ss_answers = _ss_batch_lookup(
+        [d for d in dict.fromkeys(_clean(d) for d in pending) if d],
+        "citations",
+        api_key=api_key,
+        should_stop=should_stop,
+    )
 
     for i, doi in enumerate(pending, 1):
         if _stop_requested(should_stop):
@@ -514,8 +614,11 @@ def fetch_citers_batch(
             results[doi] = []
             continue
 
-        # Tier 1: SemanticScholar
-        citers = fetch_citers_ss(clean_doi, api_key=api_key)
+        # Tier 1: SemanticScholar (batch answer, else one request)
+        if clean_doi in ss_answers:
+            citers = ss_answers[clean_doi]
+        else:
+            citers = fetch_citers_ss(clean_doi, api_key=api_key)
         if not citers and _stop_requested(should_stop):
             break
 

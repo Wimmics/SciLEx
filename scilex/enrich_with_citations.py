@@ -110,7 +110,7 @@ def main():
         # Get SS API key
         ss_api_key = first_key(api_config.get("SemanticScholar", {}).get("api_key"))
         if ss_api_key:
-            logger.info("SemanticScholar API key found — using 10 req/sec")
+            logger.info("SemanticScholar API key found")
         else:
             logger.info("No SS API key — using 1 req/sec public rate limit")
 
