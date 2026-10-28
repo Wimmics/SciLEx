@@ -54,8 +54,8 @@ def _render_view(graph_dir: Path, name: str) -> None:
     if view.linked_papers < view.total_papers / 10:
         ui.label(
             "Few papers are linked, so most are left out of the drawing. Fetching "
-            "citations for more papers (Citations tab) or using Bibliographic "
-            "coupling usually links more of them."
+            "references and citing papers for more of the corpus (Citations tab) "
+            "links more of them; the other graph type may also link more."
         ).classes("text-sm text-orange-700")
     if view.shown_papers < view.linked_papers:
         ui.label(f"Drawing the {view.shown_papers} most central papers.").classes(

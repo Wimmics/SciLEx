@@ -168,6 +168,42 @@ def existing_outputs(collect_dir: Path, name: str) -> list[Path]:
     return sorted(path for glob in globs for path in directory.glob(glob))
 
 
+# Inputs whose change makes the outputs of an analysis out of date.
+STALE_INPUTS: dict[str, tuple[str, ...]] = {
+    "report": ("aggregated_results.csv",),
+    "graph": ("aggregated_results.csv", "citations_cache.json", "citers_cache.json"),
+    "keywords": (f"{GRAPH_DIRNAME}/clusters_*.csv",),
+    "summaries": (f"{GRAPH_DIRNAME}/clusters_*.csv",),
+}
+# Writes within the same second as the outputs are not a change.
+STALE_TOLERANCE_SECONDS = 1.0
+
+
+def stale_warning(collect_dir: Path, name: str, files: list[Path]) -> str | None:
+    """Return a warning when inputs of ``name`` changed after its outputs ``files``.
+
+    Example: the graph was built, then the aggregation or a snowball rewrote
+    ``aggregated_results.csv``; the graph shown no longer matches the corpus.
+    """
+    if name not in STALE_INPUTS or not files:
+        return None
+    outputs_time = min(path.stat().st_mtime for path in files)
+    newer = sorted(
+        {
+            path.name
+            for pattern in STALE_INPUTS[name]
+            for path in collect_dir.glob(pattern)
+            if path.stat().st_mtime > outputs_time + STALE_TOLERANCE_SECONDS
+        }
+    )
+    if not newer:
+        return None
+    return (
+        f"Out of date: {', '.join(newer)} changed after these results were made. "
+        "Run again to update them."
+    )
+
+
 def missing_prerequisite(collect_dir: Path, needs: str) -> str | None:
     """Return a message when the input of an analysis is absent, else None."""
     if needs == "results":

@@ -115,11 +115,17 @@ def _render_analysis(
 
     result_area = ui.column().classes("w-full")
 
-    def show_result(message: str, files: list[Path]) -> None:
+    def show_result(
+        message: str, files: list[Path], warning: str | None = None
+    ) -> None:
         result_area.clear()
         with result_area:
             if message:
                 ui.label(message).classes("font-bold").mark(f"analysis-message-{name}")
+            if warning:
+                ui.label(warning).classes("text-orange-700").mark(
+                    f"analysis-stale-{name}"
+                )
             if name == "graph":
                 # The graph files are drawn as a network, not listed one by one.
                 render_graph_results(service.graph_dir_of(collect_dir))
@@ -130,7 +136,11 @@ def _render_analysis(
     def show_existing() -> None:
         files = service.existing_outputs(collect_dir, name)
         if files:
-            show_result("Previous results:", files)
+            show_result(
+                "Previous results:",
+                files,
+                service.stale_warning(collect_dir, name, files),
+            )
 
     shown_job: list[str] = []
 

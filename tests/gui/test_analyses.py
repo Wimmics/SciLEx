@@ -1,5 +1,6 @@
 """Analyses screen and service (analysis functions mocked, no network)."""
 
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -43,6 +44,39 @@ def test_existing_outputs(tmp_path):
     (charts / "notes.txt").write_text("x")
     assert service.existing_outputs(tmp_path, "report") == [charts / "a.png"]
     assert service.existing_outputs(tmp_path, "enrich") == []
+
+
+def _age(path: Path, seconds: float) -> None:
+    """Make ``path`` look ``seconds`` older."""
+    stat = path.stat()
+    os.utime(path, (stat.st_atime - seconds, stat.st_mtime - seconds))
+
+
+def test_stale_warning(tmp_path):
+    _prepare_outputs(tmp_path)
+    graph_file = tmp_path / service.GRAPH_DIRNAME / "cocitation_graph.gexf"
+    graph_file.write_text("<gexf/>")
+    clusters = tmp_path / service.GRAPH_DIRNAME / "clusters_cocitation.csv"
+    outputs = [clusters, graph_file]
+    # Outputs written after their inputs: up to date.
+    assert service.stale_warning(tmp_path, "graph", outputs) is None
+    # Aggregation rerun after the graph: out of date, naming the changed file.
+    for path in outputs:
+        _age(path, 600)
+    warning = service.stale_warning(tmp_path, "graph", outputs)
+    assert "aggregated_results.csv" in warning
+    assert "citations_cache.json" in warning
+    # Keywords depend on the clusters, which are older than nothing here.
+    keywords = tmp_path / service.GRAPH_DIRNAME / "keyword_suggestions.md"
+    keywords.write_text("# k")
+    assert service.stale_warning(tmp_path, "keywords", [keywords]) is None
+    _age(keywords, 1200)
+    assert "clusters_cocitation.csv" in service.stale_warning(
+        tmp_path, "keywords", [keywords]
+    )
+    # Analyses without tracked inputs, or without outputs, never warn.
+    assert service.stale_warning(tmp_path, "snowball", outputs) is None
+    assert service.stale_warning(tmp_path, "graph", []) is None
 
 
 def test_missing_prerequisite(tmp_path):
@@ -131,6 +165,18 @@ async def test_existing_outputs_shown_on_open(ctx, tmp_path):
         await user.open(f"/review/{review.id}/analyses")
         user.find(marker="analysis-tab-summaries").click()
         await user.should_see("Previous results:")
+
+
+async def test_stale_results_flagged_on_open(ctx, tmp_path):
+    review = _review_with_results(ctx, tmp_path)
+    _prepare_outputs(review.collection_dir)
+    summary = review.collection_dir / "graph_analysis" / "summary_report.md"
+    summary.write_text("# Old summary")
+    _age(summary, 600)
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/analyses")
+        user.find(marker="analysis-tab-summaries").click()
+        await user.should_see(marker="analysis-stale-summaries")
 
 
 @pytest.mark.parametrize("name", NAMES)
