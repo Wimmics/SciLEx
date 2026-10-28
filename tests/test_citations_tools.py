@@ -2,10 +2,11 @@
 
 from unittest.mock import MagicMock, patch
 
-from scilex.citations.citations_tools import (
-    countCitations,
-    getRefandCitFormatted,
-)
+import requests
+
+from scilex.citations.citations_tools import _oc_url, getCitationCounts
+
+OC_TOOLS = "scilex.citations.citations_tools"
 
 
 def _mock_response(json_data, status_code=200):
@@ -16,96 +17,61 @@ def _mock_response(json_data, status_code=200):
     return mock
 
 
-class TestCountCitations:
-    def test_empty_citations(self):
-        citations = {"citing": [], "cited": []}
-        result = countCitations(citations)
-        assert result == {"nb_citations": 0, "nb_cited": 0}
+def _counts_by_kind(citations, references):
+    """Fake ``_oc_request`` answering the two v2 count operations."""
 
-    def test_non_empty_citations(self):
-        citations = {"citing": ["10.1/a", "10.1/b"], "cited": ["10.2/x"]}
-        result = countCitations(citations)
-        assert result["nb_citations"] == 2
-        assert result["nb_cited"] == 1
+    def fake(kind, doi):
+        value = {"citation-count": citations, "reference-count": references}[kind]
+        return _mock_response([{"count": str(value)}])
 
-    def test_returns_dict(self):
-        result = countCitations({"citing": [], "cited": []})
-        assert isinstance(result, dict)
-
-    def test_large_counts(self):
-        citations = {"citing": [f"doi_{i}" for i in range(100)], "cited": [f"doi_{i}" for i in range(50)]}
-        result = countCitations(citations)
-        assert result["nb_citations"] == 100
-        assert result["nb_cited"] == 50
+    return fake
 
 
-class TestGetRefandCitFormatted:
-    @patch("scilex.citations.citations_tools.getCitations")
-    @patch("scilex.citations.citations_tools.getReferences")
-    def test_success_returns_dois(self, mock_refs, mock_cits):
-        mock_cits.return_value = (
-            True,
-            _mock_response([{"citing": "10.1/a"}, {"citing": "10.1/b"}]),
-            "success",
+class TestOcUrl:
+    def test_counts_use_v2_with_doi_prefix(self):
+        assert _oc_url("citation-count", "10.1/a") == (
+            "https://api.opencitations.net/index/v2/citation-count/doi:10.1/a"
         )
-        mock_refs.return_value = (
-            True,
-            _mock_response([{"cited": "10.2/x"}]),
-            "success",
+
+    def test_lists_use_v1_direct_host(self):
+        assert _oc_url("references", "10.1/a") == (
+            "https://api.opencitations.net/index/v1/references/10.1/a"
         )
-        citations, stats = getRefandCitFormatted("10.9999/test")
-        assert len(citations["citing"]) == 2
-        assert len(citations["cited"]) == 1
-        assert stats["cit_status"] == "success"
-        assert stats["ref_status"] == "success"
 
-    @patch("scilex.citations.citations_tools.getCitations")
-    @patch("scilex.citations.citations_tools.getReferences")
-    def test_failure_returns_empty_lists(self, mock_refs, mock_cits):
-        mock_cits.return_value = (False, None, "error")
-        mock_refs.return_value = (False, None, "timeout")
-        citations, stats = getRefandCitFormatted("10.9999/fail")
-        assert citations["citing"] == []
-        assert citations["cited"] == []
-        assert stats["cit_status"] == "error"
-        assert stats["ref_status"] == "timeout"
 
-    @patch("scilex.citations.citations_tools.getCitations")
-    @patch("scilex.citations.citations_tools.getReferences")
-    def test_doi_prefix_stripped(self, mock_refs, mock_cits):
-        mock_cits.return_value = (False, None, "error")
-        mock_refs.return_value = (False, None, "error")
-        getRefandCitFormatted("https://doi.org/10.1/test")
-        # Verify getCitations was called with clean DOI (no prefix)
-        call_arg = mock_cits.call_args[0][0]
-        assert "https://doi.org/" not in call_arg
-        assert call_arg == "10.1/test"
+class TestGetCitationCounts:
+    def test_success_returns_counts(self):
+        with patch(f"{OC_TOOLS}._oc_request", side_effect=_counts_by_kind(12, 3)):
+            counts, stats = getCitationCounts("10.9999/test")
+        assert counts == {"nb_citations": 12, "nb_cited": 3}
+        assert stats == {"cit_status": "success", "ref_status": "success"}
 
-    @patch("scilex.citations.citations_tools.getCitations")
-    @patch("scilex.citations.citations_tools.getReferences")
-    def test_empty_response_lists(self, mock_refs, mock_cits):
-        mock_cits.return_value = (True, _mock_response([]), "success")
-        mock_refs.return_value = (True, _mock_response([]), "success")
-        citations, stats = getRefandCitFormatted("10.9999/empty")
-        assert citations["citing"] == []
-        assert citations["cited"] == []
+    def test_doi_prefix_stripped(self):
+        with patch(
+            f"{OC_TOOLS}._oc_request", side_effect=_counts_by_kind(0, 0)
+        ) as mock_request:
+            getCitationCounts("https://doi.org/10.1/TEST")
+        assert {call.args[1] for call in mock_request.call_args_list} == {"10.1/test"}
 
-    @patch("scilex.citations.citations_tools.getCitations")
-    @patch("scilex.citations.citations_tools.getReferences")
-    def test_invalid_json_handled(self, mock_refs, mock_cits):
-        bad_response = MagicMock()
-        bad_response.json.side_effect = ValueError("bad json")
-        mock_cits.return_value = (True, bad_response, "success")
-        mock_refs.return_value = (True, bad_response, "success")
-        citations, stats = getRefandCitFormatted("10.9999/badjson")
-        assert citations["citing"] == []
+    def test_timeout_and_error_statuses(self):
+        def fake(kind, doi):
+            if kind == "citation-count":
+                raise requests.exceptions.Timeout()
+            raise requests.exceptions.ConnectionError()
+
+        with patch(f"{OC_TOOLS}._oc_request", side_effect=fake):
+            counts, stats = getCitationCounts("10.9999/fail")
+        assert counts == {"nb_citations": 0, "nb_cited": 0}
+        assert stats == {"cit_status": "timeout", "ref_status": "error"}
+
+    def test_unexpected_json_is_an_error(self):
+        with patch(f"{OC_TOOLS}._oc_request", return_value=_mock_response([])):
+            counts, stats = getCitationCounts("10.9999/badjson")
+        assert counts == {"nb_citations": 0, "nb_cited": 0}
         assert stats["cit_status"] == "error"
 
-    @patch("scilex.citations.citations_tools.getCitations")
-    @patch("scilex.citations.citations_tools.getReferences")
-    def test_returns_tuple(self, mock_refs, mock_cits):
-        mock_cits.return_value = (False, None, "error")
-        mock_refs.return_value = (False, None, "error")
-        result = getRefandCitFormatted("10.9999/tuple")
-        assert isinstance(result, tuple)
-        assert len(result) == 2
+    def test_invalid_doi_makes_no_request(self):
+        with patch(f"{OC_TOOLS}._oc_request") as mock_request:
+            _, stats = getCitationCounts("")
+        mock_request.assert_not_called()
+        assert stats == {"cit_status": "error", "ref_status": "error"}

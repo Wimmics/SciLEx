@@ -3,11 +3,11 @@
 Outgoing references (what a paper cites) — three tiers:
   1. SemanticScholar /references  (fast, rich)
   2. CrossRef /works/{doi}        (free, no key; mailto for polite pool)
-  3. OpenCitations /references    (1 req/sec; last resort)
+  3. OpenCitations /references    (3 req/sec shared; last resort)
 
 Incoming citers (who cites a paper) — two tiers:
   1. SemanticScholar /citations   (fast, rich)
-  2. OpenCitations /citations     (1 req/sec; CrossRef has no free citedBy API)
+  2. OpenCitations /citations     (3 req/sec shared; CrossRef has no free citedBy API)
 """
 
 import json
@@ -426,7 +426,7 @@ def fetch_references_batch(
     Fallback chain per paper:
       1. SemanticScholar (primary, fast, rich).
       2. CrossRef /works/{doi} (middle tier, free, no key needed).
-      3. OpenCitations (last resort, 1 req/sec).
+      3. OpenCitations (last resort, 3 req/sec shared).
 
     Results are cached to a JSON file for resumability across interrupted runs.
 

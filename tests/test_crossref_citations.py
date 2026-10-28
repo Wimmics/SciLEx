@@ -206,12 +206,12 @@ class TestCrossRefBatchSize:
 class TestOpenCitationsWorker:
     """The phase-4 worker only calls OpenCitations; SS/CrossRef are earlier phases."""
 
-    @patch("scilex.citations.fetcher.cit_tools.getRefandCitFormatted")
+    @patch("scilex.citations.fetcher.cit_tools.getCitationCounts")
     def test_worker_returns_counts_and_source(self, mock_oc):
         from scilex.citations.fetcher import _fetch_opencitations_for_doi
 
         mock_oc.return_value = (
-            {"citing": ["a"], "cited": ["b", "c"]},
+            {"nb_citations": 1, "nb_cited": 2},
             {"cit_status": "success", "ref_status": "success"},
         )
 
@@ -587,7 +587,7 @@ class TestFetchCitationsParallelPhased:
         mock_cr_batch.assert_called_once()
 
     @patch("scilex.citations.cache.cache_citations_batch")
-    @patch("scilex.citations.fetcher.cit_tools.getRefandCitFormatted")
+    @patch("scilex.citations.fetcher.cit_tools.getCitationCounts")
     @patch(
         "scilex.citations.fetcher.cit_tools.getCrossRefCitationsBatch", return_value={}
     )
@@ -609,7 +609,7 @@ class TestFetchCitationsParallelPhased:
         """Phase 4: OpenCitations used for papers not resolved by phases 1-3."""
         mock_init.return_value = Path("/tmp/test.db")
         mock_oc.return_value = (
-            {"citing": ["x"], "cited": ["y", "z"]},
+            {"nb_citations": 1, "nb_cited": 2},
             {"cit_status": "success", "ref_status": "success"},
         )
 
@@ -619,8 +619,8 @@ class TestFetchCitationsParallelPhased:
         extras, nb_citeds, nb_citations, stats = fn(df, num_workers=1, use_cache=True)
 
         assert stats["opencitations_used"] == 1
-        assert nb_citeds[0] == 2  # len(["y", "z"])
-        assert nb_citations[0] == 1  # len(["x"])
+        assert nb_citeds[0] == 2
+        assert nb_citations[0] == 1
         mock_oc.assert_called_once()
 
     def test_no_doi_papers_resolved_immediately(self):

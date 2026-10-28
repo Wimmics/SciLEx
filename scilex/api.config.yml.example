@@ -59,7 +59,7 @@ SemanticScholar:
 # HOW IT WORKS:
 #   During aggregation, SciLEx fetches citation counts for each paper.
 #   CrossRef supports batch DOI lookup (20 DOIs per request), which is
-#   ~200x faster than OpenCitations (1 DOI per request at 1 req/sec).
+#   ~200x faster than OpenCitations (2 requests per DOI at 3 req/sec).
 #   CrossRef is used automatically — no configuration needed.
 #
 # POLITE POOL (recommended):

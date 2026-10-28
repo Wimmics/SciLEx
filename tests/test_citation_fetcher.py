@@ -13,11 +13,11 @@ from scilex.pipeline.enrichment import (
 )
 
 OC_SUCCESS = (
-    {"citing": ["x"], "cited": ["y", "z"]},
+    {"nb_citations": 1, "nb_cited": 2},
     {"cit_status": "success", "ref_status": "success"},
 )
 OC_TIMEOUT = (
-    {"citing": [], "cited": []},
+    {"nb_citations": 0, "nb_cited": 0},
     {"cit_status": "timeout", "ref_status": "timeout"},
 )
 
@@ -35,7 +35,7 @@ def _run(df, **kwargs):
     return fetch_citations_for_dataframe(df, **kwargs)
 
 
-@patch(f"{CIT}.getRefandCitFormatted", return_value=OC_SUCCESS)
+@patch(f"{CIT}.getCitationCounts", return_value=OC_SUCCESS)
 @patch(f"{CIT}.getCrossRefCitationsBatch", return_value={})
 class TestCheckpointing:
     def _stale_checkpoint(self, path):
@@ -120,7 +120,7 @@ class TestCheckpointing:
 
 
 class TestCacheDisabled:
-    @patch(f"{CIT}.getRefandCitFormatted", return_value=OC_SUCCESS)
+    @patch(f"{CIT}.getCitationCounts", return_value=OC_SUCCESS)
     @patch(f"{CIT}.getCrossRefCitationsBatch", return_value={})
     def test_no_cache_call_when_disabled(self, _cr, _oc):
         with (
@@ -147,7 +147,7 @@ class TestCacheGating:
     def test_failed_opencitations_not_cached(self, _init, _batch, mock_stats, _cr):
         mock_stats.return_value = {"active_entries": 0, "expired_entries": 0}
         with (
-            patch(f"{CIT}.getRefandCitFormatted", return_value=OC_TIMEOUT),
+            patch(f"{CIT}.getCitationCounts", return_value=OC_TIMEOUT),
             patch("scilex.citations.cache.cache_citations_batch") as put_batch,
         ):
             _, _, _, stats = _run(_df(["10.1/a"]), use_cache=True)
@@ -159,7 +159,7 @@ class TestCacheGating:
     def test_successful_opencitations_cached(self, _init, _batch, mock_stats, _cr):
         mock_stats.return_value = {"active_entries": 0, "expired_entries": 0}
         with (
-            patch(f"{CIT}.getRefandCitFormatted", return_value=OC_SUCCESS),
+            patch(f"{CIT}.getCitationCounts", return_value=OC_SUCCESS),
             patch("scilex.citations.cache.cache_citations_batch") as put_batch,
         ):
             _run(_df(["10.1/a"]), use_cache=True)
@@ -169,7 +169,7 @@ class TestCacheGating:
 
 
 class TestDoiNormalization:
-    @patch(f"{CIT}.getRefandCitFormatted")
+    @patch(f"{CIT}.getCitationCounts")
     @patch(f"{CIT}.getCrossRefCitationsBatch")
     def test_prefixed_mixed_case_doi_matches_crossref_result(self, mock_cr, mock_oc):
         mock_cr.return_value = {"10.1234/abc": (7, 3)}
@@ -246,7 +246,7 @@ class TestUnresolvedValuesAndFallbacks:
         assert df["nb_cited"].iloc[0] == 2
 
 
-@patch(f"{CIT}.getRefandCitFormatted", return_value=OC_SUCCESS)
+@patch(f"{CIT}.getCitationCounts", return_value=OC_SUCCESS)
 @patch(f"{CIT}.getCrossRefCitationsBatch", return_value={})
 def test_cache_created_in_cache_dir_not_cwd(_cr, _oc, tmp_path, monkeypatch):
     """A packaged app starts in a read-only cwd: the cache must follow cache_dir."""

@@ -72,7 +72,7 @@ def test_oc_url_uses_normalized_and_quoted_doi(mock_get):
     mock_get.return_value = _response(200)
     ct.getCitations("https://doi.org/10.1/A B#c")
     url = mock_get.call_args[0][0]
-    assert url == ct.api_citations + "10.1/a%20b%23c"
+    assert url == "https://api.opencitations.net/index/v1/citations/10.1/a%20b%23c"
 
 
 def test_retry_after_is_honored_and_capped():

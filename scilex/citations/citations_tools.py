@@ -12,10 +12,11 @@ from tenacity import (
 
 from scilex.constants import normalize_doi
 
-api_citations = "https://opencitations.net/index/coci/api/v1/citations/"
-api_references = "https://opencitations.net/index/coci/api/v1/references/"
-
-_OC_ENDPOINTS = {"citations": api_citations, "references": api_references}
+# Direct host: opencitations.net/index/coci/api/v1/ answers with two redirects.
+_OC_V1 = "https://api.opencitations.net/index/v1/"
+_OC_V2 = "https://api.opencitations.net/index/v2/"
+_OC_LIST_KINDS = ("citations", "references")
+_OC_COUNT_KINDS = ("citation-count", "reference-count")
 _MAX_RETRY_AFTER_SECONDS = 60
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
 _backoff = wait_exponential(multiplier=1, min=2, max=10)
@@ -46,6 +47,13 @@ def wait_retry_after_or_backoff(retry_state) -> float:
     return min(max(retry_after, 0.0), _MAX_RETRY_AFTER_SECONDS)
 
 
+def _oc_url(kind, doi):
+    """URL of an OpenCitations operation: v1 for DOI lists, v2 for counts."""
+    if kind in _OC_COUNT_KINDS:
+        return f"{_OC_V2}{kind}/doi:{quote(doi, safe='/')}"
+    return f"{_OC_V1}{kind}/{quote(doi, safe='/')}"
+
+
 @retry(
     retry=retry_if_exception(is_retryable_http_error),
     stop=stop_after_attempt(3),
@@ -53,23 +61,23 @@ def wait_retry_after_or_backoff(retry_state) -> float:
     reraise=True,
 )
 @sleep_and_retry
-@limits(calls=1, period=1)  # OpenCitations public API limit: 1 req/sec
+@limits(calls=3, period=1)  # OpenCitations limit: 180 req/min per IP, all threads
 def _oc_request(kind, doi):
     """Perform one OpenCitations GET; raises on any HTTP/network failure."""
     logging.debug(f"Requesting {kind} for DOI: {doi}")
-    resp = requests.get(_OC_ENDPOINTS[kind] + quote(doi, safe="/"), timeout=10)
+    resp = requests.get(_oc_url(kind, doi), timeout=10)
     resp.raise_for_status()
     return resp
 
 
 def _oc_get(kind, doi):
-    """Fetch citations or references for a DOI from OpenCitations.
+    """Call one OpenCitations operation for a DOI.
 
     Transient failures (timeouts, connection errors, 429, 5xx) are retried up to
     3 times; other 4xx errors fail immediately.
 
     Args:
-        kind: "citations" or "references"
+        kind: "citations", "references", "citation-count" or "reference-count"
         doi: DOI (any common spelling; normalized before the request)
 
     Returns:
@@ -90,7 +98,7 @@ def _oc_get(kind, doi):
 
 
 def getCitations(doi):
-    """Fetch citation data for a DOI from OpenCitations.
+    """Fetch the list of citing works of a DOI from OpenCitations.
 
     Returns:
         tuple: (success: bool, data: Response|None, error_type: str)
@@ -100,7 +108,7 @@ def getCitations(doi):
 
 
 def getReferences(doi):
-    """Fetch reference data for a DOI from OpenCitations.
+    """Fetch the list of works cited by a DOI from OpenCitations.
 
     Returns:
         tuple: (success: bool, data: Response|None, error_type: str)
@@ -109,63 +117,45 @@ def getReferences(doi):
     return _oc_get("references", doi)
 
 
-def getRefandCitFormatted(doi_str):
-    """
-    Fetch both citations and references for a DOI and return formatted results.
+def _oc_count(kind, doi):
+    """Return ``(count, status)`` for one OpenCitations count operation."""
+    success, response, status = _oc_get(kind, doi)
+    if not success:
+        return 0, status
+    try:
+        return int(response.json()[0]["count"]), "success"
+    except (ValueError, KeyError, IndexError, TypeError) as e:
+        logging.warning(f"Error parsing {kind} JSON for DOI {doi}: {e}")
+        return 0, "error"
+
+
+def getCitationCounts(doi_str):
+    """Fetch the citation and reference counts of a DOI from OpenCitations.
+
+    Uses the v2 count operations: two tiny responses instead of the full lists
+    of citing and cited DOIs. An unknown DOI has counts of zero.
 
     Args:
         doi_str: The DOI string (any common spelling, e.g. with https://doi.org/)
 
     Returns:
-        tuple: (citations_dict, stats_dict)
-            - citations_dict: Dictionary with 'citing' and 'cited' lists of DOIs
-            - stats_dict: Dictionary with 'cit_status' and 'ref_status' ('success', 'timeout', or 'error')
+        tuple: (counts_dict, stats_dict)
+            - counts_dict: ``{"nb_citations": int, "nb_cited": int}``
+            - stats_dict: ``cit_status`` and ``ref_status``, each "success",
+              "timeout" or "error"
     """
     clean_doi = normalize_doi(doi_str)
     if clean_doi is None:
-        return {"citing": [], "cited": []}, {
+        return {"nb_citations": 0, "nb_cited": 0}, {
             "cit_status": "error",
             "ref_status": "error",
         }
-    success_cit, citation, cit_status = getCitations(clean_doi)
-    success_ref, reference, ref_status = getReferences(clean_doi)
-
-    citations = {"citing": [], "cited": []}
-    stats = {"cit_status": cit_status, "ref_status": ref_status}
-
-    # Process citations
-    if success_cit and citation is not None:
-        try:
-            resp_cit = citation.json()
-            if len(resp_cit) > 0:
-                for cit in resp_cit:
-                    citations["citing"].append(cit["citing"])
-        except (ValueError, KeyError) as e:
-            logging.warning(f"Error parsing citations JSON for DOI {clean_doi}: {e}")
-            stats["cit_status"] = "error"
-
-    # Process references
-    if success_ref and reference is not None:
-        try:
-            resp_ref = reference.json()
-            if len(resp_ref) > 0:
-                for ref in resp_ref:
-                    citations["cited"].append(ref["cited"])
-                logging.debug(
-                    f"Found {len(citations['cited'])} references for {clean_doi}"
-                )
-        except (ValueError, KeyError) as e:
-            logging.warning(f"Error parsing references JSON for DOI {clean_doi}: {e}")
-            stats["ref_status"] = "error"
-
-    return citations, stats
-
-
-def countCitations(citations):
-    return {
-        "nb_citations": len(citations["citing"]),
-        "nb_cited": len(citations["cited"]),
-    }
+    nb_citations, cit_status = _oc_count("citation-count", clean_doi)
+    nb_cited, ref_status = _oc_count("reference-count", clean_doi)
+    return (
+        {"nb_citations": nb_citations, "nb_cited": nb_cited},
+        {"cit_status": cit_status, "ref_status": ref_status},
+    )
 
 
 # ============================================================================

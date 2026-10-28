@@ -9,7 +9,7 @@ the rest on:
     2.  Semantic Scholar counts already in the DataFrame (in-memory)
     2b. OpenAlex counts already in the DataFrame (in-memory)
     3.  CrossRef batch API (N/20 HTTP requests)
-    4.  OpenCitations (threaded, one slow request per DOI)
+    4.  OpenCitations count API (threaded, 2 requests per DOI, 3 req/s shared)
 
 Progress is checkpointed as the *set of resolved positions* (plus the result
 arrays), because phases 3 and 4 do not complete papers in DataFrame order.
@@ -416,8 +416,13 @@ def _fetch_opencitations_for_doi(doi):
     Returns:
         dict with ``citations``, ``api_stats``, ``nb_cited`` and ``nb_citations``.
     """
-    citations, api_stats = cit_tools.getRefandCitFormatted(doi)
-    counts = cit_tools.countCitations(citations)
+    counts, api_stats = cit_tools.getCitationCounts(doi)
+    citations = {
+        "citing_dois": [],
+        "cited_dois": [],
+        **counts,
+        "source": "opencitations",
+    }
     return {
         "citations": citations,
         "api_stats": {**api_stats, "source": "opencitations"},
