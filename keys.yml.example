@@ -40,9 +40,6 @@ CrossRef:
 Unpaywall:
   email: "you@institution.org"   # required by enrichment.unpaywall
 
-HuggingFace:
-  token: null                    # optional: higher rate limit
-
 openrouter:
   api_key: "sk-or-..."           # llm_screening; OPENROUTER_API_KEY also works
 

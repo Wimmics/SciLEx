@@ -162,8 +162,9 @@ SECTIONS: dict[str, SectionMeta] = {
     "enrichment": SectionMeta(
         "Enrichment", "Extra information added to each paper (slower)."
     ),
-    "huggingface": SectionMeta(
-        "Hugging Face", "Link papers to Hugging Face papers, models and datasets."
+    "paperswithcode": SectionMeta(
+        "Papers with Code",
+        "Add tasks, methods, benchmarks and code repositories from Papers with Code.",
     ),
     "report": SectionMeta("Reports", "Files written next to the results."),
     "collect": SectionMeta("Collection", "Rarely needed collection options."),
@@ -347,32 +348,27 @@ FIELDS: dict[str, FieldMeta] = {
     "enrichment.author_hindex": FieldMeta(
         "Fetch author h-index", "Slow on large collections."
     ),
-    "enrichment.huggingface.enabled": FieldMeta(
-        "Link to Hugging Face",
-        "Attach the Hugging Face papers, models and datasets of each paper "
-        "(run from the Analyses step).",
+    "enrichment.paperswithcode.enabled": FieldMeta(
+        "Link to Papers with Code",
+        "Attach the tasks, methods, benchmarks and code repositories of each "
+        "paper from Papers with Code, no key needed (run from the Analyses step).",
     ),
-    "enrichment.huggingface.use_papers_api": FieldMeta(
-        "Use the Hugging Face papers API",
-        "Search papers by title first (more accurate), then models and datasets.",
-        advanced=True,
-    ),
-    "enrichment.huggingface.fuzzy_match_threshold": FieldMeta(
+    "enrichment.paperswithcode.fuzzy_match_threshold": FieldMeta(
         "Title match threshold (0-100)",
         "How similar titles must be to link a paper. Higher is stricter.",
         advanced=True,
     ),
-    "enrichment.huggingface.cache_path": FieldMeta(
+    "enrichment.paperswithcode.cache_path": FieldMeta(
         "Cache file",
-        "Local cache of Hugging Face answers, relative to the review folder.",
+        "Local cache of Papers with Code answers, relative to the review folder.",
         advanced=True,
     ),
-    "enrichment.huggingface.cache_ttl_days": FieldMeta(
+    "enrichment.paperswithcode.cache_ttl_days": FieldMeta(
         "Cache lifetime (days)",
         "Cached answers older than this are fetched again.",
         advanced=True,
     ),
-    "enrichment.huggingface.workers": FieldMeta(
+    "enrichment.paperswithcode.workers": FieldMeta(
         "Parallel requests",
         "1-32. More is faster but hits rate limits sooner.",
         advanced=True,

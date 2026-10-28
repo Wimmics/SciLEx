@@ -56,7 +56,7 @@ search:
 # ranking:
 #   max_papers: 1000
 # enrichment:
-#   huggingface: false
+#   paperswithcode: false
 """
 
 

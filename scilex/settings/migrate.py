@@ -42,6 +42,7 @@ _HANDLED_TOP_LEVEL = frozenset(
         "quality_filters",
         "aggregate_get_citations",
         "hf_enrichment",
+        "pwc_enrichment",
         "since",
         "llm_screening",
         "collect",
@@ -74,14 +75,16 @@ def _warn_ignored_keys(merged: dict) -> None:
                 "and was ignored.",
                 key,
             )
-    hf_defaults = default_settings_dict()["enrichment"]["huggingface"]
-    for key in merged.get("hf_enrichment") or {}:
-        if key != "enabled" and key not in hf_defaults:
-            logger.warning(
-                "Legacy key 'hf_enrichment.%s' has no equivalent in scilex.yml "
-                "and was ignored.",
-                key,
-            )
+    pwc_defaults = default_settings_dict()["enrichment"]["paperswithcode"]
+    for block_name in ("hf_enrichment", "pwc_enrichment"):
+        for key in merged.get(block_name) or {}:
+            if key not in ("enabled", "use_papers_api") and key not in pwc_defaults:
+                logger.warning(
+                    "Legacy key '%s.%s' has no equivalent in scilex.yml "
+                    "and was ignored.",
+                    block_name,
+                    key,
+                )
 
 
 def _clean_keyword_groups(keywords):
@@ -140,17 +143,20 @@ def _set_if_different(
         target.setdefault(section, {})[key] = value
 
 
-def _huggingface_block(hf_legacy: dict | None, defaults: dict):
-    """Translate the legacy ``hf_enrichment`` block (None when it is the default)."""
-    default_block = defaults["enrichment"]["huggingface"]
-    if hf_legacy is None:
+def _paperswithcode_block(pwc_legacy: dict | None, defaults: dict):
+    """Translate a legacy ``pwc_enrichment``/``hf_enrichment`` block.
+
+    Returns None when it is the default (disabled).
+    """
+    default_block = defaults["enrichment"]["paperswithcode"]
+    if pwc_legacy is None:
         # Legacy consumers treat a missing block as enabled.
         return True
-    if not hf_legacy.get("enabled", True):
+    if not pwc_legacy.get("enabled", True):
         return None
     extras = {
         key: value
-        for key, value in hf_legacy.items()
+        for key, value in pwc_legacy.items()
         if key != "enabled" and key in default_block and value != default_block[key]
     }
     return {"enabled": True, **extras} if extras else True
@@ -277,9 +283,14 @@ def legacy_to_settings(main_config: dict, advanced_config: dict | None = None) -
     result.update(ranking)
 
     enrichment: dict = {}
-    huggingface = _huggingface_block(merged.get("hf_enrichment"), defaults)
-    if huggingface is not None:
-        enrichment["huggingface"] = huggingface
+    legacy_block = (
+        merged["pwc_enrichment"]
+        if "pwc_enrichment" in merged
+        else merged.get("hf_enrichment")
+    )
+    paperswithcode = _paperswithcode_block(legacy_block, defaults)
+    if paperswithcode is not None:
+        enrichment["paperswithcode"] = paperswithcode
     for new_key, legacy_key, default in (
         ("recover_dois", "recover_missing_dois", DEFAULT_RECOVER_MISSING_DOIS),
         (

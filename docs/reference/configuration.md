@@ -141,7 +141,7 @@ Results are cached in `<output_dir>/<name>/llm_relevance_cache.json`.
 
 | Key | Type | Default | Role |
 |-----|------|---------|------|
-| `huggingface` | bool or mapping | `false` | `true` enables HuggingFace enrichment. A mapping accepts `enabled` (`false`), `use_papers_api` (`true`), `fuzzy_match_threshold` (`85`, 0-100), `cache_path` (`output/hf_cache.db`), `cache_ttl_days` (`30`) and `workers` (`4`, 1-32, papers searched concurrently; `scilex-enrich --workers` overrides it). |
+| `paperswithcode` | bool or mapping | `false` | `true` enables [Papers with Code](https://paperswithcode.co) enrichment (tasks, methods, benchmarks, GitHub repositories; anonymous API, no key). A mapping accepts `enabled` (`false`), `fuzzy_match_threshold` (`85`, 0-100), `cache_path` (`output/pwc_cache.db`), `cache_ttl_days` (`30`) and `workers` (`4`, 1-32, papers searched concurrently; `scilex-enrich --workers` overrides it). `huggingface` is a deprecated alias: it is still accepted with a warning and translated (`use_papers_api` is ignored); setting both is an error. |
 | `recover_dois` | bool | `false` | Recover missing DOIs through CrossRef (title and first author) |
 | `doi_recovery_min_similarity` | float 0-1 | `0.9` | Minimum title similarity to accept a recovered DOI |
 | `unpaywall` | bool | `false` | Add the `oa_type` column through Unpaywall (needs `Unpaywall.email` in `keys.yml`) |
@@ -171,7 +171,7 @@ Do not commit this file: keep it in `~/.config/scilex/`.
 | `PubMed` | `api_key` | Optional: 10 requests/s instead of 3 |
 | `CrossRef` | `mailto` | Polite pool, faster batch lookups |
 | `Unpaywall` | `email` | Required by `enrichment.unpaywall` |
-| `HuggingFace` | `token` | Optional, higher rate limit |
+| `HuggingFace` | `token` | Deprecated and unused (still accepted) |
 | `openrouter` | `api_key` | For `llm_screening`; `OPENROUTER_API_KEY` also works |
 | `Zotero` | `api_key`, `user_id`, `user_mode` (`user` or `group`) | For `scilex-push-zotero` |
 | `ORCID` | `client_id`, `client_secret`, `dir` | Optional |
@@ -244,7 +244,7 @@ Templates and profiles saved in the old format are converted when read.
 | `itemtype_relevance_weights` | `ranking.itemtype_weights` |
 | `use_venue_ranking` | `ranking.venue_ranking` |
 | `llm_screening` | `llm_screening` |
-| `hf_enrichment` (a missing block meant enabled) | `enrichment.huggingface` |
+| `hf_enrichment` / `pwc_enrichment` (a missing block meant enabled) | `enrichment.paperswithcode` |
 | `recover_missing_dois`, `doi_recovery_min_similarity` | `enrichment.recover_dois`, `enrichment.doi_recovery_min_similarity` |
 | `enrich_unpaywall` | `enrichment.unpaywall` |
 | `enrich_author_hindex` | `enrichment.author_hindex` |

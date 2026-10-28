@@ -3,9 +3,9 @@
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+from scilex.pipeline.enrichment_hf import EnrichmentOptions, run_enrichment
 
 from scilex.config import SciLExConfig
-from scilex.pipeline.enrichment_hf import EnrichmentOptions, run_enrichment
 from scilex.settings import resolve
 from scilex.settings.schema import ScilexSettings
 
@@ -50,10 +50,10 @@ def test_hf_workers_in_schema():
         {
             "name": "x",
             "search": {"keywords": [["a"]], "years": [2024], "apis": ["HAL"]},
-            "enrichment": {"huggingface": {"enabled": True, "workers": 8}},
+            "enrichment": {"paperswithcode": {"enabled": True, "workers": 8}},
         }
     )
-    assert settings.enrichment.huggingface.workers == 8
+    assert settings.enrichment.paperswithcode.workers == 8
 
 
 def _run_with(tmp_path, hf_block, options):
@@ -110,10 +110,10 @@ def test_workers_only_reaches_legacy_when_not_default():
         "search": {"keywords": [["a"]], "years": [2024], "apis": ["HAL"]},
     }
     default = ScilexSettings.model_validate(
-        {**base, "enrichment": {"huggingface": True}}
+        {**base, "enrichment": {"paperswithcode": True}}
     )
     custom = ScilexSettings.model_validate(
-        {**base, "enrichment": {"huggingface": {"enabled": True, "workers": 8}}}
+        {**base, "enrichment": {"paperswithcode": {"enabled": True, "workers": 8}}}
     )
-    assert "workers" not in to_legacy(default)[0]["hf_enrichment"]
-    assert to_legacy(custom)[0]["hf_enrichment"]["workers"] == 8
+    assert "workers" not in to_legacy(default)[0]["pwc_enrichment"]
+    assert to_legacy(custom)[0]["pwc_enrichment"]["workers"] == 8

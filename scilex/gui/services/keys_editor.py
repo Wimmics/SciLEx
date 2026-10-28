@@ -89,13 +89,6 @@ API_SPECS: tuple[ApiSpec, ...] = (
         note="Optional, only for LLM screening.",
         testable=True,
     ),
-    ApiSpec(
-        "HuggingFace",
-        "Hugging Face",
-        field="token",
-        help_url="https://huggingface.co/settings/tokens",
-        note="Optional: higher rate limit for enrichment.",
-    ),
 )
 ZOTERO_HELP_URL = "https://www.zotero.org/settings/keys"
 EMAIL_BLOCKS = {

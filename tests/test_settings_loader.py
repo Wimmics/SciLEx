@@ -178,7 +178,7 @@ def test_to_legacy_shape(isolated):
                 "require": ["doi"],
                 "abstract_quality": 80,
             },
-            "enrichment": {"huggingface": True},
+            "enrichment": {"paperswithcode": True},
             "collect": {"vpn": {"enabled": True}},
             "search": {**BASE["search"], "max_articles_per_query": 10},
         },
@@ -190,5 +190,29 @@ def test_to_legacy_shape(isolated):
     assert qf["validate_abstracts"] is True and qf["min_abstract_quality_score"] == 80
     assert main["max_articles_per_query"] == 10
     assert main["vpn"] == {"enabled": True}
-    assert main["hf_enrichment"]["enabled"] is True
+    assert main["pwc_enrichment"]["enabled"] is True
     assert main["collect_name"] == "review"
+
+
+def test_deprecated_huggingface_key_in_file(tmp_path, caplog):
+    path = tmp_path / "scilex.yml"
+    path.write_text(
+        yaml.safe_dump({**BASE, "enrichment": {"huggingface": {"workers": 6}}})
+    )
+    with caplog.at_level(logging.WARNING):
+        loaded = load_settings(config_path=path)
+    block = loaded.settings.enrichment.paperswithcode
+    assert block.enabled is True
+    assert block.workers == 6
+    assert "deprecated" in caplog.text
+
+
+def test_huggingface_and_paperswithcode_in_file_is_an_error(tmp_path):
+    path = tmp_path / "scilex.yml"
+    path.write_text(
+        yaml.safe_dump(
+            {**BASE, "enrichment": {"huggingface": True, "paperswithcode": True}}
+        )
+    )
+    with pytest.raises(SettingsError, match="both set"):
+        load_settings(config_path=path)

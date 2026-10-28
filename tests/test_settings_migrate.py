@@ -60,7 +60,7 @@ def test_examples_roundtrip(tmp_path, monkeypatch):
         "apis",
         "semantic_scholar_mode",
         "aggregate_get_citations",
-        "hf_enrichment",
+        "pwc_enrichment",
     ):
         assert main[key] == expected.main[key], key
     assert _effective(main["quality_filters"]) == _effective(expected.quality_filters)
@@ -100,5 +100,22 @@ def test_legacy_to_settings_omits_defaults():
     assert result == {
         "name": "x",
         "search": {"keywords": [["a"]], "years": [2024], "apis": ["Arxiv"]},
-        "enrichment": {"huggingface": True},
+        "enrichment": {"paperswithcode": True},
     }
+
+
+def test_legacy_hf_and_pwc_blocks_map_to_paperswithcode():
+    base = {
+        "collect_name": "x",
+        "keywords": [["a"]],
+        "years": [2024],
+        "apis": ["Arxiv"],
+    }
+    for key in ("hf_enrichment", "pwc_enrichment"):
+        result = legacy_to_settings(
+            {**base, key: {"enabled": True, "use_papers_api": False, "workers": 8}}
+        )
+        assert result["enrichment"]["paperswithcode"] == {
+            "enabled": True,
+            "workers": 8,
+        }

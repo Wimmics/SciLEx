@@ -31,6 +31,7 @@ from scilex.settings.schema import (
     SettingsError,
     default_settings_dict,
     format_validation_error,
+    migrate_deprecated_huggingface,
 )
 
 logger = logging.getLogger(__name__)
@@ -162,15 +163,23 @@ def _flatten(data: dict, prefix: str = "") -> dict[str, Any]:
 def _normalize_layer(layer: dict) -> dict:
     """Expand shorthands of a user layer so deep merging behaves.
 
-    ``enrichment.huggingface: true`` becomes ``{enabled: true}`` and a block
-    without ``enabled`` means enabled.
+    ``enrichment.paperswithcode: true`` becomes ``{enabled: true}`` and a block
+    without ``enabled`` means enabled. The deprecated ``huggingface`` key is
+    renamed first (with a warning) so it merges onto the right default.
     """
     layer = copy.deepcopy(layer)
     enrichment = layer.get("enrichment")
     if isinstance(enrichment, dict) and "huggingface" in enrichment:
-        block = enrichment["huggingface"]
+        try:
+            layer["enrichment"] = enrichment = migrate_deprecated_huggingface(
+                enrichment
+            )
+        except ValueError as exc:
+            raise SettingsError(str(exc)) from exc
+    if isinstance(enrichment, dict) and "paperswithcode" in enrichment:
+        block = enrichment["paperswithcode"]
         if isinstance(block, bool):
-            enrichment["huggingface"] = {"enabled": block}
+            enrichment["paperswithcode"] = {"enabled": block}
         elif isinstance(block, dict) and "enabled" not in block:
             block["enabled"] = True
     return layer
@@ -419,7 +428,7 @@ def to_legacy(
         ``(main_config, api_config)`` in the shape consumed by ``SciLExConfig``.
     """
     search, filters = settings.search, settings.filters
-    ranking, hf = settings.ranking, settings.enrichment.huggingface
+    ranking, pwc = settings.ranking, settings.enrichment.paperswithcode
 
     quality_filters = {
         "enable_itemtype_bypass": bool(filters.always_keep),
@@ -468,9 +477,9 @@ def to_legacy(
         "apis": list(search.apis),
         "semantic_scholar_mode": search.semantic_scholar_mode,
         "aggregate_get_citations": settings.citations.fetch,
-        "hf_enrichment": (
-            hf.model_dump(exclude=set() if hf.workers != 4 else {"workers"})
-            if hf.enabled
+        "pwc_enrichment": (
+            pwc.model_dump(exclude=set() if pwc.workers != 4 else {"workers"})
+            if pwc.enabled
             else {"enabled": False}
         ),
         "quality_filters": quality_filters,

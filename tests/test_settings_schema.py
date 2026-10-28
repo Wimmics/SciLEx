@@ -44,12 +44,12 @@ def test_full_file():
         },
         "citations": {"fetch": False, "fallbacks": ["openalex"]},
         "ranking": {"enabled": True, "max_papers": None, "weights": {"keywords": 0.5}},
-        "enrichment": {"huggingface": {"enabled": True, "cache_ttl_days": 5}},
+        "enrichment": {"paperswithcode": {"enabled": True, "cache_ttl_days": 5}},
         "report": {"quality_report": False, "track_duplicates": False},
         "collect": {"enabled": False, "vpn": {"enabled": True}},
     }
     settings = _validate(raw)
-    assert settings.enrichment.huggingface.cache_ttl_days == 5
+    assert settings.enrichment.paperswithcode.cache_ttl_days == 5
     assert settings.collect.vpn == {"enabled": True}
 
 
@@ -96,12 +96,40 @@ def test_require_subset_and_words_order():
         _validate({**MINIMAL, "filters": {"abstract_words": [500, 10]}})
 
 
-def test_huggingface_bool_shorthand():
-    raw = {**MINIMAL, "enrichment": {"huggingface": True}}
-    assert _validate(raw).enrichment.huggingface.enabled is True
+def test_paperswithcode_bool_shorthand():
+    raw = {**MINIMAL, "enrichment": {"paperswithcode": True}}
+    assert _validate(raw).enrichment.paperswithcode.enabled is True
 
 
 def test_no_preset_invariant():
     main, _ = to_legacy(_validate(MINIMAL))
     assert main["quality_filters"] == get_default_quality_filters()
     assert main["quality_filters"] == SciLExConfig.from_dicts(main).quality_filters
+
+
+def test_deprecated_huggingface_key_is_translated_with_warning(caplog):
+    raw = {
+        **MINIMAL,
+        "enrichment": {"huggingface": {"enabled": True, "use_papers_api": False}},
+    }
+    with caplog.at_level("WARNING"):
+        settings = _validate(raw)
+    assert settings.enrichment.paperswithcode.enabled is True
+    assert "deprecated" in caplog.text
+
+
+def test_deprecated_huggingface_bool_is_translated():
+    settings = _validate({**MINIMAL, "enrichment": {"huggingface": True}})
+    assert settings.enrichment.paperswithcode.enabled is True
+
+
+def test_huggingface_and_paperswithcode_together_is_an_error():
+    raw = {**MINIMAL, "enrichment": {"huggingface": True, "paperswithcode": True}}
+    with pytest.raises(SettingsError, match="both set"):
+        _validate(raw)
+
+
+def test_to_legacy_emits_pwc_enrichment():
+    main, _ = to_legacy(_validate({**MINIMAL, "enrichment": {"paperswithcode": True}}))
+    assert main["pwc_enrichment"]["enabled"] is True
+    assert "hf_enrichment" not in main

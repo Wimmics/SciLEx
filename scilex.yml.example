@@ -82,7 +82,7 @@ report:
 # 3. ENRICH (optional steps)
 # ----------------------------------------------------------------------------
 enrichment:
-  huggingface: false             # true, or {enabled, use_papers_api, fuzzy_match_threshold, cache_path, cache_ttl_days, workers}
+  paperswithcode: false          # Papers with Code (no key): true, or {enabled, fuzzy_match_threshold, cache_path, cache_ttl_days, workers}
   recover_dois: false            # recover missing DOIs through CrossRef (title + first author)
   doi_recovery_min_similarity: 0.9
   unpaywall: false               # add the oa_type column (needs Unpaywall.email in keys.yml)

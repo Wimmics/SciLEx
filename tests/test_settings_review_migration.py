@@ -60,7 +60,7 @@ def test_each_ignored_legacy_key_is_logged_with_its_name(caplog):
             enable_text_filter=True,
             another_unknown="x",
             quality_filters={"enable_text_filter": False, "mystery": 1},
-            hf_enrichment={"enabled": True, "weird": 2},
+            pwc_enrichment={"enabled": True, "weird": 2},
         )
     messages = [record.getMessage() for record in caplog.records]
     for name in (
@@ -68,7 +68,7 @@ def test_each_ignored_legacy_key_is_logged_with_its_name(caplog):
         "'another_unknown'",
         "quality_filters.enable_text_filter",
         "quality_filters.mystery",
-        "hf_enrichment.weird",
+        "pwc_enrichment.weird",
     ):
         assert any(name in message for message in messages), name
 
@@ -77,7 +77,7 @@ def test_known_legacy_keys_do_not_warn(caplog):
     with caplog.at_level(logging.WARNING):
         _migrate_and_load(
             quality_filters={"max_papers": 10, "require_doi": True},
-            hf_enrichment={"enabled": True},
+            pwc_enrichment={"enabled": True},
             output_dir="out",
         )
     assert caplog.text == ""

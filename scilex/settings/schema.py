@@ -6,6 +6,7 @@ typo is reported instead of being silently ignored.
 
 import copy
 import difflib
+import logging
 import re
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
@@ -45,6 +46,8 @@ from scilex.config_defaults import (
 
 REQUIRE_CHOICES = ("abstract", "doi", "year", "open_access")
 _YEAR_RANGE = re.compile(r"^\s*(\d{4})\s*-\s*(\d{4})\s*$")
+logger = logging.getLogger(__name__)
+
 _STRICT = ConfigDict(extra="forbid")
 MIN_YEAR, MAX_YEAR = 1000, 3000
 
@@ -247,15 +250,14 @@ class RankingSettings(BaseModel):
         return value
 
 
-class HuggingFaceSettings(BaseModel):
-    """HuggingFace enrichment; ``huggingface: true`` is shorthand for a block."""
+class PapersWithCodeSettings(BaseModel):
+    """Papers with Code enrichment; ``paperswithcode: true`` is a shorthand."""
 
     model_config = _STRICT
 
     enabled: bool = False
-    use_papers_api: bool = True
     fuzzy_match_threshold: Integer = Field(default=85, ge=0, le=100)
-    cache_path: str = "output/hf_cache.db"
+    cache_path: str = "output/pwc_cache.db"
     cache_ttl_days: Integer = Field(default=30, ge=0)
     workers: Integer = Field(default=4, ge=1, le=32)
 
@@ -268,18 +270,56 @@ class HuggingFaceSettings(BaseModel):
         return value
 
 
+def migrate_deprecated_huggingface(enrichment: dict) -> dict:
+    """Move the deprecated ``huggingface`` key to ``paperswithcode``.
+
+    ``use_papers_api`` (HuggingFace only) is silently dropped. Returns a new
+    dict; the input is left untouched.
+
+    Raises:
+        ValueError: if both ``huggingface`` and ``paperswithcode`` are present.
+    """
+    if "huggingface" not in enrichment:
+        return enrichment
+    if "paperswithcode" in enrichment:
+        raise ValueError(
+            "enrichment.huggingface (deprecated) and enrichment.paperswithcode "
+            "are both set; keep only enrichment.paperswithcode"
+        )
+    migrated = dict(enrichment)
+    block = migrated.pop("huggingface")
+    if isinstance(block, dict):
+        block = {key: val for key, val in block.items() if key != "use_papers_api"}
+    logger.warning(
+        "enrichment.huggingface is deprecated: enrichment now uses Papers with "
+        "Code. Rename it to enrichment.paperswithcode."
+    )
+    migrated["paperswithcode"] = block
+    return migrated
+
+
 class EnrichmentSettings(BaseModel):
     """Optional enrichment steps."""
 
     model_config = _STRICT
 
-    huggingface: HuggingFaceSettings = Field(default_factory=HuggingFaceSettings)
+    paperswithcode: PapersWithCodeSettings = Field(
+        default_factory=PapersWithCodeSettings
+    )
     recover_dois: bool = DEFAULT_RECOVER_MISSING_DOIS
     doi_recovery_min_similarity: float = Field(
         default=DEFAULT_DOI_RECOVERY_MIN_SIMILARITY, ge=0, le=1
     )
     unpaywall: bool = DEFAULT_ENRICH_UNPAYWALL
     author_hindex: bool = DEFAULT_ENRICH_AUTHOR_HINDEX
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_deprecated_huggingface(cls, value: Any) -> Any:
+        """Translate the deprecated ``huggingface`` key."""
+        if isinstance(value, dict):
+            return migrate_deprecated_huggingface(value)
+        return value
 
 
 class ReportSettings(BaseModel):

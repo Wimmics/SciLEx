@@ -199,7 +199,6 @@ with st.sidebar.expander("⚙️ Configuration", expanded=True):
             "user_id": "User ID",
             "user_mode": "User Mode (user/group)",
         },
-        "HuggingFace": {"token": "Access Token"},
     }
 
     def _render_api_group(api_group: dict) -> None:
@@ -423,12 +422,12 @@ with tab1:
                 ),
             )
             enable_enrichment = st.checkbox(
-                "Enable HuggingFace Enrichment",
+                "Enable Papers with Code Enrichment",
                 value=_prev_config.get("enable_enrichment", False),
                 help=(
-                    "Detects ML/AI papers with linked models, datasets, "
-                    "and GitHub repos on HuggingFace.\n"
-                    "Rate-limited: 5 req/sec with API token, 1 req/sec without."
+                    "Adds tasks, methods, benchmarks and GitHub repos from "
+                    "Papers with Code.\n"
+                    "Anonymous API, no key needed."
                 ),
             )
 
@@ -1473,7 +1472,7 @@ with tab5:
 
     **Integration:**
     - **Zotero** - Push results to Zotero library
-    - **HuggingFace** - Enrich results with ML models/datasets
+    - **Papers with Code** - Enrich results with tasks, methods, benchmarks, code repos
 
     ### Keywords
 
