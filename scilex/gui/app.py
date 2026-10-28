@@ -5,6 +5,7 @@ import logging
 import multiprocessing
 import os
 import sys
+import threading
 from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
@@ -106,23 +107,68 @@ def main(argv: list[str] | None = None) -> int:
 
     native = _use_native_window(args)
     ctx = AppContext(native=native)
+    port = args.port
     if native:
         # pywebview disables text selection by default: logs could not be copied.
         app.native.window_args["text_select"] = True
+        port = port or _watch_native_window(app)
     ui.run(
         build_root(ctx),
         title="SciLEx",
         favicon=ICON_PATH,
         native=native,
         window_size=WINDOW_SIZE if native else None,
-        port=args.port,
+        port=port,
         reload=False,
         show=not native and not args.no_open,
     )
     return 0
 
 
+def _watch_native_window(app) -> int:
+    """Open the browser if the native window never loads; return the server port.
+
+    The window can fail without any error (e.g. WebView2 hanging on Windows),
+    leaving the server running with nothing on screen.
+    """
+    from nicegui.native import find_open_port
+
+    from scilex.gui.native_window import open_browser_if_window_missing
+
+    port = find_open_port()
+    window_loaded = threading.Event()
+    app.native.on("loaded", window_loaded.set)
+    app.on_startup(
+        lambda: threading.Thread(
+            target=open_browser_if_window_missing,
+            args=(f"http://127.0.0.1:{port}", window_loaded),
+            daemon=True,
+        ).start()
+    )
+    return port
+
+
+def _show_fatal_error(message: str) -> None:
+    """Show a startup error: the frozen Windows app has no console to print it."""
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(None, message, "SciLEx", 0x10)
+
+
+def run() -> int:
+    """``main()`` that reports fatal startup errors in a dialog on Windows."""
+    try:
+        return main()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        logger.exception("SciLEx failed to start")
+        _show_fatal_error(f"SciLEx failed to start:\n{type(exc).__name__}: {exc}")
+        raise
+
+
 # Not "__mp_main__": spawned multiprocessing children import this module
 # under that name and must not start a second app.
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())

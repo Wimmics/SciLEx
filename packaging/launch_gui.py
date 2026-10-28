@@ -2,7 +2,7 @@
 
 import sys
 
-from scilex.gui.app import main
+from scilex.gui.app import run
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())

@@ -61,6 +61,13 @@ jobs:
         shell: bash
         run: ${{ matrix.executable }} --self-test
 
+      # The window toolkit check the app runs at startup (pythonnet, .NET,
+      # WebView2): fails if the bundle misses one of them.
+      - name: Window toolkit check (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: ${{ matrix.executable }} --probe-native
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: hdiutil create -volname SciLEx -srcfolder dist/SciLEx.app -ov -format UDZO ${{ matrix.artifact }}
