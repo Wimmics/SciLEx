@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Format HuggingFace metadata into Zotero-compatible tags.
+"""Format Papers with Code metadata into Zotero-compatible tags.
 
 Tag prefixes (compatible with existing PWC tags):
 - TASK: - Task type (e.g., TASK:TextClassification)
@@ -18,7 +18,7 @@ from scilex.constants import is_valid
 
 
 class TagFormatter:
-    """Format HuggingFace metadata into structured Zotero tags.
+    """Format Papers with Code metadata into structured Zotero tags.
 
     Attributes:
         tag_prefixes: Dictionary of tag prefix constants

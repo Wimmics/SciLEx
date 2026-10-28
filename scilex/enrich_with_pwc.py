@@ -1,27 +1,17 @@
 #!/usr/bin/env python3
-"""Enrich aggregated papers with HuggingFace metadata (CSV-based).
+"""Enrich aggregated papers with Papers with Code metadata (``scilex-enrich``).
 
-This script:
+This command:
 1. Reads aggregated_results.csv
-2. For each paper: searches HuggingFace for matching resources
-3. Adds columns: tags, hf_url, github_repo
+2. For each paper: looks it up on Papers with Code (arXiv ID, then title)
+3. Adds columns: tags, pwc_url, github_repo
 4. Writes updated CSV back
 
-Usage:
-    python src/enrich_with_hf.py [--collect-dir DIR] [--dry-run] [--limit N]
-
 Examples:
-    # Normal run (collect dir from config)
-    python src/enrich_with_hf.py
-
-    # Pass collect dir directly
-    python src/enrich_with_hf.py --collect-dir output/my_collect
-
-    # Dry run (show matches without updating)
-    python src/enrich_with_hf.py --collect-dir output/my_collect --dry-run
-
-    # Process first 100 papers only
-    python src/enrich_with_hf.py --collect-dir output/my_collect --limit 100
+    scilex-enrich                                   # collect dir from config
+    scilex-enrich --collect-dir output/my_collect   # explicit collect dir
+    scilex-enrich --dry-run                         # show matches only
+    scilex-enrich --limit 100                       # first 100 papers only
 """
 
 import argparse
@@ -30,13 +20,7 @@ import sys
 
 from scilex.config import SciLExConfig
 from scilex.logging_config import setup_logging
-from scilex.pipeline.enrichment_hf import (  # noqa: F401  (re-exported)
-    EnrichmentOptions,
-    _match_via_models_api,
-    _match_via_papers_api,
-    process_paper_for_csv,
-    run_enrichment,
-)
+from scilex.pipeline.enrichment_pwc import EnrichmentOptions, run_enrichment
 from scilex.settings.cli import (
     add_config_arguments,
     apply_config_arguments,
@@ -51,7 +35,7 @@ logger = logging.getLogger(__name__)
 def main():
     """Command-line entry point for CSV enrichment."""
     parser = argparse.ArgumentParser(
-        description="Enrich aggregated CSV with HuggingFace metadata"
+        description="Enrich aggregated CSV with Papers with Code metadata"
     )
     parser.add_argument(
         "--dry-run",
@@ -70,7 +54,7 @@ def main():
         default=None,
         help=(
             "Fuzzy matching threshold (0-100). Overrides "
-            "enrichment.huggingface.fuzzy_match_threshold (default: 85)"
+            "enrichment.paperswithcode.fuzzy_match_threshold (default: 85)"
         ),
     )
     parser.add_argument(
@@ -79,7 +63,7 @@ def main():
         default=None,
         help=(
             "Papers searched concurrently. Overrides "
-            "enrichment.huggingface.workers (default: 4)"
+            "enrichment.paperswithcode.workers (default: 4)"
         ),
     )
     parser.add_argument(
@@ -119,7 +103,7 @@ def main():
         return
 
     logging.info("=" * 60)
-    logging.info("HuggingFace CSV Enrichment Summary")
+    logging.info("Papers with Code Enrichment Summary")
     logging.info("=" * 60)
     logging.info(f"Total papers: {result.total}")
     logging.info(f"Matched: {result.matched}")
@@ -130,7 +114,7 @@ def main():
     if args.dry_run:
         logging.info("✓ Dry run complete. No changes made to CSV.")
     else:
-        logging.info("✓ HuggingFace CSV enrichment complete!")
+        logging.info("✓ Papers with Code enrichment complete!")
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 """Shared I/O helpers for the aggregated results CSV.
 
 The aggregated CSV is read by several CLI tools (BibTeX export, Zotero push,
-HuggingFace enrichment). This module centralises path resolution, delimiter
+Papers with Code enrichment). This module centralises path resolution, delimiter
 detection and atomic writing so they cannot drift apart.
 """
 

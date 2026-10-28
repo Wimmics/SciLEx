@@ -1,4 +1,4 @@
-"""Tests for HuggingFace CSV enrichment functionality."""
+"""Tests for the CSV side of the Papers with Code enrichment."""
 
 import pandas as pd
 
@@ -55,7 +55,7 @@ def test_parse_tags_empty_string():
 
 
 def test_csv_column_addition():
-    """Test that HF columns are added to DataFrame if missing."""
+    """Test that enrichment columns are added to DataFrame if missing."""
     data = pd.DataFrame(
         {
             "title": ["Test Paper"],
@@ -67,25 +67,25 @@ def test_csv_column_addition():
     # Add columns if missing
     if "tags" not in data.columns:
         data["tags"] = MISSING_VALUE
-    if "hf_url" not in data.columns:
-        data["hf_url"] = MISSING_VALUE
+    if "pwc_url" not in data.columns:
+        data["pwc_url"] = MISSING_VALUE
     if "github_repo" not in data.columns:
         data["github_repo"] = MISSING_VALUE
 
     # Check columns exist
     assert "tags" in data.columns
-    assert "hf_url" in data.columns
+    assert "pwc_url" in data.columns
     assert "github_repo" in data.columns
 
     # Check default values
     assert data.loc[0, "tags"] == MISSING_VALUE
-    assert data.loc[0, "hf_url"] == MISSING_VALUE
+    assert data.loc[0, "pwc_url"] == MISSING_VALUE
     assert data.loc[0, "github_repo"] == MISSING_VALUE
 
 
 def test_csv_backward_compatibility():
-    """Test that CSVs without HF columns still work."""
-    # Old CSV without HF columns
+    """Test that CSVs without enrichment columns still work."""
+    # Old CSV without enrichment columns
     data = pd.DataFrame(
         {
             "title": ["Test Paper 1", "Test Paper 2"],
@@ -96,14 +96,14 @@ def test_csv_backward_compatibility():
     )
 
     # Process with backward-compatible code
-    for col in ["tags", "hf_url", "github_repo"]:
+    for col in ["tags", "pwc_url", "github_repo"]:
         if col not in data.columns:
             data[col] = MISSING_VALUE
 
     # All columns should now exist
     assert len(data.columns) == 7
     assert "tags" in data.columns
-    assert "hf_url" in data.columns
+    assert "pwc_url" in data.columns
     assert "github_repo" in data.columns
 
     # No data loss
@@ -143,19 +143,6 @@ def test_bibtex_keywords_format():
     assert keywords == expected
 
 
-def test_hf_url_preservation():
-    """Test that HF URLs are properly formatted."""
-    # Papers API format
-    paper_id = "2409.17957"
-    hf_url = f"https://huggingface.co/papers/{paper_id}"
-    assert hf_url == "https://huggingface.co/papers/2409.17957"
-
-    # Models API format
-    model_id = "bert-base-uncased"
-    hf_url = f"https://huggingface.co/{model_id}"
-    assert hf_url == "https://huggingface.co/bert-base-uncased"
-
-
 def test_github_repo_url():
     """Test that GitHub repo URLs are properly handled."""
     github_repo = "https://github.com/huggingface/transformers"
@@ -164,12 +151,12 @@ def test_github_repo_url():
 
 
 def test_csv_row_update():
-    """Test updating CSV row with HF enrichment results."""
+    """Test updating CSV row with Papers with Code enrichment results."""
     data = pd.DataFrame(
         {
             "title": ["Test Paper"],
             "tags": [MISSING_VALUE],
-            "hf_url": [MISSING_VALUE],
+            "pwc_url": [MISSING_VALUE],
             "github_repo": [MISSING_VALUE],
         }
     )
@@ -177,19 +164,19 @@ def test_csv_row_update():
     # Simulate enrichment result
     result = {
         "tags": "TASK:TextClassification;PTM:BERT;DATASET:Squad",
-        "hf_url": "https://huggingface.co/papers/2409.17957",
+        "pwc_url": "https://paperswithcode.co/paper/2409.17957",
         "github_repo": "https://github.com/author/repo",
     }
 
     # Update row
     idx = 0
     data.at[idx, "tags"] = result["tags"]
-    data.at[idx, "hf_url"] = result["hf_url"]
+    data.at[idx, "pwc_url"] = result["pwc_url"]
     data.at[idx, "github_repo"] = result["github_repo"]
 
     # Verify update
     assert data.loc[idx, "tags"] == "TASK:TextClassification;PTM:BERT;DATASET:Squad"
-    assert data.loc[idx, "hf_url"] == "https://huggingface.co/papers/2409.17957"
+    assert data.loc[idx, "pwc_url"] == "https://paperswithcode.co/paper/2409.17957"
     assert data.loc[idx, "github_repo"] == "https://github.com/author/repo"
 
 
@@ -231,7 +218,7 @@ def test_multiple_papers_enrichment():
             "authors": ["Author A", "Author B", "Author C"],
             "itemType": ["journalArticle", "conferencePaper", "preprint"],
             "tags": [MISSING_VALUE, MISSING_VALUE, MISSING_VALUE],
-            "hf_url": [MISSING_VALUE, MISSING_VALUE, MISSING_VALUE],
+            "pwc_url": [MISSING_VALUE, MISSING_VALUE, MISSING_VALUE],
             "github_repo": [MISSING_VALUE, MISSING_VALUE, MISSING_VALUE],
         }
     )
@@ -240,13 +227,13 @@ def test_multiple_papers_enrichment():
     enrichment_results = [
         {
             "tags": "TASK:NER;PTM:BERT",
-            "hf_url": "https://huggingface.co/papers/001",
+            "pwc_url": "https://paperswithcode.co/paper/001",
             "github_repo": "https://github.com/org/repo1",
         },
         None,  # No match
         {
             "tags": "TASK:TextGeneration;PTM:GPT",
-            "hf_url": "https://huggingface.co/models/gpt-2",
+            "pwc_url": "https://paperswithcode.co/paper/002",
             "github_repo": "https://github.com/org/repo2",
         },
     ]
@@ -258,7 +245,7 @@ def test_multiple_papers_enrichment():
             continue
         matched_count += 1
         data.at[idx, "tags"] = result["tags"]
-        data.at[idx, "hf_url"] = result["hf_url"]
+        data.at[idx, "pwc_url"] = result["pwc_url"]
         data.at[idx, "github_repo"] = result["github_repo"]
 
     # Verify

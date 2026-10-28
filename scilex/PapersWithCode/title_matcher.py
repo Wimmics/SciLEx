@@ -17,7 +17,7 @@ from scilex.constants import is_valid
 
 
 class TitleMatcher:
-    """Match paper titles to HuggingFace resource names using fuzzy matching.
+    """Match paper titles to candidate titles using fuzzy matching.
 
     Attributes:
         threshold: Minimum similarity score (0-100) for fuzzy matches
@@ -86,14 +86,14 @@ class TitleMatcher:
         return title
 
     def find_best_match(
-        self, paper_title: str, candidates: list[dict], key: str = "modelId"
+        self, paper_title: str, candidates: list[dict], key: str = "title"
     ) -> tuple[dict | None, int]:
         """Find best matching candidate for paper title.
 
         Args:
             paper_title: Academic paper title
-            candidates: List of HF resources (models or datasets)
-            key: Dictionary key containing resource name (default: "modelId")
+            candidates: Candidate dictionaries (e.g. search results)
+            key: Dictionary key holding the candidate title (default: "title")
 
         Returns:
             Tuple of (best_match_dict, confidence_score)
@@ -102,10 +102,10 @@ class TitleMatcher:
 
         Example:
             >>> matcher = TitleMatcher(threshold=85)
-            >>> models = [{"modelId": "bert-base", ...}, {"modelId": "gpt2", ...}]
-            >>> match, score = matcher.find_best_match("BERT for NLP", models)
-            >>> print(f"Match: {match['modelId']} (score: {score})")
-            Match: bert-base (score: 89)
+            >>> papers = [{"title": "Attention Is All You Need"}, {"title": "BERT"}]
+            >>> match, score = matcher.find_best_match("Attention is all you need", papers)
+            >>> match["title"], score
+            ('Attention Is All You Need', 100)
         """
         if not candidates:
             return None, 0

@@ -33,7 +33,6 @@ charset-normalizer==3.4.3
 click==8.3.0
     # via
     #   streamlit
-    #   typer-slim
     #   uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
@@ -56,12 +55,8 @@ fake-useragent==2.2.0
     # via scilex
 fastapi==0.135.1
     # via scilex
-filelock==3.20.0
-    # via huggingface-hub
 fonttools==4.62.1
     # via matplotlib
-fsspec==2025.12.0
-    # via huggingface-hub
 gitdb==4.0.12
     # via gitpython
 gitpython==3.1.46
@@ -70,15 +65,9 @@ h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
-hf-xet==1.2.0 ; platform_machine == 'AMD64' or platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
-    # via huggingface-hub
 httpcore==1.0.9
     # via httpx
 httpx==0.27.2
-    # via
-    #   huggingface-hub
-    #   scilex
-huggingface-hub==1.2.1
     # via scilex
 idna==3.20
     # via
@@ -132,7 +121,6 @@ numpy==2.3.2 ; python_full_version >= '3.11'
 packaging==25.0
     # via
     #   altair
-    #   huggingface-hub
     #   matplotlib
     #   pytest
     #   streamlit
@@ -177,9 +165,7 @@ python-dateutil==2.9.0.post0
 pytz==2025.2
     # via pandas
 pyyaml==6.0.2
-    # via
-    #   huggingface-hub
-    #   scilex
+    # via scilex
 rapidfuzz==3.14.3
     # via scilex
 ratelimit==2.2.1
@@ -198,8 +184,6 @@ rpds-py==0.30.0
     # via
     #   jsonschema
     #   referencing
-shellingham==1.5.4
-    # via huggingface-hub
 simplejson==3.20.1
     # via scilex
 six==1.17.0
@@ -229,11 +213,7 @@ tomli==2.4.0 ; python_full_version <= '3.11'
 tornado==6.5.4
     # via streamlit
 tqdm==4.67.1
-    # via
-    #   huggingface-hub
-    #   scilex
-typer-slim==0.20.0
-    # via huggingface-hub
+    # via scilex
 typing-extensions==4.14.1
     # via
     #   altair
@@ -241,13 +221,11 @@ typing-extensions==4.14.1
     #   beautifulsoup4
     #   exceptiongroup
     #   fastapi
-    #   huggingface-hub
     #   pydantic
     #   pydantic-core
     #   referencing
     #   starlette
     #   streamlit
-    #   typer-slim
     #   typing-inspection
     #   uvicorn
 typing-inspection==0.4.2

@@ -1,6 +1,6 @@
 """Characterization tests for TitleMatcher."""
 
-from scilex.HuggingFace.title_matcher import TitleMatcher
+from scilex.PapersWithCode.title_matcher import TitleMatcher
 
 
 def test_normalize_title_basic():

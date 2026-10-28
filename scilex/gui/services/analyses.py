@@ -129,8 +129,8 @@ ANALYSES = (
     ),
     AnalysisInfo(
         "enrich",
-        "HuggingFace",
-        "Add HuggingFace tags, model links and GitHub repositories to the aggregated papers.",
+        "Papers with Code",
+        "Add Papers with Code tasks, methods, benchmarks and GitHub repositories to the aggregated papers.",
         "results",
         "Stops between papers; nothing is written when cancelled.",
     ),
@@ -322,17 +322,22 @@ def run_keywords(
     )
 
 
-def _anchor_hf_cache(config: SciLExConfig) -> None:
-    """Make the HuggingFace cache path absolute, inside the review folder.
+def _anchor_enrichment_cache(config: SciLExConfig) -> None:
+    """Make the Papers with Code cache path absolute, inside the review folder.
 
-    The default ``output/hf_cache.db`` is relative to the working directory,
+    The default ``output/pwc_cache.db`` is relative to the working directory,
     which is read-only in the packaged app and arbitrary in development.
     """
-    hf_config = dict(config.main.get("hf_enrichment") or {})
-    cache_path = Path(hf_config.get("cache_path") or "output/hf_cache.db")
+    from scilex.pipeline.enrichment_pwc import (
+        DEFAULT_CACHE_PATH,
+        enrichment_settings,
+    )
+
+    pwc_config = enrichment_settings(config.main)
+    cache_path = Path(pwc_config.get("cache_path") or DEFAULT_CACHE_PATH)
     if not cache_path.is_absolute():
-        hf_config["cache_path"] = str(collect_dir_of(config) / cache_path.name)
-        config.main["hf_enrichment"] = hf_config
+        pwc_config["cache_path"] = str(collect_dir_of(config) / cache_path.name)
+        config.main["pwc_enrichment"] = pwc_config
 
 
 def run_enrich(
@@ -344,10 +349,10 @@ def run_enrich(
     threshold: int | None = None,
     cancel_event: CancelEvent = None,
 ) -> AnalysisResult:
-    """Enrich the aggregated CSV with HuggingFace metadata (``scilex-enrich``)."""
-    from scilex.pipeline.enrichment_hf import EnrichmentOptions, run_enrichment
+    """Enrich the aggregated CSV with Papers with Code metadata (``scilex-enrich``)."""
+    from scilex.pipeline.enrichment_pwc import EnrichmentOptions, run_enrichment
 
-    _anchor_hf_cache(config)
+    _anchor_enrichment_cache(config)
     options = EnrichmentOptions(
         dry_run=dry_run, limit=limit or None, threshold=threshold or None
     )
@@ -364,7 +369,7 @@ def run_enrich(
     except FileNotFoundError as exc:
         raise AnalysisError(str(exc)) from exc
     if result.disabled:
-        raise AnalysisError("HuggingFace enrichment is disabled in scilex.yml.")
+        raise AnalysisError("Papers with Code enrichment is disabled in scilex.yml.")
     # A dry run updates nothing: every matched paper is one that would be.
     changed = (
         f"{result.matched} would be updated" if dry_run else f"{result.updated} updated"

@@ -464,7 +464,7 @@ async def run_collection_task(
         job["progress"] = 85
         job["message"] = "Aggregation completed."
 
-        # Optional: HuggingFace enrichment
+        # Optional: Papers with Code enrichment
         if main_config.get("enable_enrichment", False):
             if _cancel_if_requested(
                 job, cancel_event, "Pipeline cancelled before enrichment."
@@ -472,7 +472,7 @@ async def run_collection_task(
                 return
             job["progress"] = 88
             job["phase"] = "enriching"
-            job["message"] = "Running HuggingFace enrichment..."
+            job["message"] = "Running Papers with Code enrichment..."
 
             def on_enrichment_progress(processed, total, stats):
                 ratio = processed / max(total, 1)
@@ -482,7 +482,7 @@ async def run_collection_task(
                     f"Enriching papers... {processed}/{total} ({matched} matched)"
                 )
 
-            from scilex.pipeline.enrichment_hf import (
+            from scilex.pipeline.enrichment_pwc import (
                 EnrichmentOptions,
                 run_enrichment,
             )

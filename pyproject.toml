@@ -12,7 +12,6 @@ dependencies = [
     "beautifulsoup4>=4.13",
     "bibtexparser>=2.0.0b7",
     "fake-useragent>=2.0",
-    "huggingface-hub>=1.2.1",
     "httpx<0.28.0",
     "lxml>=6.0",
     "numpy>=2.0",
@@ -59,7 +58,7 @@ build = [
 scilex = "scilex.__main__:main"
 scilex-collect = "scilex.run_collection:main"
 scilex-aggregate = "scilex.aggregate_collect:main"
-scilex-enrich = "scilex.enrich_with_hf:main"
+scilex-enrich = "scilex.enrich_with_pwc:main"
 scilex-push-zotero = "scilex.push_to_zotero:main"
 scilex-export-bibtex = "scilex.export_to_bibtex:main"
 scilex-report = "scilex.report_charts:main"

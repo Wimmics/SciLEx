@@ -2,7 +2,7 @@
 
 import pytest
 
-from scilex.HuggingFace.tag_formatter import TagFormatter
+from scilex.PapersWithCode.tag_formatter import TagFormatter
 
 
 @pytest.fixture
