@@ -322,11 +322,14 @@ def run_keywords(
     )
 
 
-def _anchor_enrichment_cache(config: SciLExConfig) -> None:
-    """Make the Papers with Code cache path absolute, inside the review folder.
+def _prepare_enrichment_config(config: SciLExConfig) -> None:
+    """Adapt the Papers with Code settings to a run started from the GUI.
 
-    The default ``output/pwc_cache.db`` is relative to the working directory,
-    which is read-only in the packaged app and arbitrary in development.
+    Clicking the button is the request to enrich, so the ``enabled`` flag
+    (``false`` by default, meant for the command line) is forced on. The
+    default cache path ``output/pwc_cache.db`` is relative to the working
+    directory, which is read-only in the packaged app and arbitrary in
+    development: it is moved inside the review folder.
     """
     from scilex.pipeline.enrichment_pwc import (
         DEFAULT_CACHE_PATH,
@@ -337,7 +340,8 @@ def _anchor_enrichment_cache(config: SciLExConfig) -> None:
     cache_path = Path(pwc_config.get("cache_path") or DEFAULT_CACHE_PATH)
     if not cache_path.is_absolute():
         pwc_config["cache_path"] = str(collect_dir_of(config) / cache_path.name)
-        config.main["pwc_enrichment"] = pwc_config
+    pwc_config["enabled"] = True
+    config.main["pwc_enrichment"] = pwc_config
 
 
 def run_enrich(
@@ -352,7 +356,7 @@ def run_enrich(
     """Enrich the aggregated CSV with Papers with Code metadata (``scilex-enrich``)."""
     from scilex.pipeline.enrichment_pwc import EnrichmentOptions, run_enrichment
 
-    _anchor_enrichment_cache(config)
+    _prepare_enrichment_config(config)
     options = EnrichmentOptions(
         dry_run=dry_run, limit=limit or None, threshold=threshold or None
     )
@@ -368,8 +372,6 @@ def run_enrich(
         return AnalysisResult("Cancelled.")
     except FileNotFoundError as exc:
         raise AnalysisError(str(exc)) from exc
-    if result.disabled:
-        raise AnalysisError("Papers with Code enrichment is disabled in scilex.yml.")
     # A dry run updates nothing: every matched paper is one that would be.
     changed = (
         f"{result.matched} would be updated" if dry_run else f"{result.updated} updated"

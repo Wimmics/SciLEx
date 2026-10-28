@@ -322,6 +322,24 @@ def test_run_enrich_cache_path_is_inside_review(ctx, tmp_path, monkeypatch):
     assert cache.is_relative_to(tmp_path / "rag")
 
 
+def test_run_enrich_runs_even_when_disabled_in_config(ctx, tmp_path, monkeypatch):
+    """The button is the request to enrich: ``enabled: false`` (the default) is overridden."""
+    from scilex.pipeline import enrichment_pwc
+
+    seen = {}
+
+    def fake_enrichment(config, options, progress_callback):
+        seen["settings"] = enrichment_pwc.enrichment_settings(config.main)
+        return enrichment_pwc.EnrichmentResult(total=0)
+
+    monkeypatch.setattr(enrichment_pwc, "run_enrichment", fake_enrichment)
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = ctx.workspace.load_config(review)
+    assert not enrichment_pwc.enrichment_settings(config.main).get("enabled")
+    service.run_enrich(config, lambda p, m: None)
+    assert seen["settings"]["enabled"] is True
+
+
 def _stub_fetchers(monkeypatch, result_of):
     from scilex.citations import reference_fetcher
 
