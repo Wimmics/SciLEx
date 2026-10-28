@@ -9,6 +9,7 @@ from pathlib import Path
 from nicegui import ui
 
 from scilex.gui.components.errors import show_error
+from scilex.gui.components.graph_view import render_graph_results
 from scilex.gui.components.job_panel import JobPanel
 from scilex.gui.services import analyses as service
 from scilex.gui.services.jobs import Job, JobConflictError
@@ -119,6 +120,10 @@ def _render_analysis(
         with result_area:
             if message:
                 ui.label(message).classes("font-bold").mark(f"analysis-message-{name}")
+            if name == "graph":
+                # The graph files are drawn as a network, not listed one by one.
+                render_graph_results(service.graph_dir_of(collect_dir))
+                return
             for path in files:
                 _render_file(path)
 

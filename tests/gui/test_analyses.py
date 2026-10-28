@@ -153,7 +153,9 @@ async def test_run_each_analysis(ctx, tmp_path, monkeypatch, name):
         user.find(marker=f"analysis-run-{name}").click()
         await user.should_see("Completed", retries=50)
         await user.should_see(f"{name} finished", retries=50)
-        await user.should_see(f"Output of {name}", retries=50)
+        # The graph is drawn as a network instead of listing its files.
+        expected = "papers are linked" if name == "graph" else f"Output of {name}"
+        await user.should_see(expected, retries=50)
     assert len(calls) == 1
 
 
