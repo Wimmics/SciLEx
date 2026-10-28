@@ -73,18 +73,18 @@ def test_run_without_input_is_user_error(ctx, tmp_path):
 
 
 def test_run_enrich_passes_options(ctx, tmp_path, monkeypatch):
-    from scilex.pipeline import enrichment_hf
+    from scilex.pipeline import enrichment_pwc
 
     seen = {}
 
     def fake_enrichment(config, options, progress_callback):
         seen["options"] = options
         progress_callback(1, 2, {})
-        return enrichment_hf.EnrichmentResult(
+        return enrichment_pwc.EnrichmentResult(
             total=2, processed=2, matched=1, updated=0
         )
 
-    monkeypatch.setattr(enrichment_hf, "run_enrichment", fake_enrichment)
+    monkeypatch.setattr(enrichment_pwc, "run_enrichment", fake_enrichment)
     review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
     config = ctx.workspace.load_config(review)
     progress_calls = []
@@ -305,15 +305,15 @@ async def test_run_buttons_disabled_while_another_job_runs(ctx, tmp_path, monkey
 
 
 def test_run_enrich_cache_path_is_inside_review(ctx, tmp_path, monkeypatch):
-    from scilex.pipeline import enrichment_hf
+    from scilex.pipeline import enrichment_pwc
 
     seen = {}
 
     def fake_enrichment(config, options, progress_callback):
-        seen["cache_path"] = config.main["hf_enrichment"]["cache_path"]
-        return enrichment_hf.EnrichmentResult(total=0)
+        seen["cache_path"] = config.main["pwc_enrichment"]["cache_path"]
+        return enrichment_pwc.EnrichmentResult(total=0)
 
-    monkeypatch.setattr(enrichment_hf, "run_enrichment", fake_enrichment)
+    monkeypatch.setattr(enrichment_pwc, "run_enrichment", fake_enrichment)
     review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
     config = ctx.workspace.load_config(review)
     service.run_enrich(config, lambda p, m: None)
@@ -401,7 +401,7 @@ async def test_busy_reason_is_visible_and_chart_caption_is_file_name(
         user.find(marker="analysis-run-enrich").click()
         await user.should_see("Running", retries=50)
         user.find(marker="analysis-tab-report").click()
-        await user.should_see("Another job is running (HuggingFace)", retries=50)
+        await user.should_see("Another job is running (Papers with Code)", retries=50)
         release.set()
         user.find(marker="analysis-tab-enrich").click()
         await user.should_see("Completed", retries=50)
@@ -434,12 +434,12 @@ def test_snowball_output_uses_the_aggregated_csv_format(ctx, tmp_path, monkeypat
 
 
 def test_run_enrich_message_counts_processed_papers(ctx, tmp_path, monkeypatch):
-    from scilex.pipeline import enrichment_hf
+    from scilex.pipeline import enrichment_pwc
 
     def fake_enrichment(config, options, progress_callback):
-        return enrichment_hf.EnrichmentResult(total=500, processed=15, matched=2)
+        return enrichment_pwc.EnrichmentResult(total=500, processed=15, matched=2)
 
-    monkeypatch.setattr(enrichment_hf, "run_enrichment", fake_enrichment)
+    monkeypatch.setattr(enrichment_pwc, "run_enrichment", fake_enrichment)
     review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
     config = ctx.workspace.load_config(review)
     result = service.run_enrich(config, lambda p, m: None, dry_run=True, limit=15)

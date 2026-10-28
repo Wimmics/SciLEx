@@ -13,7 +13,7 @@ from scilex.gui.services.jobs import JobRunner
 from scilex.gui.services.screening import paper_key
 from scilex.gui.services.workspace import Workspace
 from scilex.pipeline import jobs as job_states
-from scilex.pipeline.enrichment_hf import _enrich_rows
+from scilex.pipeline.enrichment_pwc import _enrich_rows
 from tests.gui.test_jobs import CONFIG, REVIEW, fake_collection, wait_until_done
 
 
@@ -77,10 +77,10 @@ def test_papers_without_doi_and_title_get_distinct_keys():
     assert "nan" not in paper_key(first)
 
 
-# --- HuggingFace cancel -------------------------------------------------------------
+# --- Papers with Code cancel -------------------------------------------------------------
 
 
-def test_hf_cancel_drops_queued_searches(monkeypatch):
+def test_enrichment_cancel_drops_queued_searches(monkeypatch):
     searched = []
 
     def fake_process(row, *args, **kwargs):
@@ -89,7 +89,7 @@ def test_hf_cancel_drops_queued_searches(monkeypatch):
         return None
 
     monkeypatch.setattr(
-        "scilex.pipeline.enrichment_hf.process_paper_for_csv", fake_process
+        "scilex.pipeline.enrichment_pwc.process_paper_for_csv", fake_process
     )
     rows = pd.DataFrame({"title": [f"paper {i}" for i in range(200)]})
 
@@ -106,9 +106,7 @@ def test_hf_cancel_drops_queued_searches(monkeypatch):
             None,
             None,
             None,
-            None,
             options=options,
-            use_papers_api=False,
             progress_callback=cancel_at_first_progress,
         )
     assert len(searched) < 20

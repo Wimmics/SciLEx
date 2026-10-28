@@ -64,7 +64,7 @@ def _load(tmp_path, **overrides):
 CLI_ARGS = {
     "scilex.run_collection": [],
     "scilex.aggregate_collect": [],
-    "scilex.enrich_with_hf": [],
+    "scilex.enrich_with_pwc": [],
     "scilex.push_to_zotero": [],
     "scilex.export_to_bibtex": [],
     "scilex.enrich_with_citations": [],

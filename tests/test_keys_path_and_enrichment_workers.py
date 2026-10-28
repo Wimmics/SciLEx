@@ -1,11 +1,11 @@
-"""Web keys file location and the HuggingFace ``workers`` setting."""
+"""Web keys file location and the Papers with Code ``workers`` setting."""
 
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-from scilex.pipeline.enrichment_hf import EnrichmentOptions, run_enrichment
 
 from scilex.config import SciLExConfig
+from scilex.pipeline.enrichment_pwc import EnrichmentOptions, run_enrichment
 from scilex.settings import resolve
 from scilex.settings.schema import ScilexSettings
 
@@ -63,7 +63,7 @@ def _run_with(tmp_path, hf_block, options):
         {"title": ["A paper"], "itemType": ["journalArticle"], "DOI": ["10.1/a"]}
     ).to_csv(collect / "aggregated_results.csv", sep=";", index=False)
     config = SciLExConfig.from_dicts(
-        {"collect_name": "c", "hf_enrichment": hf_block}, {}
+        {"collect_name": "c", "pwc_enrichment": hf_block}, {}
     )
     options.collect_dir = str(collect)
     options.dry_run = True
@@ -71,13 +71,13 @@ def _run_with(tmp_path, hf_block, options):
 
     def fake_rows(data, *args, **kwargs):
         seen["workers"] = (
-            args[4].workers if len(args) > 4 else kwargs["options"].workers
+            args[3].workers if len(args) > 3 else kwargs["options"].workers
         )
         return [], {"total": len(data), "matched": 0, "skipped": 0}
 
     with (
-        patch("scilex.pipeline.enrichment_hf.HFClient", MagicMock()),
-        patch("scilex.pipeline.enrichment_hf._enrich_rows", side_effect=fake_rows),
+        patch("scilex.pipeline.enrichment_pwc.PWCClient", MagicMock()),
+        patch("scilex.pipeline.enrichment_pwc._enrich_rows", side_effect=fake_rows),
     ):
         run_enrichment(config, options)
     return seen["workers"]

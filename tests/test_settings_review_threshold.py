@@ -7,10 +7,10 @@ from unittest import mock
 import pandas as pd
 import pytest
 
-import scilex.enrich_with_hf as cli_module
-import scilex.pipeline.enrichment_hf as core
+import scilex.enrich_with_pwc as cli_module
+import scilex.pipeline.enrichment_pwc as core
 from scilex.config import SciLExConfig
-from scilex.pipeline.enrichment_hf import EnrichmentOptions
+from scilex.pipeline.enrichment_pwc import EnrichmentOptions
 
 
 def _matcher_threshold(config_threshold, options):
@@ -18,7 +18,7 @@ def _matcher_threshold(config_threshold, options):
     if config_threshold is not None:
         hf_block["fuzzy_match_threshold"] = config_threshold
     config = SciLExConfig.from_dicts(
-        {"collect_name": "c", "output_dir": "/nonexistent", "hf_enrichment": hf_block},
+        {"collect_name": "c", "output_dir": "/nonexistent", "pwc_enrichment": hf_block},
         {},
     )
     seen = {}
@@ -28,7 +28,7 @@ def _matcher_threshold(config_threshold, options):
             seen["threshold"] = threshold
 
     with (
-        mock.patch.object(core, "HFClient"),
+        mock.patch.object(core, "PWCClient"),
         mock.patch.object(core, "TitleMatcher", RecordingMatcher),
         mock.patch.object(
             core, "load_aggregated_data", return_value=pd.DataFrame({"title": ["a"]})

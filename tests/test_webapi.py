@@ -107,7 +107,7 @@ def mocked_pipeline(monkeypatch, output_root):
         "scilex.pipeline.orchestrator.run_aggregation", fake_run_aggregation
     )
     monkeypatch.setattr(
-        "scilex.pipeline.enrichment_hf.run_enrichment", fake_run_enrichment
+        "scilex.pipeline.enrichment_pwc.run_enrichment", fake_run_enrichment
     )
     return calls
 
@@ -266,7 +266,7 @@ def test_enrichment_uses_run_enrichment_and_leaves_sys_argv_alone(
     import sys
 
     from scilex.config import SciLExConfig
-    from scilex.pipeline.enrichment_hf import EnrichmentOptions
+    from scilex.pipeline.enrichment_pwc import EnrichmentOptions
 
     argv_before = list(sys.argv)
     payload = _start_payload()
@@ -497,7 +497,7 @@ def _run_task_with_cancel_at(monkeypatch, output_root, cancel_phase):
     monkeypatch.setattr(
         "scilex.pipeline.orchestrator.run_aggregation", fake_aggregation
     )
-    monkeypatch.setattr("scilex.pipeline.enrichment_hf.run_enrichment", fake_enrich)
+    monkeypatch.setattr("scilex.pipeline.enrichment_pwc.run_enrichment", fake_enrich)
     if cancel_phase == "start":
         request_cancel()
 
