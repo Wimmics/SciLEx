@@ -45,6 +45,12 @@ SS_BATCH_URL = "https://api.semanticscholar.org/graph/v1/paper/batch"
 # Papers per batch request: the API accepts 500, but the response is capped at
 # 10 MB and nested reference lists are large.
 SS_BATCH_SIZE = 100
+# The batch endpoint returns at most this many nested links per paper, and it
+# silently empties the lists of some papers when a response holds too many
+# links (seen with citations: a paper with 9177 citers came back with []).
+SS_BATCH_LINK_CAP = 9999
+# A batch list shorter than this share of the paper's count is treated as cut.
+SS_BATCH_MIN_COMPLETENESS = 0.9
 CROSSREF_WORKS_URL = "https://api.crossref.org/works/{doi}"
 
 
@@ -181,10 +187,13 @@ def _ss_batch_lookup(
 
     Returns:
         Dict mapping each DOI SemanticScholar answered for to its linked DOIs.
-        DOIs from a failed chunk are absent, so the caller can retry them one
-        by one.
+        DOIs from a failed chunk, or whose list came back cut (shorter than
+        the paper's citation/reference count), are absent, so the caller can
+        retry them one by one.
     """
     linked_key = "citedPaper" if link_field == "references" else "citingPaper"
+    count_field = "referenceCount" if link_field == "references" else "citationCount"
+    incomplete = 0
     answered: dict[str, list[str]] = {}
     chunks = [dois[i : i + SS_BATCH_SIZE] for i in range(0, len(dois), SS_BATCH_SIZE)]
     for chunk_index, chunk in enumerate(chunks, 1):
@@ -192,7 +201,9 @@ def _ss_batch_lookup(
             break
         try:
             papers = _post_ss_batch(
-                [f"DOI:{doi}" for doi in chunk], f"{link_field}.externalIds", api_key
+                [f"DOI:{doi}" for doi in chunk],
+                f"{link_field}.externalIds,{count_field}",
+                api_key,
             )
         except (requests.exceptions.RequestException, OSError, ValueError) as e:
             logger.warning(
@@ -202,6 +213,10 @@ def _ss_batch_lookup(
             continue
         for doi, paper in zip(chunk, papers, strict=False):
             links = (paper or {}).get(link_field) or []
+            expected = min((paper or {}).get(count_field) or 0, SS_BATCH_LINK_CAP)
+            if len(links) < expected * SS_BATCH_MIN_COMPLETENESS:
+                incomplete += 1
+                continue
             answered[doi] = [
                 linked_doi.strip()
                 for item in links
@@ -212,6 +227,11 @@ def _ss_batch_lookup(
                 )
             ]
         logger.info(f"  SS batch {chunk_index}/{len(chunks)} done")
+    if incomplete:
+        logger.info(
+            f"  SS batch: {incomplete} paper(s) with a cut {link_field} list "
+            "will be fetched one by one"
+        )
     return answered
 
 

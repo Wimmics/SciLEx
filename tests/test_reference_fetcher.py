@@ -492,7 +492,7 @@ class TestSSBatchLookup:
         assert result == {"10.0/a": ["10.1/r1"], "10.0/unknown": []}
         kwargs = mock_post.call_args.kwargs
         assert kwargs["json"] == {"ids": ["DOI:10.0/a", "DOI:10.0/unknown"]}
-        assert kwargs["params"] == {"fields": "references.externalIds"}
+        assert kwargs["params"] == {"fields": "references.externalIds,referenceCount"}
         assert kwargs["headers"] == {"x-api-key": "key"}
 
     @patch("scilex.citations.reference_fetcher.SS_BATCH_SIZE", 2)
@@ -505,6 +505,33 @@ class TestSSBatchLookup:
         result = _ss_batch_lookup(["10.0/a", "10.0/b", "10.0/c"], "citations")
         assert mock_post.call_count == 2
         assert result["10.0/c"] == ["10.9/c"]
+
+    @patch("scilex.citations.reference_fetcher._post_ss_batch")
+    def test_cut_list_left_out(self, mock_batch):
+        """SS empties some citation lists in big responses: retry those papers."""
+        mock_batch.return_value = [
+            {"citationCount": 9177, "citations": []},
+            {
+                "citationCount": 40289,
+                "citations": [
+                    {"externalIds": {"DOI": f"10.9/{i}"}} for i in range(9999)
+                ],
+            },
+            {"citationCount": 0, "citations": []},
+        ]
+        result = _ss_batch_lookup(["10.0/a", "10.0/b", "10.0/c"], "citations")
+        assert "10.0/a" not in result
+        assert len(result["10.0/b"]) == 9999
+        assert result["10.0/c"] == []
+
+    @patch("scilex.citations.reference_fetcher.fetch_citers_ss")
+    @patch("scilex.citations.reference_fetcher._post_ss_batch")
+    def test_cut_list_falls_back_to_single_request(self, mock_batch, mock_single):
+        mock_batch.return_value = [{"citationCount": 50, "citations": []}]
+        mock_single.return_value = ["10.9/c"]
+        result = fetch_citers_batch(["10.0/a"], cache_path=None)
+        assert result == {"10.0/a": ["10.9/c"]}
+        mock_single.assert_called_once()
 
     @patch("scilex.citations.reference_fetcher._post_ss_batch")
     def test_failed_chunk_left_out(self, mock_batch):
