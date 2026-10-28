@@ -288,3 +288,36 @@ class TestFetchMetadataBatch:
         mock_batch.side_effect = requests.exceptions.ConnectionError("timeout")
         results = fetch_metadata_batch(["10.9/ext1"])
         assert results == []
+
+
+class TestSnowballPersistence:
+    """The snowballed papers must land in the aggregated file itself."""
+
+    def test_previous_depths_are_kept(self):
+        corpus = pd.DataFrame(
+            {"DOI": ["10.1/a", "10.1/b"], "title": ["A", "B"], "snowball_depth": [0, 1]}
+        )
+        new = pd.DataFrame({"DOI": ["10.1/c"], "title": ["C"]})
+        merged = merge_with_corpus(corpus, new)
+        assert merged["snowball_depth"].tolist() == [0, 1, 2]
+
+    def test_save_overwrites_aggregated_file_and_backs_up_once(self, tmp_path):
+        from scilex.io_utils import AGGREGATED_CSV_SEP
+        from scilex.snowball.merge import save_merged_corpus
+
+        aggregated = tmp_path / "aggregated_results.csv"
+        aggregated.write_text("title;DOI\nA;10.1/a\n", encoding="utf-8")
+        first = pd.DataFrame({"title": ["A", "B"], "DOI": ["10.1/a", "10.1/b"]})
+        backup = save_merged_corpus(first, str(aggregated))
+
+        assert backup == str(tmp_path / "aggregated_results_pre_snowball.csv")
+        assert pd.read_csv(backup, sep=AGGREGATED_CSV_SEP)["title"].tolist() == ["A"]
+        assert pd.read_csv(aggregated, sep=AGGREGATED_CSV_SEP)["title"].tolist() == [
+            "A",
+            "B",
+        ]
+
+        second = pd.DataFrame({"title": ["A", "B", "C"], "DOI": ["1", "2", "3"]})
+        save_merged_corpus(second, str(aggregated))
+        assert pd.read_csv(backup, sep=AGGREGATED_CSV_SEP)["title"].tolist() == ["A"]
+        assert len(pd.read_csv(aggregated, sep=AGGREGATED_CSV_SEP)) == 3

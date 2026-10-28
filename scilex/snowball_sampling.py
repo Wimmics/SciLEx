@@ -9,14 +9,14 @@ Usage:
                     [--top-k N] [--min-frequency N]
                     [--depth N] [--dry-run]
 
-Output is written to:
-    {output_dir}/{collect_name}/aggregated_results_snowball.csv
+The new papers are added to the aggregated file itself
+({output_dir}/{collect_name}/aggregated_results.csv), so that Zotero, BibTeX
+and Turtle exports include them. The original is kept once as
+aggregated_results_pre_snowball.csv.
 """
 
 import argparse
-import csv
 import logging
-import os
 import sys
 
 from scilex.config_defaults import (
@@ -26,7 +26,7 @@ from scilex.config_defaults import (
 )
 from scilex.crawlers.key_pool import first_key
 from scilex.graph_analysis.loader import load_citation_caches
-from scilex.io_utils import load_aggregated_data, write_aggregated_csv
+from scilex.io_utils import load_aggregated_data, resolve_aggregate_path
 from scilex.logging_config import setup_logging
 from scilex.pipeline_utils import (
     extract_corpus_dois,
@@ -42,7 +42,7 @@ from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 from scilex.snowball.candidates import extract_candidates
 from scilex.snowball.fetcher import fetch_metadata_batch
 from scilex.snowball.filter import apply_snowball_filters
-from scilex.snowball.merge import merge_with_corpus
+from scilex.snowball.merge import merge_with_corpus, save_merged_corpus
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -86,7 +86,7 @@ def main():
         collect_dir = resolve_collect_dir(main_config)
 
         # Load corpus and citation caches
-        corpus_df = load_aggregated_data(main_config)
+        corpus_df = load_aggregated_data(main_config, preserve_missing_marker=True)
         corpus_dois = extract_corpus_dois(corpus_df)
         logger.info(f"Corpus: {len(corpus_df)} papers, {len(corpus_dois)} with DOIs")
 
@@ -143,9 +143,8 @@ def main():
         merged_df = merge_with_corpus(corpus_df, filtered_df)
 
         # Export
-        output_csv = os.path.join(collect_dir, "aggregated_results_snowball.csv")
-        # Same format as aggregated_results.csv (';', quoted, atomic).
-        write_aggregated_csv(merged_df, output_csv, quoting=csv.QUOTE_NONNUMERIC)
+        output_csv = resolve_aggregate_path(main_config)
+        backup_csv = save_merged_corpus(merged_df, output_csv)
 
         separator = "=" * 60
         logger.info(
@@ -160,6 +159,7 @@ def main():
                     f"After filters:       {len(filtered_df)}",
                     f"Total merged:        {len(merged_df)}",
                     f"Output:              {output_csv}",
+                    f"Backup:              {backup_csv}",
                     separator,
                 ]
             )

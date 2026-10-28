@@ -9,7 +9,6 @@ All outputs go to the review's collection directory.
 
 from __future__ import annotations
 
-import csv
 import importlib.util
 import logging
 import os
@@ -22,7 +21,6 @@ from pathlib import Path
 import pandas as pd
 
 from scilex.config import SciLExConfig
-from scilex.io_utils import write_aggregated_csv
 from scilex.pipeline_utils import (
     extract_corpus_dois,
     find_clusters_csv,
@@ -33,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 CHARTS_DIRNAME = "chart_aggregated_papers"
 GRAPH_DIRNAME = "graph_analysis"
-SNOWBALL_FILENAME = "aggregated_results_snowball.csv"
+SNOWBALL_BACKUP_FILENAME = "aggregated_results_pre_snowball.csv"
 
 ProgressFn = Callable[[int, str], None]
 CancelEvent = threading.Event | None
@@ -156,7 +154,7 @@ def existing_outputs(collect_dir: Path, name: str) -> list[Path]:
     patterns: dict[str, tuple[Path, list[str]]] = {
         "report": (collect_dir / CHARTS_DIRNAME, ["*.png"]),
         "keywords": (graph_dir, ["keyword_suggestions.md", "keyword_suggestions.yml"]),
-        "snowball": (collect_dir, [SNOWBALL_FILENAME]),
+        "snowball": (collect_dir, [SNOWBALL_BACKUP_FILENAME]),
         "graph": (graph_dir, ["clusters_*.csv", "*_graph.gexf", "*_graph.graphml"]),
         "summaries": (graph_dir, ["summary_report.md"]),
     }
@@ -509,15 +507,15 @@ def run_snowball(
     """Extend the corpus through citation links (``scilex-snowball``)."""
     from scilex.crawlers.key_pool import first_key
     from scilex.graph_analysis.loader import load_citation_caches
-    from scilex.io_utils import load_aggregated_data
+    from scilex.io_utils import load_aggregated_data, resolve_aggregate_path
     from scilex.snowball.candidates import extract_candidates
     from scilex.snowball.fetcher import fetch_metadata_batch
     from scilex.snowball.filter import apply_snowball_filters
-    from scilex.snowball.merge import merge_with_corpus
+    from scilex.snowball.merge import merge_with_corpus, save_merged_corpus
 
     collect_dir = collect_dir_of(config)
     try:
-        corpus_df = load_aggregated_data(config.main)
+        corpus_df = load_aggregated_data(config.main, preserve_missing_marker=True)
         references, citers = load_citation_caches(str(collect_dir))
     except (FileNotFoundError, ValueError) as exc:
         raise AnalysisError(str(exc)) from exc
@@ -552,10 +550,12 @@ def run_snowball(
             f"None of the {len(papers)} candidates found passed the quality filters."
         )
     merged = merge_with_corpus(corpus_df, filtered)
-    output_csv = collect_dir / SNOWBALL_FILENAME
-    write_aggregated_csv(merged, str(output_csv), quoting=csv.QUOTE_NONNUMERIC)
+    output_csv = resolve_aggregate_path(config.main)
+    save_merged_corpus(merged, output_csv)
+    added = len(merged) - len(corpus_df)
     return AnalysisResult(
-        f"{len(filtered)} new papers added ({len(merged)} in total).", [output_csv]
+        f"{added} new papers added to the collection ({len(merged)} in total).",
+        [Path(output_csv)],
     )
 
 

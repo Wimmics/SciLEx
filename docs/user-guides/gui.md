@@ -103,7 +103,10 @@ graph and community summaries. Each tab describes the analysis, offers its main 
 and a **Run** button; progress and logs are shown live. Results (images, Markdown
 reports, tables) are read from the collection folder and shown again when the tab opens.
 Snowball and the graph need the citation data: run the **Citations** tab first (it
-fetches the references and citing papers of the corpus). Keyword suggestions and
+fetches the references and citing papers of the corpus). Snowball adds the new papers to
+`aggregated_results.csv` itself (column `snowball_depth`), so Zotero and the exports
+include them; the original file is kept once as `aggregated_results_pre_snowball.csv`.
+Re-running the aggregation replaces the file and drops them. Keyword suggestions and
 summaries need the graph to have run first. **Cancel** stops an analysis at the end of
 its current step; citations already fetched are kept. **Run** buttons are disabled while
 another job is running.
