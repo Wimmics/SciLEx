@@ -168,8 +168,10 @@ def new_review_dialog(ctx: AppContext) -> None:
     with one_shot_dialog() as dialog, ui.card().classes("w-[32rem]"):
         ui.label("New review").classes("text-lg font-bold")
         folder = _folder_input(ctx, "Folder (optional, created if needed)")
-        folder.props(
-            f'hint="Empty: {reviews_home()}/<name>. Relative paths start in that folder."'
+        # Set as a value, not a props string: NiceGUI parses that string as a
+        # Python literal, and a Windows path (C:\Users\...) is an invalid escape.
+        folder.props["hint"] = (
+            f"Empty: {reviews_home() / '<name>'}. Relative paths start in that folder."
         )
         name = (
             ui.input("Name", placeholder="e.g. rag_knowledge_graphs")

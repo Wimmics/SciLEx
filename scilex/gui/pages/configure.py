@@ -367,17 +367,21 @@ def render(ctx: AppContext, review: Review) -> None:
             else:
                 put(path, (selected or None) if spec.nullable else selected)
 
-        ui.select(
-            options,
-            value=current,
-            multiple=True,
-            with_input=True,
-            on_change=changed,
-        ).props(
-            f'dense outlined use-chips placeholder="{meta.example}"'
-            if meta.example and not current
-            else "dense outlined use-chips"
-        ).classes("w-96").mark(f"field-{dotted}")
+        select = (
+            ui.select(
+                options,
+                value=current,
+                multiple=True,
+                with_input=True,
+                on_change=changed,
+            )
+            .props("dense outlined use-chips")
+            .classes("w-96")
+            .mark(f"field-{dotted}")
+        )
+        if meta.example and not current:
+            # A value, not a props string: quotes or backslashes would break parsing.
+            select.props["placeholder"] = meta.example
 
     def intlist_input(path: tuple[str, ...], spec: editor.FieldSpec, meta) -> None:
         def changed(event) -> None:

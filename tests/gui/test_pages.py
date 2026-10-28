@@ -29,6 +29,24 @@ async def test_create_review_from_dialog(ctx, tmp_path):
         assert [r.name for r in ctx.workspace.list_reviews()] == ["rag_kg"]
 
 
+async def test_new_review_dialog_opens_with_windows_home(ctx, monkeypatch):
+    # Windows report: the hint holds C:\Users\..., which NiceGUI's props
+    # string parser rejects as an invalid escape, so the dialog did not open.
+    from pathlib import PureWindowsPath
+
+    from scilex.gui.pages import home
+
+    monkeypatch.setattr(
+        home, "reviews_home", lambda: PureWindowsPath(r"C:\Users\bob\SciLEx")
+    )
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open("/")
+        user.find(marker="new-review").click()
+        await user.should_see(marker="name")
+        hint = user.find(marker="folder").elements.pop().props["hint"]
+        assert r"C:\Users\bob\SciLEx\<name>" in hint
+
+
 async def test_review_steps_disabled_before_results(ctx, tmp_path):
     review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
     async with user_simulation(build_root(ctx)) as user:
