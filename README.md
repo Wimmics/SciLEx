@@ -68,7 +68,7 @@ It runs from the command line or from a desktop app (macOS, Windows, Linux) that
   5. **Relevance Ranking** — composite score (0–10) from keyword density, metadata completeness, venue type, and citation impact
 - Citation count enrichment via CrossRef, OpenCitations, OpenAlex and Semantic Scholar
 - Optional CORE/SJR venue ranking, open-access lookup (Unpaywall) and LLM relevance screening (OpenRouter)
-- HuggingFace enrichment: query HuggingFace Hub to retrieve associated ML models, datasets, and GitHub repositories
+- Papers with Code enrichment: tasks, methods, evaluated benchmarks, official GitHub repository and stars from [paperswithcode.co](https://paperswithcode.co) (anonymous API, no key)
 - Analyses: co-authorship graphs and communities, snowball sampling, seed papers, cluster summaries, keyword suggestions
 - Export to Zotero (bulk upload), BibTeX (with PDF links) or RDF/Turtle
 - Desktop app: configure, collect, screen, export and analyse a review without the command line
@@ -119,7 +119,7 @@ See the [API Comparison](https://scilex.readthedocs.io/en/latest/reference/api-c
     │   ├── gui/             # desktop app (scilex-gui)
     │   ├── webapi/          # FastAPI + Streamlit web interface
     │   ├── Zotero/
-    │   └── HuggingFace/
+    │   └── PapersWithCode/
     ├── tests/
     ├── docs/
     └── img/
@@ -229,7 +229,7 @@ Run the pipeline step by step:
 ❯ scilex-aggregate              # --skip-citations to skip citation lookups, --workers N
 ❯ scilex-aggregate --collection NAME --use-current-config   # replay on an existing (even partial) collection with the current scilex.yml
 
-# 3. (Optional) Enrich with HuggingFace metadata
+# 3. (Optional) Enrich with Papers with Code metadata
 ❯ scilex-enrich
 
 # 4. Export results

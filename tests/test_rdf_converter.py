@@ -534,6 +534,21 @@ class TestHuggingFaceFields:
         assert "MNLI" in cds
         assert len(cds) == 2
 
+    def test_pwc_url_is_uri(self, tmp_path):
+        bib = tmp_path / "pwc.bib"
+        bib.write_text(
+            _SAMPLE_BIB_WITH_HF.replace(
+                "hfurl = {https://huggingface.co/papers/2401.12345}",
+                "pwcurl = {https://paperswithcode.co/paper/2401.12345}",
+            ),
+            encoding="utf-8",
+        )
+        g = convert(str(bib))
+        urls = list(g.objects(self._PAPER, SCILEX.papersWithCodeUrl))
+        assert len(urls) == 1
+        assert isinstance(urls[0], URIRef)
+        assert str(urls[0]) == "https://paperswithcode.co/paper/2401.12345"
+
     def test_hf_url_is_uri(self, bib_file_with_hf):
         g = convert(bib_file_with_hf)
         urls = list(g.objects(self._PAPER, SCILEX.huggingFaceUrl))

@@ -61,7 +61,7 @@ def sample_paper_record():
         "conferenceName": "AAAI 2024",
         "nb_citation": "15",
         "tags": "TASK:KGCompletion;PTM:TransE;FRAMEWORK:PyTorch",
-        "hf_url": "https://huggingface.co/papers/2401.12345",
+        "pwc_url": "https://paperswithcode.co/paper/2401.12345",
         "github_repo": "https://github.com/author/kg-completion",
     }
 
@@ -131,7 +131,7 @@ def minimal_paper_df():
                 "serie": "NA",
                 "conferenceName": "NA",
                 "tags": "NA",
-                "hf_url": "NA",
+                "pwc_url": "NA",
                 "github_repo": "NA",
             }
         ]

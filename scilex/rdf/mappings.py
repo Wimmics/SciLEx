@@ -61,7 +61,7 @@ FIELD_MAP: dict[str, tuple] = {
     "howpublished": (SCHEMA.codeRepository, "uri", None),
     "citationcount": (SCHEMA.citationCount, "literal", "xsd:integer"),
     "relevancescore": (SCILEX.relevanceScore, "literal", "xsd:decimal"),
-    # --- HuggingFace enrichment fields ---
+    # --- Papers with Code enrichment fields (hfurl kept for old .bib files) ---
     "task": (SCILEX.task, "literal", None),
     "ptm": (SCILEX.pretrainedModel, "literal", None),
     "archi": (SCILEX.architecture, "literal", None),
@@ -69,6 +69,7 @@ FIELD_MAP: dict[str, tuple] = {
     "framework": (SCILEX.framework, "literal", None),
     "githubstars": (SCILEX.githubStars, "literal", "xsd:integer"),
     "citingdatasets": (SCILEX.citedByDataset, "keyword_list", None),
+    "pwcurl": (SCILEX.papersWithCodeUrl, "uri", None),
     "hfurl": (SCILEX.huggingFaceUrl, "uri", None),
 }
 

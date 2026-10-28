@@ -34,7 +34,7 @@ uv run python -m pytest tests/ --cov=scilex --cov-report=term-missing  # With co
 | `test_pubmed_*.py` | `collectors/pubmed.py`, `aggregate.py` | PubMed query building, XML parsing, aggregation |
 | `test_rate_limits.py` | `config_defaults.py`, `collectors/base.py` | Rate limit structure, config overrides |
 | `test_path_normalization.py` | `constants.py` | `normalize_path_component` |
-| `test_hf_csv_enrichment.py` | `enrich_with_hf.py` | HuggingFace CSV enrichment |
+| `test_hf_csv_enrichment.py` | `enrich_with_pwc.py` | Papers with Code CSV enrichment |
 | `test_crossref_citations.py` | `citations/citations_tools.py`, `aggregate_collect.py` | CrossRef per-DOI lookup, pipeline tier integration |
 | `test_crossref_coverage.py` | `citations/citations_tools.py` | Live CrossRef vs OpenCitations comparison (`-m live`) |
 

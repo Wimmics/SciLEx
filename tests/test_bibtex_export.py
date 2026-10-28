@@ -131,13 +131,22 @@ class TestEntryEscaping:
         entry = self._entry(
             url="http://a.org/p_1?q=50%&r#x",
             pdf_url="http://a.org/f%20.pdf",
-            hf_url="http://hf.co/a#b",
+            pwc_url="http://pwc.co/a#b",
             github_repo="http://gh.com/a_b/~c#d",
         )
         assert r"url = {http://a.org/p_1?q=50\%&r\#x}" in entry
         assert r"file = {http://a.org/f\%20.pdf}" in entry
-        assert r"hfurl = {http://hf.co/a\#b}" in entry
+        assert r"pwcurl = {http://pwc.co/a\#b}" in entry
         assert r"howpublished = {http://gh.com/a_b/~c\#d}" in entry
+
+    def test_pwc_url_exported_as_pwcurl(self):
+        entry = self._entry(pwc_url="https://paperswithcode.co/paper/2307.03172")
+        assert "pwcurl = {https://paperswithcode.co/paper/2307.03172}" in entry
+        assert "hfurl" not in entry
+
+    def test_legacy_hf_url_falls_back_to_pwcurl(self):
+        entry = self._entry(hf_url="https://huggingface.co/papers/2401.12345")
+        assert "pwcurl = {https://huggingface.co/papers/2401.12345}" in entry
 
 
 # -------------------------------------------------------------------------
@@ -284,7 +293,7 @@ class TestFormatBibtexEntry:
             "serie": "NA",
             "conferenceName": "NA",
             "tags": "NA",
-            "hf_url": "NA",
+            "pwc_url": "NA",
             "github_repo": "NA",
         }
         defaults.update(overrides)

@@ -109,7 +109,7 @@ def parse_tags(tags_str: str) -> list[str]:
     return split_semicolon_field(tags_str)
 
 
-# HuggingFace tag prefixes -> dedicated BibTeX fields (read by the RDF exporter).
+# Enrichment tag prefixes -> dedicated BibTeX fields (read by the RDF exporter).
 TAG_PREFIX_TO_FIELD: dict[str, str] = {
     "TASK:": "task",
     "PTM:": "ptm",
@@ -122,7 +122,7 @@ TAG_PREFIX_TO_FIELD: dict[str, str] = {
 
 
 def classify_tags(tags_list: list[str]) -> dict[str, list[str]]:
-    """Split tags into HuggingFace fields by prefix; unprefixed tags go to "keywords".
+    """Split tags into enrichment fields by prefix; unprefixed tags go to "keywords".
 
     Args:
         tags_list: List of tag strings, possibly prefixed (e.g. "TASK:NER").
@@ -326,7 +326,7 @@ def generate_citation_key(doi: str, row: pd.Series, used_keys: set) -> str:
 
 
 def _tag_field_lines(tags_str) -> list[str]:
-    """Build BibTeX lines for tags: one field per HF prefix, then plain keywords."""
+    """Build BibTeX lines for tags: one field per enrichment prefix, then plain keywords."""
     classified = classify_tags(parse_tags(tags_str))
     lines = []
     for field_name in [*TAG_PREFIX_TO_FIELD.values(), "keywords"]:
@@ -357,7 +357,8 @@ _ENTRY_FIELDS = [
     ("copyright", "rights", lambda v: escape_bibtex(str(v)), None),
     ("archiveprefix", "archive", lambda v: escape_bibtex(str(v)), None),
     ("eprint", "archiveID", lambda v: escape_bibtex(str(v)), None),
-    ("hfurl", "hf_url", _escape_url, None),
+    # Falls back to the legacy "hf_url" column for old aggregated CSVs
+    ("pwcurl", "pwc_url", _escape_url, None),
     ("howpublished", "github_repo", _escape_url, None),
     # SciLEx internal fields, consumed by the RDF exporter
     ("relevancescore", "relevance_score", str, None),
@@ -406,6 +407,8 @@ def format_bibtex_entry(
         if allowed_types is not None and entry_type not in allowed_types:
             continue
         value = safe_get(row, row_field)
+        if not is_valid(value) and bibtex_field == "pwcurl":
+            value = safe_get(row, "hf_url")
         if not is_valid(value):
             continue
         formatted = formatter(value)

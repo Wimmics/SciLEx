@@ -39,3 +39,20 @@ def test_zotero_no_score_tags_when_missing():
 def test_bibtex_exports_relevance_score():
     entry = format_bibtex_entry(_row(relevance_score=7.34), "key1")
     assert "relevancescore = {7.34}" in entry
+
+
+def test_zotero_extra_has_papers_with_code_line():
+    row = _row(pwc_url="https://paperswithcode.co/paper/2307.03172")
+    template = {**TEMPLATE, "extra": ""}
+    item = prepare_zotero_item(row, "COLL", {"journalArticle": template})
+    assert (
+        "Papers with Code: https://paperswithcode.co/paper/2307.03172" in item["extra"]
+    )
+    assert "HF URL" not in item["extra"]
+
+
+def test_zotero_extra_falls_back_to_legacy_hf_url():
+    row = _row(hf_url="https://huggingface.co/papers/2401.12345")
+    template = {**TEMPLATE, "extra": ""}
+    item = prepare_zotero_item(row, "COLL", {"journalArticle": template})
+    assert "Papers with Code: https://huggingface.co/papers/2401.12345" in item["extra"]

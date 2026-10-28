@@ -98,7 +98,7 @@ The Zotero button stays disabled until the Zotero key and library id are set in
 
 ## ⑤ Analyses
 
-Tabs: charts, keyword suggestions, HuggingFace enrichment, citations, snowball, citation
+Tabs: charts, keyword suggestions, Papers with Code enrichment, citations, snowball, citation
 graph and community summaries. Each tab describes the analysis, offers its main options
 and a **Run** button; progress and logs are shown live. Results (images, Markdown
 reports, tables) are read from the collection folder and shown again when the tab opens.

@@ -615,10 +615,12 @@ def prepare_zotero_item(
     if pdf_valid:
         extra_lines.append(f"PDF URL: {pdf_url}")
 
-    hf_url = get_value(row, "hf_url", MISSING_VALUE)
-    hf_valid = is_valid(hf_url) and hf_url != MISSING_VALUE
-    if hf_valid:
-        extra_lines.append(f"HF URL: {hf_url}")
+    pwc_url = get_value(row, "pwc_url", MISSING_VALUE)
+    if not (is_valid(pwc_url) and pwc_url != MISSING_VALUE):
+        pwc_url = get_value(row, "hf_url", MISSING_VALUE)
+    pwc_valid = is_valid(pwc_url) and pwc_url != MISSING_VALUE
+    if pwc_valid:
+        extra_lines.append(f"Papers with Code: {pwc_url}")
 
     if extra_lines and "extra" in item:
         item["extra"] = "\n".join(extra_lines)
@@ -626,7 +628,7 @@ def prepare_zotero_item(
     # --- Tags ---
     all_tags = []
 
-    # HF enrichment tags + bonus keyword tags + collect keywords
+    # Enrichment tags + bonus keyword tags + collect keywords
     all_tags.extend(split_semicolon_field(get_value(row, "tags", MISSING_VALUE)))
     all_tags.extend(
         split_semicolon_field(get_value(row, "bonus_keyword_tags", MISSING_VALUE))
@@ -638,8 +640,8 @@ def prepare_zotero_item(
     # Presence tags
     if pdf_valid:
         all_tags.append("HavePDF")
-    if hf_valid:
-        all_tags.append("HaveHF")
+    if pwc_valid:
+        all_tags.append("HavePWC")
     if github_valid:
         all_tags.append("HaveGithub")
 

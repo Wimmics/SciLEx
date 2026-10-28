@@ -9,7 +9,7 @@ Complete web-based interface for SciLEx - combining a FastAPI REST backend with 
 - **Multi-Source Paper Collection**: Search 10+ academic databases simultaneously
   - Free APIs: SemanticScholar, OpenAlex, Arxiv, PubMed, DBLP, HAL
   - Paid APIs: IEEE, Elsevier, Springer
-  - Integration: Zotero, HuggingFace
+  - Integration: Zotero, Papers with Code (no key)
 
 - **Advanced Filtering**: 
   - By year, source, publication type
@@ -101,7 +101,6 @@ python scilex/webapi/run_interface.py \
    - **Elsevier**: API key + optional institutional token
    - **Springer**: API key
    - **Zotero**: API key + User ID
-   - **HuggingFace**: Access token
 
 5. Click **✅ Save API Configuration**
 

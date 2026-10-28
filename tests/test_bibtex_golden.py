@@ -25,7 +25,7 @@ FULL_ARTICLE = {
     "archive": "OpenAlex",
     "archiveID": "W123",
     "tags": "TASK:NER;PTM:BERT",
-    "hf_url": "https://huggingface.co/x",
+    "pwc_url": "https://paperswithcode.co/paper/x",
     "github_repo": "https://github.com/a/b",
 }
 
@@ -53,7 +53,7 @@ def test_golden_full_article():
         "  copyright = {CC-BY},\n"
         "  archiveprefix = {OpenAlex},\n"
         "  eprint = {W123},\n"
-        "  hfurl = {https://huggingface.co/x},\n"
+        "  pwcurl = {https://paperswithcode.co/paper/x},\n"
         "  howpublished = {https://github.com/a/b},\n"
         "  task = {NER},\n"
         "  ptm = {BERT}\n"

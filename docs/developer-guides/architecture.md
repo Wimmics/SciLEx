@@ -212,11 +212,11 @@ scilex/
 │   └── key_pool.py            # API key rotation
 ├── pipeline/                  # Aggregation steps (filters, ranking, enrichment, reports)
 ├── citations/                 # Citation cache, fetchers, reference fetcher
-├── Zotero/, rdf/, HuggingFace/, vpn/, templates/
+├── Zotero/, rdf/, PapersWithCode/ (client.py, title_matcher.py, tag_formatter.py), vpn/, templates/
 ├── run_collection.py          # scilex-collect
 ├── aggregate_collect.py       # scilex-aggregate
 ├── push_to_zotero.py          # scilex-push-zotero
-├── export_to_bibtex.py, export_to_turtle.py, enrich_with_hf.py, init_templates.py
+├── export_to_bibtex.py, export_to_turtle.py, enrich_with_pwc.py, init_templates.py
 └── webapi/                    # FastAPI server
 
 scilex.yml.example, keys.yml.example   # templates at the repository root
