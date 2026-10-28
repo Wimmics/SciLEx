@@ -51,6 +51,7 @@ def export_citation_graph(
 ) -> str:
     """Write ``citation_graph.ttl`` for the aggregated collection."""
     from scilex.citations.reference_fetcher import fetch_references_batch
+    from scilex.crawlers.key_pool import first_key
     from scilex.io_utils import load_aggregated_data
     from scilex.pipeline_utils import extract_corpus_dois
     from scilex.rdf.citation_graph import write_citation_graph
@@ -59,7 +60,9 @@ def export_citation_graph(
     api_configs = resolve_legacy_configs()[1]
     references = fetch_references_batch(
         dois,
-        api_key=((api_configs or {}).get("SemanticScholar") or {}).get("api_key"),
+        api_key=first_key(
+            ((api_configs or {}).get("SemanticScholar") or {}).get("api_key")
+        ),
         cache_path=os.path.join(collect_dir, "citations_cache.json"),
         mailto=((api_configs or {}).get("CrossRef") or {}).get("mailto"),
     )

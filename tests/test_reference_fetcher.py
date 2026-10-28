@@ -533,10 +533,27 @@ class TestSSBatchLookup:
         assert result == {"10.0/a": ["10.9/c"]}
         mock_single.assert_called_once()
 
+    @patch("scilex.citations.reference_fetcher.SS_BATCH_RETRY_PAUSE", 0)
     @patch("scilex.citations.reference_fetcher._post_ss_batch")
     def test_failed_chunk_left_out(self, mock_batch):
         mock_batch.side_effect = requests.exceptions.HTTPError("400")
         assert _ss_batch_lookup(["10.0/a"], "references") == {}
+        assert mock_batch.call_count == 2
+
+    @patch("scilex.citations.reference_fetcher.SS_BATCH_RETRY_PAUSE", 0)
+    @patch("scilex.citations.reference_fetcher.SS_BATCH_SIZE", 1)
+    @patch("scilex.citations.reference_fetcher._post_ss_batch")
+    def test_failed_chunk_retried_after_the_others(self, mock_batch):
+        """A batch lost to a 429 is retried once instead of 100 single calls."""
+        mock_batch.side_effect = [
+            requests.exceptions.HTTPError("429"),
+            [{"references": [{"externalIds": {"DOI": "10.1/b"}}]}],
+            [{"references": [{"externalIds": {"DOI": "10.1/a"}}]}],
+        ]
+        result = _ss_batch_lookup(["10.0/a", "10.0/b"], "references")
+        assert result == {"10.0/a": ["10.1/a"], "10.0/b": ["10.1/b"]}
+        sent = [c.args[0] for c in mock_batch.call_args_list]
+        assert sent == [["DOI:10.0/a"], ["DOI:10.0/b"], ["DOI:10.0/a"]]
 
     @patch("scilex.citations.reference_fetcher.fetch_references_ss")
     @patch("scilex.citations.reference_fetcher._post_ss_batch")
@@ -547,3 +564,48 @@ class TestSSBatchLookup:
         result = fetch_references_batch(["https://doi.org/10.0/a"], cache_path=None)
         assert result == {"https://doi.org/10.0/a": ["10.1/r"]}
         mock_single.assert_not_called()
+
+
+def _http_error(status: int) -> requests.exceptions.HTTPError:
+    response = MagicMock()
+    response.status_code = status
+    return requests.exceptions.HTTPError(str(status), response=response)
+
+
+class TestSSSingleBreaker:
+    @patch("scilex.citations.reference_fetcher._fetch_references_oc")
+    @patch("scilex.citations.reference_fetcher._fetch_references_crossref")
+    @patch("scilex.citations.reference_fetcher._fetch_ss_no_key")
+    def test_stops_ss_after_repeated_429(self, mock_ss, mock_cr, mock_oc):
+        mock_ss.side_effect = _http_error(429)
+        mock_cr.return_value = ["10.9/cr"]
+        dois = [f"10.0/{i}" for i in range(6)]
+        result = fetch_references_batch(dois, cache_path=None)
+        assert mock_ss.call_count == 3
+        assert mock_cr.call_count == 6
+        assert all(refs == ["10.9/cr"] for refs in result.values())
+
+    @patch("scilex.citations.reference_fetcher._fetch_citers_oc")
+    @patch("scilex.citations.reference_fetcher._fetch_ss_citers_no_key")
+    def test_success_resets_the_count(self, mock_ss, mock_oc):
+        mock_ss.side_effect = [
+            _http_error(429),
+            _http_error(429),
+            ["10.9/c"],
+            _http_error(429),
+            _http_error(429),
+            ["10.9/d"],
+        ]
+        mock_oc.return_value = []
+        fetch_citers_batch([f"10.0/{i}" for i in range(6)], cache_path=None)
+        assert mock_ss.call_count == 6
+
+    @patch("scilex.citations.reference_fetcher._fetch_references_oc")
+    @patch("scilex.citations.reference_fetcher._fetch_references_crossref")
+    @patch("scilex.citations.reference_fetcher._fetch_ss_no_key")
+    def test_client_errors_do_not_open_it(self, mock_ss, mock_cr, mock_oc):
+        mock_ss.side_effect = _http_error(400)
+        mock_cr.return_value = []
+        mock_oc.return_value = []
+        fetch_references_batch([f"10.0/{i}" for i in range(5)], cache_path=None)
+        assert mock_ss.call_count == 5

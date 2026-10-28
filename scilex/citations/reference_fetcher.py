@@ -13,6 +13,7 @@ Incoming citers (who cites a paper) — two tiers:
 import json
 import logging
 import os
+import time
 import urllib.parse
 from collections.abc import Callable
 
@@ -51,6 +52,13 @@ SS_BATCH_SIZE = 100
 SS_BATCH_LINK_CAP = 9999
 # A batch list shorter than this share of the paper's count is treated as cut.
 SS_BATCH_MIN_COMPLETENESS = 0.9
+# Seconds to wait before retrying the batches that failed (usually on 429).
+SS_BATCH_RETRY_PAUSE = 30
+# Consecutive one-by-one SS failures (429, 5xx, timeouts) after which the
+# remaining papers skip SemanticScholar and go straight to the fallbacks.
+SS_SINGLE_FAILURE_LIMIT = 3
+# Log a progress line every this many papers.
+PROGRESS_LOG_EVERY = 10
 CROSSREF_WORKS_URL = "https://api.crossref.org/works/{doi}"
 
 
@@ -171,6 +179,15 @@ def _post_ss_batch(ids: list[str], fields: str, api_key: str | None) -> list:
     return resp.json()
 
 
+def _pause(seconds: float, should_stop: StopFn = None) -> None:
+    """Sleep for *seconds*, waking up early when a stop is requested."""
+    deadline = time.monotonic() + seconds
+    while (remaining := deadline - time.monotonic()) > 0:
+        if _stop_requested(should_stop):
+            return
+        time.sleep(min(remaining, 1.0))
+
+
 def _ss_batch_lookup(
     dois: list[str],
     link_field: str,
@@ -178,6 +195,10 @@ def _ss_batch_lookup(
     should_stop: StopFn = None,
 ) -> dict[str, list[str]]:
     """Fetch linked DOIs for many papers with the SemanticScholar batch endpoint.
+
+    A chunk that fails (usually on 429) is retried once, after the other
+    chunks and a pause, since one batch request replaces SS_BATCH_SIZE
+    one-by-one requests.
 
     Args:
         dois: Clean DOI strings.
@@ -187,18 +208,18 @@ def _ss_batch_lookup(
 
     Returns:
         Dict mapping each DOI SemanticScholar answered for to its linked DOIs.
-        DOIs from a failed chunk, or whose list came back cut (shorter than
-        the paper's citation/reference count), are absent, so the caller can
-        retry them one by one.
+        DOIs from a chunk that failed twice, or whose list came back cut
+        (shorter than the paper's citation/reference count), are absent, so
+        the caller can retry them one by one.
     """
     linked_key = "citedPaper" if link_field == "references" else "citingPaper"
     count_field = "referenceCount" if link_field == "references" else "citationCount"
     incomplete = 0
     answered: dict[str, list[str]] = {}
     chunks = [dois[i : i + SS_BATCH_SIZE] for i in range(0, len(dois), SS_BATCH_SIZE)]
-    for chunk_index, chunk in enumerate(chunks, 1):
-        if _stop_requested(should_stop):
-            break
+
+    def post_chunk(chunk_index: int, chunk: list[str], last_try: bool) -> bool:
+        nonlocal incomplete
         try:
             papers = _post_ss_batch(
                 [f"DOI:{doi}" for doi in chunk],
@@ -206,11 +227,15 @@ def _ss_batch_lookup(
                 api_key,
             )
         except (requests.exceptions.RequestException, OSError, ValueError) as e:
-            logger.warning(
-                f"SS batch {chunk_index}/{len(chunks)} failed ({e}); "
+            outcome = (
                 "its papers will be fetched one by one"
+                if last_try
+                else "it will be retried after the other batches"
             )
-            continue
+            logger.warning(
+                f"SS batch {chunk_index}/{len(chunks)} failed ({e}); {outcome}"
+            )
+            return False
         for doi, paper in zip(chunk, papers, strict=False):
             links = (paper or {}).get(link_field) or []
             expected = min((paper or {}).get(count_field) or 0, SS_BATCH_LINK_CAP)
@@ -227,6 +252,23 @@ def _ss_batch_lookup(
                 )
             ]
         logger.info(f"  SS batch {chunk_index}/{len(chunks)} done")
+        return True
+
+    failed: list[tuple[int, list[str]]] = []
+    for chunk_index, chunk in enumerate(chunks, 1):
+        if _stop_requested(should_stop):
+            return answered
+        if not post_chunk(chunk_index, chunk, last_try=False):
+            failed.append((chunk_index, chunk))
+    if failed:
+        logger.info(
+            f"  Retrying {len(failed)} failed SS batch(es) in {SS_BATCH_RETRY_PAUSE} s"
+        )
+        _pause(SS_BATCH_RETRY_PAUSE, should_stop)
+        for chunk_index, chunk in failed:
+            if _stop_requested(should_stop):
+                return answered
+            post_chunk(chunk_index, chunk, last_try=True)
     if incomplete:
         logger.info(
             f"  SS batch: {incomplete} paper(s) with a cut {link_field} list "
@@ -235,16 +277,57 @@ def _ss_batch_lookup(
     return answered
 
 
+class _SSSingleBreaker:
+    """Stop one-by-one SemanticScholar requests once SS keeps throttling.
+
+    Each failed request already costs about 30 s of retries; after
+    SS_SINGLE_FAILURE_LIMIT consecutive transient failures (429, 5xx,
+    timeouts) the remaining papers go straight to the fallback sources.
+    """
+
+    def __init__(self, fetch: Callable[..., list[str]], api_key: str | None):
+        self._fetch = fetch
+        self._api_key = api_key
+        self._failures = 0
+
+    @property
+    def is_open(self) -> bool:
+        return self._failures >= SS_SINGLE_FAILURE_LIMIT
+
+    def fetch(self, doi: str) -> list[str]:
+        """Return SS links for *doi*, or [] without a request once open."""
+        if self.is_open:
+            return []
+        errors: list[BaseException] = []
+        links = self._fetch(doi, api_key=self._api_key, on_failure=errors.append)
+        if errors and _is_retryable_ss_error(errors[0]):
+            self._failures += 1
+            if self.is_open:
+                logger.warning(
+                    f"SemanticScholar failed {self._failures} times in a row; "
+                    "the remaining papers skip it and use the fallback sources"
+                )
+        else:
+            self._failures = 0
+        return links
+
+
 def _clean(doi: str) -> str:
     return doi.replace("https://doi.org/", "").strip()
 
 
-def fetch_references_ss(doi: str, api_key: str | None = None) -> list[str]:
+def fetch_references_ss(
+    doi: str,
+    api_key: str | None = None,
+    on_failure: Callable[[BaseException], None] | None = None,
+) -> list[str]:
     """Return list of DOIs cited by *doi* via SemanticScholar.
 
     Args:
         doi: DOI string (with or without https://doi.org/ prefix).
         api_key: Optional SemanticScholar API key for higher rate limits.
+        on_failure: Optional callable receiving the exception when the
+            request fails (as opposed to a paper with no references).
 
     Returns:
         List of cited DOI strings, or empty list if not found / error.
@@ -257,6 +340,8 @@ def fetch_references_ss(doi: str, api_key: str | None = None) -> list[str]:
             return _fetch_ss_no_key(clean_doi) or []
     except (requests.exceptions.RequestException, OSError) as e:
         logger.warning(f"SS fetch failed for DOI {clean_doi}: {e}")
+        if on_failure is not None:
+            on_failure(e)
         return []
 
 
@@ -383,6 +468,7 @@ def fetch_references_batch(
         api_key=api_key,
         should_stop=should_stop,
     )
+    ss_single = _SSSingleBreaker(fetch_references_ss, api_key)
 
     for i, doi in enumerate(pending, 1):
         if _stop_requested(should_stop):
@@ -396,7 +482,7 @@ def fetch_references_batch(
         if clean_doi in ss_answers:
             refs = ss_answers[clean_doi]
         else:
-            refs = fetch_references_ss(clean_doi, api_key=api_key)
+            refs = ss_single.fetch(clean_doi)
         if not refs and _stop_requested(should_stop):
             break
 
@@ -426,7 +512,7 @@ def fetch_references_batch(
         if cache_path and i % 10 == 0:
             _save_cache(cache_path, {**cache, **results})
 
-        if i % 50 == 0 or i == len(pending):
+        if i % PROGRESS_LOG_EVERY == 0 or i == len(pending):
             logger.info(f"  Progress: {i}/{len(pending)} fetched")
         if on_progress is not None:
             on_progress(i, len(pending))
@@ -527,12 +613,18 @@ def _do_ss_citers_request(doi: str, api_key: str | None) -> list[str]:
     return result
 
 
-def fetch_citers_ss(doi: str, api_key: str | None = None) -> list[str]:
+def fetch_citers_ss(
+    doi: str,
+    api_key: str | None = None,
+    on_failure: Callable[[BaseException], None] | None = None,
+) -> list[str]:
     """Return list of DOIs that cite *doi* via SemanticScholar.
 
     Args:
         doi: DOI string (with or without https://doi.org/ prefix).
         api_key: Optional SemanticScholar API key for higher rate limits.
+        on_failure: Optional callable receiving the exception when the
+            request fails (as opposed to a paper with no citers).
 
     Returns:
         List of citing DOI strings, or empty list if not found / error.
@@ -545,6 +637,8 @@ def fetch_citers_ss(doi: str, api_key: str | None = None) -> list[str]:
             return _fetch_ss_citers_no_key(clean_doi) or []
     except Exception as e:
         logger.warning(f"SS citers fetch failed for DOI {clean_doi}: {e}")
+        if on_failure is not None:
+            on_failure(e)
         return []
 
 
@@ -625,6 +719,7 @@ def fetch_citers_batch(
         api_key=api_key,
         should_stop=should_stop,
     )
+    ss_single = _SSSingleBreaker(fetch_citers_ss, api_key)
 
     for i, doi in enumerate(pending, 1):
         if _stop_requested(should_stop):
@@ -638,7 +733,7 @@ def fetch_citers_batch(
         if clean_doi in ss_answers:
             citers = ss_answers[clean_doi]
         else:
-            citers = fetch_citers_ss(clean_doi, api_key=api_key)
+            citers = ss_single.fetch(clean_doi)
         if not citers and _stop_requested(should_stop):
             break
 
@@ -654,7 +749,7 @@ def fetch_citers_batch(
         if cache_path and i % 10 == 0:
             _save_cache(cache_path, {**cache, **results})
 
-        if i % 50 == 0 or i == len(pending):
+        if i % PROGRESS_LOG_EVERY == 0 or i == len(pending):
             logger.info(f"  Progress: {i}/{len(pending)} fetched")
         if on_progress is not None:
             on_progress(i, len(pending))
