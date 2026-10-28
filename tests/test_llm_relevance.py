@@ -199,3 +199,43 @@ def test_request_score_disables_reasoning():
     payload = post.call_args.kwargs["json"]
     assert payload["reasoning"] == {"enabled": False}
     assert payload["max_tokens"] >= 100
+
+
+def _error_response(status, message):
+    response = MagicMock()
+    response.status_code = status
+    response.json.return_value = {"error": {"message": message}}
+    return response
+
+
+def test_request_score_access_denied_not_retried():
+    with (
+        patch.object(
+            llm._get_session(),
+            "post",
+            return_value=_error_response(403, "Key limit exceeded (monthly limit)."),
+        ) as post,
+        pytest.raises(llm.LLMAccessError, match="Key limit exceeded"),
+    ):
+        llm.request_score("t", "a", "topic", "m", "key")
+    assert post.call_count == 1
+
+
+def test_access_denied_stops_screening_and_keeps_papers(caplog):
+    frame = pd.DataFrame(
+        {
+            "title": [f"P{i}" for i in range(20)],
+            "abstract": ["x"] * 20,
+            "DOI": ["NA"] * 20,
+        }
+    )
+    config = LLMScreeningConfig(enabled=True, topic="t", threshold=0.5, workers=1)
+    with patch.object(
+        llm, "request_score", side_effect=llm.LLMAccessError("HTTP 403: limit")
+    ) as request:
+        result = llm.apply_llm_screening(
+            frame, config, {"openrouter": {"api_key": "k"}}
+        )
+    assert request.call_count == 1
+    assert len(result) == 20
+    assert "refused the API key" in caplog.text

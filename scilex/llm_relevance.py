@@ -82,6 +82,24 @@ class _RetryableLLMError(Exception):
     """Transient failure (HTTP 429/5xx, network, unparsable answer)."""
 
 
+class LLMAccessError(LLMScreeningError):
+    """OpenRouter refused the key (HTTP 401/402/403): every request would fail."""
+
+
+# Statuses that concern the key or account, not the paper: no point retrying
+# or sending the remaining papers.
+_ACCESS_DENIED_STATUSES = (401, 402, 403)
+
+
+def _error_message(response: requests.Response) -> str:
+    """Return OpenRouter's error message (e.g. "Key limit exceeded"), if any."""
+    try:
+        message = response.json()["error"]["message"]
+    except (ValueError, KeyError, TypeError):
+        message = response.text[:300]
+    return f"HTTP {response.status_code}: {message}"
+
+
 @dataclass
 class LLMScreeningConfig:
     """Settings of the ``llm_screening`` configuration block."""
@@ -276,8 +294,11 @@ def request_score(
     except requests.exceptions.RequestException as error:
         raise _RetryableLLMError(str(error)) from error
     if response.status_code == 429 or response.status_code >= 500:
-        raise _RetryableLLMError(f"HTTP {response.status_code}")
-    response.raise_for_status()
+        raise _RetryableLLMError(_error_message(response))
+    if response.status_code in _ACCESS_DENIED_STATUSES:
+        raise LLMAccessError(_error_message(response))
+    if response.status_code >= 400:
+        raise requests.HTTPError(_error_message(response), response=response)
     try:
         content = response.json()["choices"][0]["message"]["content"]
         return parse_score(content)
@@ -326,7 +347,8 @@ def score_dataframe(
     keeps what was already paid for.
 
     Setting ``cancel_event`` stops sending requests; scores already obtained
-    are cached and the rest stay unscored.
+    are cached and the rest stay unscored. The same happens, with one error
+    logged, when OpenRouter refuses the key (exhausted credits or key limit).
 
     Cached scores are reused. At most ``config.max_papers`` uncached papers are
     sent to the LLM; the estimated cost is logged before any request.
@@ -354,8 +376,17 @@ def score_dataframe(
             f"{skipped} papers left unscored (kept in the corpus)"
         )
 
-    def score_position(position: int) -> tuple[int, float | None]:
+    # Set by the user's cancel_event or by a refused key; stops all workers.
+    stop_event = threading.Event()
+    access_errors: list[LLMAccessError] = []
+
+    def should_stop() -> bool:
         if cancel_event is not None and cancel_event.is_set():
+            stop_event.set()
+        return stop_event.is_set()
+
+    def score_position(position: int) -> tuple[int, float | None]:
+        if should_stop():
             return position, None
         row = df.iloc[position]
         try:
@@ -367,6 +398,10 @@ def score_dataframe(
                 api_key,
                 cancel_event=cancel_event,
             )
+        except LLMAccessError as error:
+            access_errors.append(error)
+            stop_event.set()
+            return position, None
         except Exception as error:
             logger.warning(f"LLM scoring failed for {row.get('title')!r}: {error}")
             return position, None
@@ -390,11 +425,18 @@ def score_dataframe(
                     logger.info(f"LLM screening: {done}/{total} scored")
                     if progress_callback:
                         progress_callback(done, total)
-                if cancel_event is not None and cancel_event.is_set():
+                if should_stop():
                     for pending_future in futures:
                         pending_future.cancel()
                     break
         cache.save()
+        if access_errors:
+            unscored = sum(score is None for score in scores)
+            logger.error(
+                f"LLM screening stopped: OpenRouter refused the API key "
+                f"({access_errors[0]}). {unscored} papers left unscored "
+                f"(kept in the corpus)."
+            )
 
     df[SCORE_COLUMN] = pd.Series(scores, index=df.index, dtype="float64")
     return df
