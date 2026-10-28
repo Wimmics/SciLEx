@@ -230,8 +230,10 @@ def _render_options(name: str) -> dict:
             f"analysis-opt-{name}-{key}"
         )
 
-    def checkbox(key: str, label: str) -> None:
-        widgets[key] = ui.checkbox(label).mark(f"analysis-opt-{name}-{key}")
+    def checkbox(key: str, label: str, value: bool = False) -> None:
+        widgets[key] = ui.checkbox(label, value=value).mark(
+            f"analysis-opt-{name}-{key}"
+        )
 
     with ui.row().classes("items-center gap-4"):
         if name in ("keywords", "summaries"):
@@ -252,6 +254,11 @@ def _render_options(name: str) -> dict:
             number("top_k", "Max candidates", 200, min=1, precision=0)
             number("min_frequency", "Min corpus links", 2, min=1, precision=0)
             checkbox("dry_run", "Dry run (list candidates only)")
+            checkbox(
+                "add_to_collection",
+                "Add to the collection (otherwise aggregated_results_snowball.csv)",
+                value=True,
+            )
         elif name == "graph":
             select(
                 "graph_type",

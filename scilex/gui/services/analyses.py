@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 CHARTS_DIRNAME = "chart_aggregated_papers"
 GRAPH_DIRNAME = "graph_analysis"
 SNOWBALL_BACKUP_FILENAME = "aggregated_results_pre_snowball.csv"
+SNOWBALL_SEPARATE_FILENAME = "aggregated_results_snowball.csv"
 
 ProgressFn = Callable[[int, str], None]
 CancelEvent = threading.Event | None
@@ -154,7 +155,10 @@ def existing_outputs(collect_dir: Path, name: str) -> list[Path]:
     patterns: dict[str, tuple[Path, list[str]]] = {
         "report": (collect_dir / CHARTS_DIRNAME, ["*.png"]),
         "keywords": (graph_dir, ["keyword_suggestions.md", "keyword_suggestions.yml"]),
-        "snowball": (collect_dir, [SNOWBALL_BACKUP_FILENAME]),
+        "snowball": (
+            collect_dir,
+            [SNOWBALL_BACKUP_FILENAME, SNOWBALL_SEPARATE_FILENAME],
+        ),
         "graph": (graph_dir, ["clusters_*.csv", "*_graph.gexf", "*_graph.graphml"]),
         "summaries": (graph_dir, ["summary_report.md"]),
     }
@@ -502,16 +506,21 @@ def run_snowball(
     top_k: int = 200,
     min_frequency: int = 2,
     dry_run: bool = False,
+    add_to_collection: bool = True,
     cancel_event: CancelEvent = None,
 ) -> AnalysisResult:
-    """Extend the corpus through citation links (``scilex-snowball``)."""
+    """Extend the corpus through citation links (``scilex-snowball``).
+
+    ``add_to_collection`` False writes ``aggregated_results_snowball.csv`` and
+    leaves ``aggregated_results.csv`` untouched.
+    """
     from scilex.crawlers.key_pool import first_key
     from scilex.graph_analysis.loader import load_citation_caches
     from scilex.io_utils import load_aggregated_data, resolve_aggregate_path
     from scilex.snowball.candidates import extract_candidates
     from scilex.snowball.fetcher import fetch_metadata_batch
     from scilex.snowball.filter import apply_snowball_filters
-    from scilex.snowball.merge import merge_with_corpus, save_merged_corpus
+    from scilex.snowball.merge import merge_with_corpus, write_snowball_output
 
     collect_dir = collect_dir_of(config)
     try:
@@ -550,12 +559,17 @@ def run_snowball(
             f"None of the {len(papers)} candidates found passed the quality filters."
         )
     merged = merge_with_corpus(corpus_df, filtered)
-    output_csv = resolve_aggregate_path(config.main)
-    save_merged_corpus(merged, output_csv)
+    output_csv, _ = write_snowball_output(
+        merged, resolve_aggregate_path(config.main), add_to_collection
+    )
     added = len(merged) - len(corpus_df)
+    where = (
+        "added to the collection"
+        if add_to_collection
+        else f"written to {Path(output_csv).name} (collection unchanged)"
+    )
     return AnalysisResult(
-        f"{added} new papers added to the collection ({len(merged)} in total).",
-        [Path(output_csv)],
+        f"{added} new papers {where} ({len(merged)} in total).", [Path(output_csv)]
     )
 
 
@@ -675,6 +689,7 @@ OPTION_CASTS: dict[str, dict[str, Callable]] = {
         "top_k": int,
         "min_frequency": int,
         "dry_run": bool,
+        "add_to_collection": bool,
     },
     "graph": {"graph_type": str, "resolution": float, "min_weight": int, "fmt": str},
     "summaries": {"clusters": str},

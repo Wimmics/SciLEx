@@ -455,6 +455,36 @@ def test_snowball_adds_papers_to_the_aggregated_file(ctx, tmp_path, monkeypatch)
     assert written.to_dict("records") == merged.to_dict("records")
 
 
+def test_snowball_separate_file_leaves_collection_unchanged(ctx, tmp_path, monkeypatch):
+    review = ctx.workspace.create_review(tmp_path / "rag", name="rag_kg")
+    config = ctx.workspace.load_config(review)
+    review.collection_dir.mkdir(parents=True)
+    aggregated = review.collection_dir / "aggregated_results.csv"
+    aggregated.write_text("title;DOI\nA;10.1/a\n", encoding="utf-8")
+    merged = pd.DataFrame({"title": ["A", "B"], "DOI": ["10.1/a", "10.1/b"]})
+    for target, value in {
+        "scilex.io_utils.load_aggregated_data": lambda main, **kwargs: merged.iloc[:1],
+        "scilex.graph_analysis.loader.load_citation_caches": lambda d: ({}, {}),
+        "scilex.snowball.candidates.extract_candidates": lambda *a, **k: [
+            ("10.1/b", 2)
+        ],
+        "scilex.snowball.fetcher.fetch_metadata_batch": lambda dois, api_key: [{}],
+        "scilex.snowball.filter.apply_snowball_filters": lambda papers: merged,
+        "scilex.snowball.merge.merge_with_corpus": lambda corpus, new: merged,
+    }.items():
+        monkeypatch.setattr(target, value)
+
+    result = service.run_snowball(
+        config, lambda percent, message: None, add_to_collection=False
+    )
+    separate = review.collection_dir / "aggregated_results_snowball.csv"
+    assert result.files == [separate]
+    assert "collection unchanged" in result.message
+    assert aggregated.read_text(encoding="utf-8") == "title;DOI\nA;10.1/a\n"
+    assert not (review.collection_dir / "aggregated_results_pre_snowball.csv").exists()
+    assert service.existing_outputs(review.collection_dir, "snowball") == [separate]
+
+
 def test_run_enrich_message_counts_processed_papers(ctx, tmp_path, monkeypatch):
     from scilex.pipeline import enrichment_pwc
 

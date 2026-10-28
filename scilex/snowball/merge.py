@@ -70,6 +70,12 @@ def merge_with_corpus(
     return merged
 
 
+def separate_path_for(aggregate_path: str) -> str:
+    """Return the path of the standalone snowball file next to ``aggregate_path``."""
+    stem, extension = os.path.splitext(aggregate_path)
+    return f"{stem}_snowball{extension}"
+
+
 def backup_path_for(aggregate_path: str) -> str:
     """Return the path of the pre-snowball backup of ``aggregate_path``."""
     stem, extension = os.path.splitext(aggregate_path)
@@ -98,3 +104,25 @@ def save_merged_corpus(merged_df: pd.DataFrame, aggregate_path: str) -> str:
     write_aggregated_csv(merged_df, aggregate_path, quoting=csv.QUOTE_NONNUMERIC)
     logger.info(f"Snowballed papers written to {aggregate_path}")
     return backup_path
+
+
+def write_snowball_output(
+    merged_df: pd.DataFrame, aggregate_path: str, add_to_collection: bool = True
+) -> tuple[str, str | None]:
+    """Write the merged corpus, into the collection or to a separate file.
+
+    Args:
+        merged_df: Corpus plus snowballed papers.
+        aggregate_path: Path of the collection's aggregated CSV.
+        add_to_collection: True replaces the aggregated file (after a one-time
+            backup); False writes ``*_snowball.csv`` and leaves the collection as is.
+
+    Returns:
+        ``(output_path, backup_path)``; ``backup_path`` is None for a separate file.
+    """
+    if add_to_collection:
+        return aggregate_path, save_merged_corpus(merged_df, aggregate_path)
+    output_path = separate_path_for(aggregate_path)
+    write_aggregated_csv(merged_df, output_path, quoting=csv.QUOTE_NONNUMERIC)
+    logger.info(f"Snowballed papers written to {output_path} (collection unchanged)")
+    return output_path, None

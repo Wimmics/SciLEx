@@ -7,12 +7,13 @@ quality filters, and merges them with the existing collection.
 Usage:
     scilex-snowball [--direction both|backward|forward]
                     [--top-k N] [--min-frequency N]
-                    [--depth N] [--dry-run]
+                    [--depth N] [--dry-run] [--separate-file]
 
 The new papers are added to the aggregated file itself
 ({output_dir}/{collect_name}/aggregated_results.csv), so that Zotero, BibTeX
 and Turtle exports include them. The original is kept once as
-aggregated_results_pre_snowball.csv.
+aggregated_results_pre_snowball.csv. With --separate-file the collection is
+left as is and the result goes to aggregated_results_snowball.csv.
 """
 
 import argparse
@@ -42,7 +43,7 @@ from scilex.settings.schema import ConfigFileNotFoundError, SettingsError
 from scilex.snowball.candidates import extract_candidates
 from scilex.snowball.fetcher import fetch_metadata_batch
 from scilex.snowball.filter import apply_snowball_filters
-from scilex.snowball.merge import merge_with_corpus, save_merged_corpus
+from scilex.snowball.merge import merge_with_corpus, write_snowball_output
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -76,6 +77,12 @@ def main():
         "--dry-run",
         action="store_true",
         help="List candidates without fetching metadata",
+    )
+    parser.add_argument(
+        "--separate-file",
+        action="store_true",
+        help="Write aggregated_results_snowball.csv instead of adding the papers "
+        "to the collection",
     )
     add_config_arguments(parser)
     args = parser.parse_args()
@@ -143,8 +150,11 @@ def main():
         merged_df = merge_with_corpus(corpus_df, filtered_df)
 
         # Export
-        output_csv = resolve_aggregate_path(main_config)
-        backup_csv = save_merged_corpus(merged_df, output_csv)
+        output_csv, backup_csv = write_snowball_output(
+            merged_df,
+            resolve_aggregate_path(main_config),
+            add_to_collection=not args.separate_file,
+        )
 
         separator = "=" * 60
         logger.info(
@@ -159,7 +169,7 @@ def main():
                     f"After filters:       {len(filtered_df)}",
                     f"Total merged:        {len(merged_df)}",
                     f"Output:              {output_csv}",
-                    f"Backup:              {backup_csv}",
+                    f"Backup:              {backup_csv or 'none (collection unchanged)'}",
                     separator,
                 ]
             )

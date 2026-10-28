@@ -106,6 +106,8 @@ Snowball and the graph need the citation data: run the **Citations** tab first (
 fetches the references and citing papers of the corpus). Snowball adds the new papers to
 `aggregated_results.csv` itself (column `snowball_depth`), so Zotero and the exports
 include them; the original file is kept once as `aggregated_results_pre_snowball.csv`.
+Untick **Add to the collection** to write `aggregated_results_snowball.csv` instead and
+leave the collection unchanged (`scilex-snowball --separate-file` on the command line).
 Re-running the aggregation replaces the file and drops them. Keyword suggestions and
 summaries need the graph to have run first. **Cancel** stops an analysis at the end of
 its current step; citations already fetched are kept. **Run** buttons are disabled while
