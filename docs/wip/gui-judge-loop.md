@@ -13,3 +13,11 @@ Majeur = bug, perte de données, utilisateur bloqué, ou résultat scientifiquem
 
 ## Itérations
 (voir ci-dessous, une section par itération : remarques majeures, corrections, commits)
+
+### Itération 1 — 1 majeur, 12 mineurs
+- M1 squelette blank `years: [2024, 2026]` (saute 2025) → plage `2024-2026` (a102a8ef)
+- m8 « Create » n'ouvrait pas la revue (dialogue supprimé dans son propre handler ; la simulation NiceGUI ne le voit pas) → suppression différée (a102a8ef)
+- m1 « Delete and run » + annulation laissait l'ancien CSV agrégé → déplacé dans `previous_results/` ; m2 reprise compte les requêtes partielles (f4198784)
+- m10 avertissement collecte partielle sous Last results ; log vide masqué ; Screen (hauteur, Score, aide raccourcis) ; aides m3/m5 ; message d'annulation m4 (45a2368c)
+- Écartés : m12 (Papers with Code relancé, ADR 0006) ; m9 barre « Completed » non reproduite (100 % au code) ; m11 Arxiv 0 papier à revérifier
+- Hors GUI, préexistant : `tests/test_webapi_year_column.py` échoue à la collecte (lit le vrai keys.yml)
