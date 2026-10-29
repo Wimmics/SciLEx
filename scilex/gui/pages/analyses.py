@@ -295,7 +295,11 @@ def _render_file(path: Path) -> None:
             data = base64.b64encode(path.read_bytes()).decode()
             ui.image(f"data:image/png;base64,{data}").classes("max-w-3xl")
         elif suffix == ".md":
-            ui.markdown(path.read_text(encoding="utf-8")).classes("w-full")
+            # "mermaid" draws the ```mermaid blocks (cluster mindmap) as diagrams.
+            ui.markdown(
+                path.read_text(encoding="utf-8"),
+                extras=["fenced-code-blocks", "tables", "mermaid"],
+            ).classes("w-full")
         elif suffix in (".yml", ".yaml"):
             ui.code(path.read_text(encoding="utf-8"), language="yaml").classes("w-full")
         elif suffix == ".csv":
