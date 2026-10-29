@@ -21,3 +21,8 @@ Majeur = bug, perte de données, utilisateur bloqué, ou résultat scientifiquem
 - m10 avertissement collecte partielle sous Last results ; log vide masqué ; Screen (hauteur, Score, aide raccourcis) ; aides m3/m5 ; message d'annulation m4 (45a2368c)
 - Écartés : m12 (Papers with Code relancé, ADR 0006) ; m9 barre « Completed » non reproduite (100 % au code) ; m11 Arxiv 0 papier à revérifier
 - Hors GUI, préexistant : `tests/test_webapi_year_column.py` échoue à la collecte (lit le vrai keys.yml)
+
+### Itération 2 — 1 majeur, 10 mineurs
+- M1 collecte sans aucun article (clé refusée, réseau coupé) affichée « Completed » → échec avec cause par API, bouton API keys, Queries = requêtes finies (b0c9a1e0). Vérifié avec un proxy injoignable.
+- m1/m2 Configure : avertissements mots-clés d'exemple, max ≤ 0, années < 1900 ; m5 accessibilité : anneau de focus (box-shadow, `.no-outline` de Quasar gagne sur outline), couleurs primary/warning AA, lang, titre d'onglet par écran
+- Reportés : m4 multi-onglets (compteurs périmés), m6 BibTeX `series` = ISSN et URI Turtle example.org (hors GUI), m7 décisions de Screen absentes du PRISMA, m8 résumé Citations, m9 labels non liés
