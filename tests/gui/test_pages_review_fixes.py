@@ -1,10 +1,13 @@
 """Regression tests for the GUI page issues found on 2026-10-25."""
 
+import asyncio
+
 import pytest
 from nicegui import ui
 from nicegui.testing import user_simulation
 
 from scilex.gui.app import build_root
+from scilex.gui.components import dialogs
 from scilex.gui.pages import home
 from scilex.gui.pages.configure import _review_changed
 from scilex.gui.services import config_editor
@@ -16,12 +19,16 @@ def _dialogs(user) -> list:
     return [e for e in user.client.elements.values() if isinstance(e, ui.dialog)]
 
 
-async def test_closed_dialog_is_deleted(ctx):
+async def test_closed_dialog_is_deleted(ctx, monkeypatch):
+    monkeypatch.setattr(dialogs, "DELETE_DELAY_SECONDS", 0.05)
     async with user_simulation(build_root(ctx)) as user:
         await user.open("/")
         user.find(marker="new-review").click()
         (dialog,) = _dialogs(user)
         dialog.close()
+        # Still there while the click handler finishes (it may navigate next).
+        assert _dialogs(user) == [dialog]
+        await asyncio.sleep(0.2)
         assert _dialogs(user) == []
 
 

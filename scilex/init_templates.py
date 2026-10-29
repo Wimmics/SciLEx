@@ -47,7 +47,7 @@ search:
   keywords:                      # 1 group (OR) or 2 groups (group1 AND group2)
     - [keyword one, keyword two]
     - [other keyword]
-  years: [{year_start}, {year_end}]
+  years: {year_start}-{year_end}            # range; a list [2022, 2024] means only those years
   apis: [SemanticScholar, OpenAlex, Arxiv]
 
 # filters:
