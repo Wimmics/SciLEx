@@ -28,7 +28,7 @@ def ctx(tmp_path):
     """App context on a temporary registry, with a fake pipeline writing a results file."""
 
     def fake_collection(config, progress_callback, cancel_event):
-        progress_callback({"OpenAlex": {"papers": 2}}, 1, 1)
+        progress_callback({"OpenAlex": {"articles": 2}}, 1, 1)
 
     def fake_aggregation(config, options, progress_callback):
         collection_dir = Path(config.main["output_dir"]) / config.main["collect_name"]

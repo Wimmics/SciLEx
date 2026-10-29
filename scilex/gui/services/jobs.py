@@ -35,6 +35,10 @@ COLLECT_RANGE = (0, 70)
 AGGREGATE_RANGE = (70, 100)
 
 
+class CollectionFailedError(RuntimeError):
+    """The collection finished without a single paper (refused key, no network…)."""
+
+
 class JobConflictError(RuntimeError):
     """Raised when a job is started while another one is still active."""
 
@@ -177,6 +181,7 @@ class JobRunner:
         """
         from scilex.gui.services.collect_summary import (
             clear_collection,
+            collection_failure,
             resume_config,
             target_collection_dir,
         )
@@ -197,6 +202,17 @@ class JobRunner:
             self._collect(job, config)
             if job.cancel_event.is_set():
                 return ""
+            collected = any(s.get("articles") for s in job.api_stats.values())
+            failure = (
+                job.api_stats
+                and not collected
+                and collection_failure(
+                    target_collection_dir(config), job.api_stats, job.logs
+                )
+            )
+            if failure:
+                # Aggregating nothing would end "Completed" with an empty review.
+                raise CollectionFailedError(failure)
             self._aggregate(job, config, skip_citations)
             return "Pipeline completed."
 
@@ -279,7 +295,12 @@ class JobRunner:
             # leave the job RUNNING, which would block every later job.
             error = sanitize_secrets(str(exc) or type(exc).__name__)
             trace = sanitize_secrets("".join(traceback.format_exception(exc)))
-            logger.error("Job %s (%s) failed: %s\n%s", job.id, job.kind, error, trace)
+            if isinstance(exc, CollectionFailedError):
+                logger.error("Job %s (%s) failed: %s", job.id, job.kind, error)
+            else:
+                logger.error(
+                    "Job %s (%s) failed: %s\n%s", job.id, job.kind, error, trace
+                )
             job.error = error
             self._finish(job, job_states.FAILED, f"Error: {error}")
         finally:

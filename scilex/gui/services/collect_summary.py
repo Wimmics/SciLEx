@@ -50,8 +50,75 @@ def _api_error_lines(api: str, logs: list[str]) -> list[str]:
     return [
         line
         for line in logs
-        if needle in line.lower() and ("[ERROR]" in line or "[CRITICAL]" in line)
+        if needle in line.lower()
+        and ("[ERROR]" in line or "[CRITICAL]" in line)
+        and "] Job " not in line  # the job's own failure line repeats the diagnosis
     ]
+
+
+# Log fragments mapped to a cause the user can act on, checked in this order.
+_FAILURE_CAUSES = (
+    (
+        ("401", "403", "unauthorized", "forbidden", "invalid api key"),
+        "API key refused: check it in API keys",
+    ),
+    (
+        ("429", "too many requests", "rate limit"),
+        "rate limited by the API: wait a few minutes, or add a key in API keys",
+    ),
+    (
+        (
+            "proxyerror",
+            "connectionerror",
+            "connection refused",
+            "name resolution",
+            "nodename nor servname",
+            "max retries exceeded",
+            "timed out",
+            "timeout",
+            "network is unreachable",
+        ),
+        "API unreachable: check your internet connection",
+    ),
+)
+KEYS_HINT = "API keys"
+
+
+def _failure_cause(error_lines: list[str]) -> str:
+    text = " ".join(error_lines).lower()
+    for fragments, cause in _FAILURE_CAUSES:
+        if any(fragment in text for fragment in fragments):
+            return cause
+    return error_lines[-1].split("] ", 1)[-1][:200]
+
+
+def collection_failure(
+    collection_dir: Path, api_stats: dict, logs: list[str]
+) -> str | None:
+    """Explain why a finished collection brought no paper at all, else None.
+
+    Papers already on disk (a resumed collection) count as collected: only a
+    run that leaves nothing to aggregate is a failure.
+    """
+    if not api_stats:
+        return None  # no query reported anything: nothing to diagnose
+    if any(stats.get("articles", 0) for stats in api_stats.values()):
+        return None
+    if any(
+        any(api_dir.glob("*/page_*")) for api_dir in collected_api_dirs(collection_dir)
+    ):
+        return None
+    causes = [
+        f"{api}: {_failure_cause(lines)}"
+        for api in sorted(api_stats)
+        if (lines := _api_error_lines(api, logs))
+    ]
+    if not causes:
+        return (
+            "No paper was collected: the queries returned no result. Try broader "
+            "keywords, more years or other APIs in Configure."
+        )
+    return "No paper was collected. " + "; ".join(causes) + "."
 
 
 def api_rows(
@@ -67,10 +134,12 @@ def api_rows(
         done, total = stats.get("completed", 0), stats.get("total", 0)
         papers = stats.get("articles", 0)
         error_lines = _api_error_lines(api, logs)
-        reason = error_lines[-1].split("] ", 1)[-1] if error_lines else ""
+        reason = _failure_cause(error_lines) if error_lines else ""
         incomplete = stats.get("incomplete", 0)
         if total and done >= total and not incomplete:
             state = "done"
+        elif not active and total and done >= total and not papers and error_lines:
+            state = "failed"  # every query stopped on an error, nothing came back
         elif total and done >= total:
             # Every query ran, but some stopped on an error: resumable.
             state = "partial"
@@ -85,7 +154,11 @@ def api_rows(
         else:
             state = "failed" if error_lines else "partial"
             reason = reason or "No query completed"
-        rows.append(ApiRow(api, done, total, papers, len(error_lines), state, reason))
+        # A query that stopped on an error is not finished: do not count it.
+        finished = max(done - incomplete, 0)
+        rows.append(
+            ApiRow(api, finished, total, papers, len(error_lines), state, reason)
+        )
     return rows
 
 

@@ -14,6 +14,7 @@ from scilex.gui.services.collect_summary import (
     api_rows,
     clear_collection,
     collected_api_dirs,
+    collection_failure,
     detect_resume,
     load_summary,
     phase_steps,
@@ -303,7 +304,7 @@ async def test_page_failed_job_has_copy_log(ctx, tmp_path):
         await user.open(f"/review/{review.id}/collect")
         user.find(marker="run").click()
         await user.should_see("Failed", retries=50)
-        await user.should_see(marker="copy-log", retries=20)
+        await user.should_see(marker="pipeline-copy-log", retries=20)
         await user.should_see("boom")
 
 
@@ -399,3 +400,41 @@ def test_fresh_run_moves_previous_aggregation_aside(tmp_path):
     backup = tmp_path / PREVIOUS_RESULTS_DIRNAME
     assert (backup / "aggregated_results.csv").read_text() == "title\nOld\n"
     assert (tmp_path / "screening.csv").is_file()
+
+
+FAILED_STATS = {
+    "OpenAlex": {"completed": 1, "total": 1, "articles": 0, "incomplete": 1}
+}
+
+
+@pytest.mark.parametrize(
+    ("log", "cause"),
+    [
+        ("[ERROR] OpenAlex: 401 Client Error: Unauthorized", "API key refused"),
+        ("[ERROR] OpenAlex: ProxyError('Unable to connect')", "API unreachable"),
+        ("[ERROR] OpenAlex: 429 Too Many Requests", "rate limited"),
+    ],
+)
+def test_collection_failure_names_the_cause(tmp_path, log, cause):
+    message = collection_failure(tmp_path, FAILED_STATS, [f"10:00:00 {log}"])
+    assert message.startswith("No paper was collected.")
+    assert f"OpenAlex: {cause}" in message
+
+
+def test_collection_failure_without_errors_suggests_broader_search(tmp_path):
+    stats = {"OpenAlex": {"completed": 1, "total": 1, "articles": 0, "incomplete": 0}}
+    assert "broader" in collection_failure(tmp_path, stats, [])
+
+
+def test_collection_with_papers_is_not_a_failure(tmp_path):
+    stats = {"OpenAlex": {"completed": 1, "total": 1, "articles": 4, "incomplete": 0}}
+    assert collection_failure(tmp_path, stats, []) is None
+    # A resumed run that collected nothing new still has papers on disk.
+    (tmp_path / "OpenAlex" / "0").mkdir(parents=True)
+    (tmp_path / "OpenAlex" / "0" / "page_1").write_text("{}")
+    assert collection_failure(tmp_path, FAILED_STATS, []) is None
+
+
+def test_query_stopped_on_error_is_not_counted_as_finished():
+    (row,) = api_rows(FAILED_STATS, [], job_states.COMPLETED, False)
+    assert (row.queries_done, row.queries_total, row.state) == (0, 1, "partial")

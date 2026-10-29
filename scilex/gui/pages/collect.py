@@ -6,6 +6,7 @@ from scilex.gui.components.dialogs import one_shot_dialog
 from scilex.gui.components.errors import show_error
 from scilex.gui.components.job_panel import BusyNotice, JobPanel
 from scilex.gui.services.collect_summary import (
+    KEYS_HINT,
     api_rows,
     collected_api_dirs,
     detect_resume,
@@ -226,7 +227,7 @@ def render(ctx: AppContext, review: Review) -> None:
                             for row in rows
                         ],
                         row_key="api",
-                    ).props("dense flat").classes("w-full").mark("api-table")
+                    ).props("dense flat wrap-cells").classes("w-full").mark("api-table")
         if not job.is_active and shown.get("finished") != job.id:
             shown["finished"] = job.id
             show_failure.refresh()
@@ -256,18 +257,16 @@ def render(ctx: AppContext, review: Review) -> None:
     # --- failure and completion summary ------------------------------------
     @ui.refreshable
     def show_failure() -> None:
+        # The job panel shows the error and the log; add the fix when there is one.
         job = panel.job
         if job is None or job.status != job_states.FAILED:
             return
-        ui.label(f"Error: {job.error}").classes("text-negative whitespace-pre-wrap")
-        ui.button(
-            "Copy log",
-            icon="content_copy",
-            on_click=lambda: (
-                ui.clipboard.write("\n".join(job.logs)),
-                ui.notify("Log copied"),
-            ),
-        ).props("outline").mark("copy-log")
+        if KEYS_HINT in (job.error or ""):
+            ui.button(
+                "Open API keys",
+                icon="key",
+                on_click=lambda: ui.navigate.to(f"/review/{review.id}/keys"),
+            ).props("outline").mark("open-keys")
 
     @ui.refreshable
     def show_summary() -> None:

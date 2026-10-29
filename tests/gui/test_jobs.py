@@ -26,8 +26,8 @@ def wait_until_done(job, timeout=5.0):
 def fake_collection(config, progress_callback, cancel_event):
     """Report two progress steps and log a line, like the real collector."""
     logging.getLogger("scilex.test").warning("collecting from fake API")
-    progress_callback({"OpenAlex": {"papers": 3}}, 1, 2)
-    progress_callback({"OpenAlex": {"papers": 5}}, 2, 2)
+    progress_callback({"OpenAlex": {"articles": 3}}, 1, 2)
+    progress_callback({"OpenAlex": {"articles": 5}}, 2, 2)
 
 
 def fake_aggregation(config, options, progress_callback):
@@ -48,7 +48,7 @@ def test_successful_pipeline():
 
     assert job.status == job_states.COMPLETED
     assert job.progress == 100
-    assert job.api_stats == {"OpenAlex": {"papers": 5}}
+    assert job.api_stats == {"OpenAlex": {"articles": 5}}
     assert seen_options[0].skip_citations is True
     assert any("collecting from fake API" in line for line in job.logs)
     assert job.finished_at is not None
