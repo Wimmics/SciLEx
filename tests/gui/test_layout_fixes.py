@@ -42,7 +42,8 @@ async def test_collect_log_spans_the_content_width(ctx, tmp_path):
     review = ctx.workspace.create_review(tmp_path / "rag", name="rag")
     async with user_simulation(build_root(ctx)) as user:
         await user.open(f"/review/{review.id}/collect")
-        log = user.find(ui.log).elements.pop()
+        # Hidden until a job runs: look it up among all elements.
+        log = next(e for e in user.client.elements.values() if isinstance(e, ui.log))
         assert "w-full" in log.classes
         # Every ancestor up to the sub-pages container must fill the width.
         element = log.parent_slot.parent

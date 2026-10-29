@@ -116,6 +116,10 @@ class JobPanel:
         job = self.job
         if self.on_change is not None:
             self.on_change(job)
+        if self.log_view is not None:
+            # No job yet: an empty log box would only take room.
+            self.log_view.set_visibility(job is not None)
+            self.copy_button.set_visibility(job is not None)
         if job is None:
             # Nothing to report: keep the elements (markers) but show nothing.
             self.status.text = ""

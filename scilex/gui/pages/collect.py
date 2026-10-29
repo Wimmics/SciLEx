@@ -284,6 +284,13 @@ def render(ctx: AppContext, review: Review) -> None:
                 with ui.column().classes("gap-0"):
                     ui.label("-" if value is None else f"{value:,}").classes("text-xl")
                     ui.label(label).classes("text-xs text-gray-500")
+        partial = resume_cache["info"]
+        if partial is not None:
+            ui.label(
+                f"Partial collection: {partial.done}/{partial.total} queries "
+                "finished. These numbers cover only what was collected; use "
+                "Resume to collect the rest."
+            ).classes("text-sm text-warning").mark("summary-partial")
         with ui.row():
             if summary.prisma_report:
                 ui.button(

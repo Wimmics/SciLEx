@@ -181,7 +181,7 @@ FIELDS: dict[str, FieldMeta] = {
     # -- top level -----------------------------------------------------------
     "name": FieldMeta(
         "Review name",
-        "Short name without spaces; results go to <output folder>/<name>.",
+        "Short name of the review; results go to <output folder>/<name>.",
         "metabolomics_kg_2025",
     ),
     "output_dir": FieldMeta(
@@ -217,8 +217,9 @@ FIELDS: dict[str, FieldMeta] = {
     ),
     "search.max_articles_per_query": FieldMeta(
         "Max articles per query",
-        "Stop each query after this many articles. Empty means no limit; "
-        "try 100 for a quick first look.",
+        "Stop each query once about this many articles are collected (APIs "
+        "return whole pages, so a query can bring a page more). Empty means "
+        "no limit; try 100 for a quick first look.",
         "no limit",
     ),
     "search.semantic_scholar_mode": FieldMeta(

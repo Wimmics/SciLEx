@@ -233,7 +233,7 @@ class JobRunner:
         if job is None or not self._set_status(job, job_states.CANCELLING):
             return False
         job.cancel_event.set()
-        job.message = "Cancelling…"
+        job.message = "Cancelling… (stops after the current query or step)"
         return True
 
     def _set_status(self, job: Job, status: str) -> bool:

@@ -47,8 +47,9 @@ COLUMN_DEFS = [
     {
         "field": "score",
         "headerName": "Score",
-        "width": 90,
-        "minWidth": 90,
+        # Room for the sort arrow and filter icon, or the header reads "S…".
+        "width": 110,
+        "minWidth": 110,
         "filter": "agNumberColumnFilter",
         "sort": "desc",
     },
@@ -138,8 +139,9 @@ class ScreenPage:
                 "text-search"
             )
         ui.label(
-            "Shortcuts: I include, E exclude, M maybe, ↑/↓ or K/J previous/next "
-            "(disabled while typing in the note)"
+            "Shortcuts: I include, E exclude, M maybe (then jump to the next "
+            "undecided paper), ↑/↓ or K/J previous/next (disabled while typing "
+            "in the note)"
         ).classes("text-xs text-gray-500")
 
         rows = self.session.visible_rows()
@@ -164,7 +166,7 @@ class ScreenPage:
                 }
             )
             .classes("w-full max-w-full")
-            .style("height: 380px")
+            .style("height: max(260px, 42vh)")  # detail stays visible on small screens
             .mark("screen-grid")
         )
         self.grid.on("selectionChanged", self.on_grid_selection)
