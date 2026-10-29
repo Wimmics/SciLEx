@@ -60,6 +60,7 @@ def render(ctx: AppContext, review_id: str, step: str = DEFAULT_STEP) -> None:
         return
     if step not in STEPS:
         step = DEFAULT_STEP
+    ui.page_title(f"{STEPS[step].label} · {review.name} · SciLEx")
 
     with ui.row().classes("w-full p-4 gap-6 no-wrap items-start"):
         with ui.column().classes("gap-0"):

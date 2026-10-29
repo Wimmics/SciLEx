@@ -205,3 +205,20 @@ def test_years_shape_follows_the_file(review):
     assert config_editor.years_shape(review) == "range"
     write_config(review, base + "[2020, 2021, 2022]\n")
     assert config_editor.years_shape(review) == "list"
+
+
+def test_warns_about_template_keywords_bad_max_and_old_years():
+    data = {
+        "search": {
+            "keywords": [["keyword one", "metabolomics"]],
+            "years": "1800-1801",
+            "apis": ["OpenAlex"],
+            "max_articles_per_query": -5,
+        }
+    }
+    warned = {
+        path: message for path, message in config_editor.dependency_warnings(data, {})
+    }
+    assert "keyword one" in warned["search.keywords"]
+    assert "no limit" in warned["search.max_articles_per_query"]
+    assert "1800" in warned["search.years"]

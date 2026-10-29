@@ -633,6 +633,18 @@ def key_status(api: str, keys: dict) -> str:
     return "missing" if info.key == "required" else "advised"
 
 
+def _placeholder_terms() -> set[str]:
+    """Example keywords of the blank template, lower-cased."""
+    from scilex.init_templates import skeleton_text
+
+    skeleton = yaml.safe_load(skeleton_text("x")) or {}
+    return {
+        str(term).lower()
+        for group in skeleton.get("search", {}).get("keywords", [])
+        for term in group
+    }
+
+
 def dependency_warnings(data: dict, keys: dict) -> list[tuple[str, str]]:
     """Settings that will not work as the user expects: ``(path, message)``."""
     from scilex.gui.services.field_catalog import API_INFO
@@ -672,6 +684,45 @@ def dependency_warnings(data: dict, keys: dict) -> list[tuple[str, str]]:
             (
                 "llm_screening.enabled",
                 "LLM screening needs an OpenRouter key on the API keys page.",
+            )
+        )
+    search = data.get("search", {})
+    placeholders = _placeholder_terms()
+    examples = [
+        str(term)
+        for group in search.get("keywords") or []
+        for term in group or []
+        if str(term).lower() in placeholders
+    ]
+    if examples:
+        warnings.append(
+            (
+                "search.keywords",
+                "Keywords still look like the template's examples ("
+                + ", ".join(examples)
+                + "): replace them with your own terms.",
+            )
+        )
+    max_per_query = search.get("max_articles_per_query")
+    if isinstance(max_per_query, int) and max_per_query <= 0:
+        warnings.append(
+            (
+                "search.max_articles_per_query",
+                "0 or less means no limit: leave the field empty instead.",
+            )
+        )
+    years = _expand_years(search.get("years"))
+    early = (
+        [y for y in years if isinstance(y, int) and y < 1900]
+        if isinstance(years, list)
+        else []
+    )
+    if early:
+        warnings.append(
+            (
+                "search.years",
+                f"Year {min(early)} is before 1900: the APIs index almost nothing "
+                "that old; check the years.",
             )
         )
     if estimate_queries(data) > 2000:

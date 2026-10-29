@@ -13,6 +13,16 @@ logger = logging.getLogger(__name__)
 WINDOW_SIZE = (1280, 800)
 
 
+PRIMARY_COLOUR = "#1976d2"
+WARNING_COLOUR = "#b45309"
+# Keyboard focus must be visible. Quasar's `.no-outline` (outline: 0 !important,
+# in a cascade layer that wins) removes the outline: draw a ring with box-shadow.
+ACCESSIBILITY_CSS = (
+    "html body :focus-visible "
+    "{ box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1d4ed8 !important; }"
+)
+
+
 def build_root(ctx) -> Callable[[], None]:
     """Return the NiceGUI root function routing between the screens."""
     from nicegui import ui
@@ -20,6 +30,11 @@ def build_root(ctx) -> Callable[[], None]:
     from scilex.gui.pages import home, review
 
     def root() -> None:
+        # Contrast (WCAG AA): NiceGUI's light blue gives 3:1 with white text.
+        # Amber warnings on white were ~1.7:1; amber-700 is ~5:1.
+        ui.colors(primary=PRIMARY_COLOUR, warning=WARNING_COLOUR)
+        # A plain <style> in the head: ui.add_css lost against Quasar's outline reset.
+        ui.add_head_html(f"<style>{ACCESSIBILITY_CSS}</style>")
         ui.sub_pages(
             {
                 "/": home.render,
@@ -115,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     ui.run(
         build_root(ctx),
         title="SciLEx",
+        language="en-US",  # <html lang>, for screen readers
         favicon=ICON_PATH,
         native=native,
         window_size=WINDOW_SIZE if native else None,

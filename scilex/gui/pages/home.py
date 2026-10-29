@@ -34,6 +34,7 @@ async def pick_folder(ctx: AppContext, initial: str | None = None) -> str | None
 
 def render(ctx: AppContext) -> None:
     """Draw the home screen."""
+    ui.page_title("My reviews · SciLEx")
     with ui.column().classes("w-full max-w-5xl mx-auto p-6 gap-4"):
         render_logo("w-56")
         with ui.row().classes("w-full items-center"):
