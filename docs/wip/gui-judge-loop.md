@@ -26,3 +26,16 @@ Majeur = bug, perte de données, utilisateur bloqué, ou résultat scientifiquem
 - M1 collecte sans aucun article (clé refusée, réseau coupé) affichée « Completed » → échec avec cause par API, bouton API keys, Queries = requêtes finies (b0c9a1e0). Vérifié avec un proxy injoignable.
 - m1/m2 Configure : avertissements mots-clés d'exemple, max ≤ 0, années < 1900 ; m5 accessibilité : anneau de focus (box-shadow, `.no-outline` de Quasar gagne sur outline), couleurs primary/warning AA, lang, titre d'onglet par écran
 - Reportés : m4 multi-onglets (compteurs périmés), m6 BibTeX `series` = ISSN et URI Turtle example.org (hors GUI), m7 décisions de Screen absentes du PRISMA, m8 résumé Citations, m9 labels non liés
+
+### Itération 3 — 0 majeur (arrêt anticipé), 12 mineurs
+- Vérifiés OK : hors ligne → Failed, reprise après annulation, Arxiv 0 = vrai zéro, éditeur YAML, fichiers corrompus.
+- Corrigés (6976369f) : erreurs de fichiers abîmés lisibles (nom + remède), message unique sur Configure cassé,
+  Screen (note perdue signalée, « showing N of T », raccourcis après le filtre), barre rouge sur Failed.
+
+## État : boucle terminée (le juge 3 ne trouve plus rien de majeur)
+Restent (mineurs, à reprendre si besoin) :
+- Snowball : candidats en DOI bruts, « (5) » non expliqué ; Keywords : clusters singletons listés, termes déjà dans la recherche ;
+  PwC dry run sans détail ; Graph : libellés de champs tronqués, étiquettes de nœuds superposées ; Charts : « Collect_KW1/2 »,
+  décisions de Screen ignorées.
+- Screen : orphelins en clé brute, Forget sans confirmation ; boutons sous le pli à 1024×700 ; compteurs périmés dans un 2e onglet.
+- PRISMA sans les décisions de Screen ; BibTeX `series` = ISSN ; URI Turtle example.org (hors GUI) ; labels flottants non liés.
