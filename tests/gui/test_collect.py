@@ -10,7 +10,9 @@ from nicegui.testing import user_simulation
 
 from scilex.gui.app import build_root
 from scilex.gui.services.collect_summary import (
+    PREVIOUS_RESULTS_DIRNAME,
     api_rows,
+    clear_collection,
     collected_api_dirs,
     detect_resume,
     load_summary,
@@ -143,13 +145,13 @@ def test_fresh_run_deletes_previous_raw_results(tmp_path):
     workspace = Workspace(registry_path=tmp_path / "reg.yml")
     review = workspace.create_review(tmp_path / "rag", name="rag_kg")
     _interrupted_collection(review)
-    (review.collection_dir / "aggregated_results.csv").write_text("kept")
+    (review.collection_dir / "aggregated_results.csv").write_text("old")
     config = Workspace.load_config(review)
     assert target_collection_dir(config) == review.collection_dir
     assert [p.name for p in collected_api_dirs(review.collection_dir)] == ["OpenAlex"]
 
     _wait(runner.start_pipeline(review, config, fresh=True))
-    assert seen["left"] == ["aggregated_results.csv"]
+    assert seen["left"] == ["previous_results"]  # old aggregation moved aside
 
 
 def test_target_collection_dir_of_since_run(ctx, tmp_path):
@@ -382,3 +384,18 @@ def test_screening_progress_is_exposed_as_fraction(tmp_path):
 
     assert job.screening_fraction == 0.5
     assert job.aggregation_phase == "filtering"
+
+
+def test_fresh_run_moves_previous_aggregation_aside(tmp_path):
+    (tmp_path / "OpenAlex").mkdir()
+    (tmp_path / "config_used.yml").write_text("a: 1\n")
+    (tmp_path / "aggregated_results.csv").write_text("title\nOld\n")
+    (tmp_path / "aggregation_stats.csv").write_text("stat,value\n")
+    (tmp_path / "screening.csv").write_text("id,decision\n")
+    clear_collection(tmp_path)
+    assert not (tmp_path / "OpenAlex").exists()
+    assert not (tmp_path / "aggregated_results.csv").exists()
+    assert load_summary(tmp_path) is None  # old numbers no longer shown
+    backup = tmp_path / PREVIOUS_RESULTS_DIRNAME
+    assert (backup / "aggregated_results.csv").read_text() == "title\nOld\n"
+    assert (tmp_path / "screening.csv").is_file()

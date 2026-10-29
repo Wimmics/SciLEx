@@ -150,9 +150,15 @@ def render(ctx: AppContext, review: Review) -> None:
         resume_button.set_enabled(not busy_elsewhere)
         resume_hint.set_visibility(resume_info is not None)
         if resume_info is not None:
+            partly = (
+                f" ({resume_info.partial} partly collected, fetched again)"
+                if resume_info.partial
+                else ""
+            )
             resume_hint.text = (
                 f"The last collection stopped at {resume_info.done}/"
-                f"{resume_info.total} queries; resuming skips the finished ones."
+                f"{resume_info.total} finished queries{partly}; resuming skips "
+                "the finished ones."
             )
 
     def on_job_finished(job: Job) -> None:
@@ -340,9 +346,11 @@ def render(ctx: AppContext, review: Review) -> None:
         with one_shot_dialog() as dialog, ui.card().mark("fresh-confirm"):
             ui.label("Start the collection from zero?").classes("text-lg")
             ui.label(
-                f"The results already collected ({names}) will be deleted and "
-                "every query collected again. To continue an interrupted "
-                "collection instead, use Resume."
+                f"The raw results already collected ({names}) will be deleted "
+                "and every query collected again. The previous aggregated "
+                "results and reports are moved to previous_results/; screening "
+                "decisions are kept. To continue an interrupted collection "
+                "instead, use Resume."
             )
             with ui.row().classes("justify-end w-full"):
                 ui.button("Cancel", on_click=dialog.close).props("flat").mark(

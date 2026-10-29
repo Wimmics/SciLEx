@@ -48,3 +48,11 @@ def ctx(tmp_path):
         runner=JobRunner(fake_collection, fake_aggregation),
         native=False,
     )
+
+
+@pytest.fixture(autouse=True)
+def _delete_closed_dialogs_at_once(monkeypatch):
+    """Closed one-shot dialogs go away right after the click handler, not 1 s later."""
+    from scilex.gui.components import dialogs
+
+    monkeypatch.setattr(dialogs, "DELETE_DELAY_SECONDS", 0)

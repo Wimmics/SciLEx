@@ -166,6 +166,7 @@ class ResumeInfo:
 
     done: int
     total: int
+    partial: int = 0  # started but not finished: collected again on resume
 
 
 def detect_resume(collection_dir: Path) -> ResumeInfo | None:
@@ -187,7 +188,7 @@ def detect_resume(collection_dir: Path) -> ResumeInfo | None:
         return None
     started = totals["done"] + totals["partial"] > 0
     if started and totals["done"] < totals["total"]:
-        return ResumeInfo(totals["done"], totals["total"])
+        return ResumeInfo(totals["done"], totals["total"], totals["partial"])
     return None
 
 
@@ -239,17 +240,44 @@ def collected_api_dirs(collection_dir: Path) -> list[Path]:
     ]
 
 
+# Outputs of the previous aggregation: a fresh run moves them aside, so the
+# old numbers are never shown as those of the new collection. Caches and
+# screening decisions stay.
+PREVIOUS_RESULTS_DIRNAME = "previous_results"
+AGGREGATION_OUTPUTS = (
+    "aggregated_results.csv",
+    "aggregation_stats.csv",
+    "aggregation_report.md",
+    "filtering_summary.json",
+    "prisma_report.md",
+    "collect_errors.log",
+    "chart_aggregated_papers",
+)
+
+
 def clear_collection(collection_dir: Path) -> None:
     """Delete the raw API results so the next run starts from zero.
 
     The collector skips queries whose results are on disk; removing the
     per-API folders and the config snapshot makes it collect every query
-    again. Other files (aggregated results, reports) are left in place and
-    are overwritten by the new run.
+    again. The previous aggregated results and reports are moved to
+    ``previous_results/`` (replacing an older copy there).
     """
     for api_dir in collected_api_dirs(collection_dir):
         shutil.rmtree(api_dir)
     (collection_dir / CONFIG_USED_FILENAME).unlink(missing_ok=True)
+    outputs = [
+        collection_dir / name
+        for name in AGGREGATION_OUTPUTS
+        if (collection_dir / name).exists()
+    ]
+    if not outputs:
+        return
+    backup = collection_dir / PREVIOUS_RESULTS_DIRNAME
+    shutil.rmtree(backup, ignore_errors=True)
+    backup.mkdir()
+    for path in outputs:
+        shutil.move(str(path), backup / path.name)
 
 
 @dataclass(frozen=True)
