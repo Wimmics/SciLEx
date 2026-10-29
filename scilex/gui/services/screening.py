@@ -60,13 +60,23 @@ def screening_path(review: Review) -> Path:
     return review.collection_dir / SCREENING_FILENAME
 
 
+class ReviewFileError(ValueError):
+    """A file of the review is damaged; the message names it and the fix."""
+
+
 def load_results(review: Review) -> pd.DataFrame:
     """Load the aggregated results with a ``paper_key`` column added."""
     from scilex.io_utils import load_aggregated_data
 
-    data = load_aggregated_data(
-        {"collect_name": review.name}, collect_dir=str(review.collection_dir)
-    )
+    try:
+        data = load_aggregated_data(
+            {"collect_name": review.name}, collect_dir=str(review.collection_dir)
+        )
+    except ValueError as exc:  # pandas ParserError, UnicodeDecodeError
+        raise ReviewFileError(
+            f"{review.results_path} is damaged ({exc}).\nRun 'Aggregate existing "
+            "results' in ② Collect to write it again."
+        ) from exc
     data = data.loc[:, [c for c in data.columns if not str(c).startswith("Unnamed")]]
     data["paper_key"] = [paper_key(record) for record in data.to_dict("records")]
     return data
@@ -84,14 +94,20 @@ def _read_file(review: Review) -> tuple[dict[str, Decision], list[dict]]:
         return {}, []
     decisions: dict[str, Decision] = {}
     untouched: list[dict] = []
-    with path.open(encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle):
-            if row.get("paper_key") and row.get("decision") in DECISIONS:
-                decisions[row["paper_key"]] = Decision(
-                    **{f: row.get(f, "") or "" for f in FIELDS}
-                )
-            else:
-                untouched.append({f: row.get(f) or "" for f in FIELDS})
+    try:
+        with path.open(encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                if row.get("paper_key") and row.get("decision") in DECISIONS:
+                    decisions[row["paper_key"]] = Decision(
+                        **{f: row.get(f, "") or "" for f in FIELDS}
+                    )
+                else:
+                    untouched.append({f: row.get(f) or "" for f in FIELDS})
+    except (UnicodeDecodeError, csv.Error) as exc:
+        raise ReviewFileError(
+            f"{path} cannot be read ({exc}).\nYour screening decisions are stored "
+            "in this file: repair it, or move it away to start screening again."
+        ) from exc
     return decisions, untouched
 
 

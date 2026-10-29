@@ -20,16 +20,17 @@ from scilex.gui.state import AppContext
 # a step without its module yet shows a placeholder.
 
 
-def _invalid_config_banner(review) -> None:
+def _invalid_config_banner(review, step: str) -> None:
     with ui.card().classes("w-full bg-red-50").mark("invalid-config"):
         ui.label("This review's scilex.yml cannot be loaded.").classes(
             "font-bold text-negative"
         )
         ui.label(review.error).classes("text-sm whitespace-pre-wrap")
-        ui.button(
-            "Fix in ① Configure",
-            on_click=lambda: ui.navigate.to(f"/review/{review.id}/configure"),
-        ).props("flat")
+        if step != "configure":  # already there: the editor is below
+            ui.button(
+                "Fix in ① Configure",
+                on_click=lambda: ui.navigate.to(f"/review/{review.id}/configure"),
+            ).props("flat")
 
 
 def _reload_when_results_exist(review) -> None:
@@ -72,7 +73,7 @@ def render(ctx: AppContext, review_id: str, step: str = DEFAULT_STEP) -> None:
         with ui.column().classes("grow flex-1 w-0 gap-3 min-w-0"):
             module = step_module(step)
             if review.error:
-                _invalid_config_banner(review)
+                _invalid_config_banner(review, step)
             if review.error and step not in USABLE_WHEN_INVALID:
                 pass
             elif not is_enabled(STEPS[step], review):

@@ -134,12 +134,14 @@ def render(ctx: AppContext, review: Review) -> None:
         data = editor.load_editable(review)
         known_origins = editor.origins(review)
     except (SettingsError, FileNotFoundError) as exc:
-        show_error("Cannot read scilex.yml", exc, expected=True)
+        if not review.error:  # otherwise the banner above already says it
+            show_error("Cannot read scilex.yml", exc, expected=True)
         ui.label(
             "The form cannot be shown because scilex.yml cannot be read. Fix the "
             "file in the editor below."
         ).classes("text-negative")
-        ui.label(str(exc)).classes("text-negative whitespace-pre-wrap text-sm")
+        if not review.error:
+            ui.label(str(exc)).classes("text-negative whitespace-pre-wrap text-sm")
         _raw_editor(review, expanded=True)
         return
     unknown = editor.check_text(editor.read_text(review)).unknown_keys

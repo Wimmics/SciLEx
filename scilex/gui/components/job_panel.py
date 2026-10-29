@@ -132,10 +132,13 @@ class JobPanel:
         self.status.text = STATUS_LABELS.get(job.status, job.status)
         self.progress.value = job.progress / 100
         self.message.text = job.message
-        if job.status == job_states.FAILED:
+        failed = job.status == job_states.FAILED
+        if failed:
             self.message.classes(add="text-negative")
         else:
             self.message.classes(remove="text-negative")
+        # A failed job keeps its bar where it stopped, in red: not "in progress".
+        self.progress.props(f"color={'negative' if failed else 'primary'}")
         self._append_new_logs(job)
         if not job.is_active and job.id not in self._reported:
             self._reported.add(job.id)

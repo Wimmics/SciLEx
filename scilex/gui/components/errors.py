@@ -23,7 +23,10 @@ def show_error(title: str, exc: BaseException, *, expected: bool = False) -> Non
         logger.error("%s", title, exc_info=exc)
     with one_shot_dialog() as dialog, ui.card().classes("w-[36rem]"):
         ui.label(title).classes("text-lg font-bold")
-        ui.label(str(exc)).classes("whitespace-pre-wrap")
+        # Long paths have no spaces: let them wrap instead of being cut.
+        ui.label(str(exc)).classes("whitespace-pre-wrap").style(
+            "overflow-wrap: anywhere"
+        )
         with ui.row().classes("w-full justify-end"):
             if not expected:
                 report = diagnostic_text(exc)

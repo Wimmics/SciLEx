@@ -13,6 +13,7 @@ from scilex.gui.services.screening import (
     FILTER_UNDECIDED,
     INCLUDE,
     MAYBE,
+    ReviewFileError,
     ScreeningSession,
 )
 from scilex.gui.services.workspace import Review
@@ -99,7 +100,11 @@ def render(ctx: AppContext, review: Review) -> None:
                 return  # the user left the page while the file was loading
             loading.delete()
             with container:
-                show_error("Cannot load the results", exc)
+                show_error(
+                    "Cannot load the results",
+                    exc,
+                    expected=isinstance(exc, ReviewFileError),
+                )
             return
         if container.is_deleted:
             return
@@ -131,7 +136,11 @@ class ScreenPage:
         with ui.row().classes("items-center gap-4 w-full"):
             ui.select(FILTER_OPTIONS, value=FILTER_ALL, on_change=self.on_filter).props(
                 "dense outlined label=Decision"
-            ).classes("w-40").mark("decision-filter")
+            ).classes("w-40").mark("decision-filter").on(
+                # Give the keys back to the shortcuts once a filter is chosen.
+                "popup-hide",
+                js_handler="() => document.activeElement?.blur()",
+            )
             ui.input(
                 placeholder="Search title or abstract",
                 on_change=self.on_search,
@@ -260,6 +269,11 @@ class ScreenPage:
             f"Included {counts[INCLUDE]} · Excluded {counts[EXCLUDE]} · "
             f"Maybe {counts[MAYBE]} · Undecided {counts['undecided']}"
         )
+        if len(self.order) != counts["total"]:
+            self.counters.set_text(
+                self.counters.text
+                + f" — showing {len(self.order)} of {counts['total']}"
+            )
         total = counts["total"] or 1
         self.progress.set_value((counts["total"] - counts["undecided"]) / total)
 
@@ -291,13 +305,21 @@ class ScreenPage:
         )
         with contextlib.suppress(TimeoutError):
             self.order = await ui.run_javascript(script)
+            self.update_counters()
 
     def save_note(self, _=None) -> None:
         """Save the note of the current paper if it has a decision."""
-        if self.current is not None and self.session.update_note(
-            self.current, self.note.value or ""
-        ):
+        if self.current is None:
+            return
+        note = self.note.value or ""
+        if self.session.update_note(self.current, note):
             ui.notify("Note saved", timeout=1000)
+        elif note.strip() and self.session.decision_of(self.current) is None:
+            # A note is stored with a decision: say so before it is lost.
+            ui.notify(
+                "Note not saved: choose Include, Exclude or Maybe first.",
+                type="warning",
+            )
 
     def decide(self, decision: str | None) -> None:
         """Apply ``decision`` to the current paper and go to the next undecided one."""
@@ -320,6 +342,7 @@ class ScreenPage:
                 "applyTransaction", {"remove": [{"paper_key": key}]}
             )
             self.order = [k for k in self.order if k != key]
+            self.update_counters()
         else:
             self.grid.run_row_method(key, "setDataValue", "decision", row["decision"])
         if successor is not None and successor != key:
@@ -346,6 +369,7 @@ class ScreenPage:
         self.order = order
         self.grid.options["rowData"] = rows
         self.grid.update()
+        self.update_counters()
         if self.current not in self.order:
             self.current = None
             self.select(self.order[0] if self.order else None)

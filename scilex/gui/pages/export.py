@@ -9,6 +9,7 @@ from scilex.gui.components.errors import show_error
 from scilex.gui.components.job_panel import BusyNotice, JobPanel
 from scilex.gui.services import exports
 from scilex.gui.services.jobs import Job, JobConflictError
+from scilex.gui.services.screening import ReviewFileError
 from scilex.gui.services.workspace import Review, Workspace
 from scilex.gui.state import AppContext
 from scilex.settings.schema import SettingsError
@@ -76,7 +77,11 @@ def render(ctx: AppContext, review: Review) -> None:
             included, total = await run.io_bound(exports.scope_counts, review)
         except Exception as exc:
             with scope_note:
-                show_error("Cannot read the results", exc)
+                show_error(
+                    "Cannot read the results",
+                    exc,
+                    expected=isinstance(exc, ReviewFileError),
+                )
             return
         has_included["value"] = bool(included)
         scope.set_options(
