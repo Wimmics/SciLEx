@@ -11,11 +11,11 @@ import streamlit as st
 import yaml
 
 from scilex.config_defaults import DEFAULT_OUTPUT_DIR
-from scilex.constants import is_valid
+from scilex.constants import doi_to_url, extract_year, is_valid, parse_archive_apis
 
 # Project root for config file paths
 PROJECT_ROOT = Path(__file__).parent.parent.parent
-API_CONFIG_PATH = PROJECT_ROOT / "scilex" / "api.config.yml"
+API_CONFIG_PATH = PROJECT_ROOT / "scilex" / "api.config.yml"  # legacy location
 
 
 def get_available_collections(base_dir: str) -> dict[str, int | None]:
@@ -43,12 +43,75 @@ def get_available_collections(base_dir: str) -> dict[str, int | None]:
     return collections
 
 
+def add_year_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Derive a ``year`` column from ``date`` when it is missing (in place)."""
+    if "year" not in df.columns and "date" in df.columns:
+        # Not pd.to_datetime: it infers one format from the first value, so a
+        # bare "2024" after "2024-02-20" became NaT and dropped out of by_year.
+        df["year"] = pd.to_numeric(df["date"].map(extract_year), errors="coerce")
+    return df
+
+
+def load_results_frame(csv_path: Path) -> pd.DataFrame:
+    """Read an aggregated results CSV and make sure it has a ``year`` column."""
+    return add_year_column(pd.read_csv(csv_path, delimiter=";"))
+
+
+def select_collection(
+    collections_with_counts: dict[str, int | None],
+    key: str,
+    prefer_shared: bool = False,
+    share: bool = False,
+) -> str:
+    """Render the collection picker and stop the script on partial collections.
+
+    Args:
+        collections_with_counts: ``{name: paper_count}`` (None means partial).
+        key: Streamlit widget key.
+        prefer_shared: Pre-select the collection shared through session state.
+        share: Publish the selection to session state for the other tabs.
+
+    Returns:
+        The selected collection name (only when it has aggregated results).
+    """
+    collection_names = list(collections_with_counts.keys())
+    default_index = 0
+    shared = st.session_state.get("selected_collection")
+    if prefer_shared and shared in collection_names:
+        default_index = collection_names.index(shared)
+
+    selected = st.selectbox(
+        "Select a Collection",
+        collection_names,
+        index=default_index,
+        key=key,
+        format_func=lambda name: (
+            f"📦 {name} ({collections_with_counts[name]} papers)"
+            if collections_with_counts.get(name) is not None
+            else f"📦 {name} (partial)"
+        ),
+    )
+    if share:
+        st.session_state["selected_collection"] = selected
+
+    if collections_with_counts.get(selected) is None:
+        st.warning(
+            "This collection has partial data and no aggregated results yet. "
+            "Resume or re-run the collection pipeline first."
+        )
+        st.stop()
+    return selected
+
+
 def load_local_api_config() -> dict:
     """Load locally stored API configuration for pre-filling sidebar fields."""
-    if not API_CONFIG_PATH.exists():
+    from scilex.settings.resolve import keys_file_for_editing
+
+    keys_path = keys_file_for_editing(API_CONFIG_PATH)
+    if not keys_path.exists():
         return {}
     try:
-        with API_CONFIG_PATH.open() as config_file:
+        with keys_path.open() as config_file:
             return yaml.safe_load(config_file) or {}
     except Exception:
         return {}
@@ -136,7 +199,6 @@ with st.sidebar.expander("⚙️ Configuration", expanded=True):
             "user_id": "User ID",
             "user_mode": "User Mode (user/group)",
         },
-        "HuggingFace": {"token": "Access Token"},
     }
 
     def _render_api_group(api_group: dict) -> None:
@@ -165,7 +227,12 @@ with st.sidebar.expander("⚙️ Configuration", expanded=True):
                 current_input_values[field_name] = st.text_input(
                     field_label,
                     type="password",
-                    value=default_value,
+                    value=default_value if field_name == "user_mode" else "",
+                    placeholder=(
+                        "Configured (leave blank to keep)"
+                        if api_saved.get(field_name)
+                        else "Not configured"
+                    ),
                     key=f"api_{api_name}_{field_name}",
                 )
 
@@ -271,10 +338,12 @@ with tab1:
 
     # Load last-used config as defaults
     _prev_config: dict = {}
-    _prev_config_path = PROJECT_ROOT / "scilex" / "scilex.config.yml"
-    if _prev_config_path.exists():
-        with open(_prev_config_path) as _f:
-            _prev_config = yaml.safe_load(_f) or {}
+    try:
+        from scilex.settings.resolve import resolve_main_config
+
+        _prev_config = resolve_main_config()
+    except Exception:
+        _prev_config = {}
     _prev_qf = _prev_config.get("quality_filters", {})
 
     # Extract previous keywords as newline-separated text
@@ -288,6 +357,7 @@ with tab1:
         "SemanticScholar",
         "OpenAlex",
         "Arxiv",
+        "BioRxiv",
         "PubMed",
         "PubMedCentral",
         "DBLP",
@@ -352,12 +422,12 @@ with tab1:
                 ),
             )
             enable_enrichment = st.checkbox(
-                "Enable HuggingFace Enrichment",
+                "Enable Papers with Code Enrichment",
                 value=_prev_config.get("enable_enrichment", False),
                 help=(
-                    "Detects ML/AI papers with linked models, datasets, "
-                    "and GitHub repos on HuggingFace.\n"
-                    "Rate-limited: 5 req/sec with API token, 1 req/sec without."
+                    "Adds tasks, methods, benchmarks and GitHub repos from "
+                    "Papers with Code.\n"
+                    "Anonymous API, no key needed."
                 ),
             )
 
@@ -587,7 +657,6 @@ with tab1:
                         "output_dir": output_dir,
                         "enable_enrichment": enable_enrichment,
                     },
-                    "api_config": load_local_api_config(),
                     "quality_filters": {
                         "enable_text_filter": enable_base_filters,
                         "min_abstract_words": int(min_abstract),
@@ -787,10 +856,9 @@ with tab1:
                             # Count unique base API names
                             by_source_raw = stats.get("by_source", {})
                             unique_apis = {
-                                part.strip().rstrip("*")
+                                api_name
                                 for name in by_source_raw
-                                for part in str(name).split(";")
-                                if part.strip().rstrip("*")
+                                for api_name in parse_archive_apis(name)
                             }
                             st.metric("🗂️ Sources", len(unique_apis))
 
@@ -803,10 +871,8 @@ with tab1:
                             for composite_name, count in by_source.items():
                                 # Extract individual API names from composite
                                 # e.g. "OpenAlex*;SemanticScholar*" → ["OpenAlex", "SemanticScholar"]
-                                for part in str(composite_name).split(";"):
-                                    base_name = part.strip().rstrip("*")
-                                    if base_name:
-                                        source_counts[base_name] += count
+                                for base_name in parse_archive_apis(composite_name):
+                                    source_counts[base_name] += count
                             source_df = pd.DataFrame(
                                 list(source_counts.items()),
                                 columns=["Source", "Papers"],
@@ -862,36 +928,14 @@ with tab2:
             "📭 No collections found. Start a new collection in the **New Collection** tab."
         )
     else:
-        collection_names = list(collections_with_counts.keys())
-        selected_collection = st.selectbox(
-            "Select a Collection",
-            collection_names,
-            key="view_collection",
-            format_func=lambda x: (
-                f"📦 {x} ({collections_with_counts[x]} papers)"
-                if collections_with_counts.get(x) is not None
-                else f"📦 {x} (partial)"
-            ),
+        selected_collection = select_collection(
+            collections_with_counts, key="view_collection", share=True
         )
-
-        # Sync selection to shared session state
-        st.session_state["selected_collection"] = selected_collection
-
-        if collections_with_counts.get(selected_collection) is None:
-            st.warning(
-                "This collection has partial data and no aggregated results yet. "
-                "Resume or re-run the collection pipeline first."
-            )
-            st.stop()
 
         csv_path = output_path / selected_collection / "aggregated_results.csv"
 
         try:
-            df = pd.read_csv(csv_path, delimiter=";")
-
-            # Derive year from date if year column is missing
-            if "year" not in df.columns and "date" in df.columns:
-                df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
+            df = load_results_frame(csv_path)
 
             col1, col2, col3, col4 = st.columns(4)
 
@@ -982,10 +1026,7 @@ with tab2:
             # Build clickable link column from DOI or url
             def _make_link(row):
                 if "DOI" in row.index and is_valid(row.get("DOI")):
-                    doi = str(row["DOI"])
-                    if not doi.startswith("http"):
-                        doi = f"https://doi.org/{doi}"
-                    return doi
+                    return doi_to_url(row["DOI"])
                 if "url" in row.index and is_valid(row.get("url")):
                     return str(row["url"])
                 return None
@@ -1064,40 +1105,14 @@ with tab3:
     if not collections_with_counts_t3:
         st.info("📭 No collections found.")
     else:
-        collection_names_t3 = list(collections_with_counts_t3.keys())
-        # Default to the same collection selected in Tab 2 if available
-        default_idx = 0
-        shared = st.session_state.get("selected_collection")
-        if shared and shared in collection_names_t3:
-            default_idx = collection_names_t3.index(shared)
-
-        selected_collection = st.selectbox(
-            "Select a Collection",
-            collection_names_t3,
-            index=default_idx,
-            key="export_collection",
-            format_func=lambda x: (
-                f"📦 {x} ({collections_with_counts_t3[x]} papers)"
-                if collections_with_counts_t3.get(x) is not None
-                else f"📦 {x} (partial)"
-            ),
+        selected_collection = select_collection(
+            collections_with_counts_t3, key="export_collection", prefer_shared=True
         )
-
-        if collections_with_counts_t3.get(selected_collection) is None:
-            st.warning(
-                "This collection has partial data and no aggregated results yet. "
-                "Resume or re-run the collection pipeline first."
-            )
-            st.stop()
 
         csv_path = output_path / selected_collection / "aggregated_results.csv"
 
         try:
-            df = pd.read_csv(csv_path, delimiter=";")
-
-            # Derive year from date if year column is missing
-            if "year" not in df.columns and "date" in df.columns:
-                df["year"] = pd.to_datetime(df["date"], errors="coerce").dt.year
+            df = load_results_frame(csv_path)
 
             # Create filter panel
             st.subheader("🔍 Filters")
@@ -1127,10 +1142,9 @@ with tab3:
                     if "archive" in df.columns:
                         all_base_sources = sorted(
                             {
-                                part.strip().rstrip("*")
+                                api_name
                                 for val in df["archive"].dropna().unique()
-                                for part in str(val).split(";")
-                                if part.strip().rstrip("*")
+                                for api_name in parse_archive_apis(val)
                             }
                         )
                         selected_sources = st.multiselect(
@@ -1145,11 +1159,7 @@ with tab3:
                                 .fillna("")
                                 .apply(
                                     lambda x: any(
-                                        s
-                                        in {
-                                            p.strip().rstrip("*")
-                                            for p in str(x).split(";")
-                                        }
+                                        s in set(parse_archive_apis(x))
                                         for s in selected_sources
                                     )
                                 )
@@ -1338,26 +1348,20 @@ with tab4:
             item_path = output_path / name
             csv_path = item_path / "aggregated_results.csv"
             try:
-                if paper_count is not None and csv_path.exists():
-                    row = {
-                        "Collection": name,
-                        "Status": "Completed",
-                        "Papers": paper_count,
-                        "Size (KB)": f"{csv_path.stat().st_size / 1024:.1f}",
-                        "Created": pd.Timestamp(
-                            item_path.stat().st_mtime, unit="s"
-                        ).strftime("%Y-%m-%d %H:%M"),
-                    }
-                else:
-                    row = {
-                        "Collection": name,
-                        "Status": "Partial",
-                        "Papers": None,
-                        "Size (KB)": None,
-                        "Created": pd.Timestamp(
-                            item_path.stat().st_mtime, unit="s"
-                        ).strftime("%Y-%m-%d %H:%M"),
-                    }
+                is_completed = paper_count is not None and csv_path.exists()
+                row = {
+                    "Collection": name,
+                    "Status": "Completed" if is_completed else "Partial",
+                    "Papers": paper_count if is_completed else None,
+                    "Size (KB)": (
+                        f"{csv_path.stat().st_size / 1024:.1f}"
+                        if is_completed
+                        else None
+                    ),
+                    "Created": pd.Timestamp(
+                        item_path.stat().st_mtime, unit="s"
+                    ).strftime("%Y-%m-%d %H:%M"),
+                }
                 collections_data.append(row)
             except OSError:
                 continue
@@ -1468,7 +1472,7 @@ with tab5:
 
     **Integration:**
     - **Zotero** - Push results to Zotero library
-    - **HuggingFace** - Enrich results with ML models/datasets
+    - **Papers with Code** - Enrich results with tasks, methods, benchmarks, code repos
 
     ### Keywords
 

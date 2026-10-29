@@ -3,12 +3,8 @@
 Uses __new__ to bypass __init__ (which creates directories and writes YAML).
 """
 
-
-
-from scilex.crawlers.collector_collection import (
-    CollectCollection,
-    _sanitize_error_message,
-)
+from scilex.crawlers.collector_collection import CollectCollection
+from scilex.crawlers.utils import sanitize_secrets
 
 
 # -------------------------------------------------------------------------
@@ -35,28 +31,28 @@ def _make_collection(main_config=None, api_config=None):
 class TestSanitizeErrorMessage:
     def test_api_key_redacted(self):
         msg = "Error: GET https://api.example.com?apiKey=SECRET123 failed"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert "SECRET123" not in result
         assert "***REDACTED***" in result
 
     def test_mixed_case_api_key_redacted(self):
         msg = "GET https://api.example.com?apikey=mysecret failed"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert "mysecret" not in result
 
     def test_key_param_redacted(self):
         msg = "Error at https://api.example.com?key=topsecret"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert "topsecret" not in result
 
     def test_token_param_redacted(self):
         msg = "Error at https://api.example.com?token=mytoken"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert "mytoken" not in result
 
     def test_clean_message_unchanged(self):
         msg = "Error: Connection timed out after 30 seconds"
-        result = _sanitize_error_message(msg)
+        result = sanitize_secrets(msg)
         assert result == msg
 
 
@@ -65,12 +61,14 @@ class TestSanitizeErrorMessage:
 # -------------------------------------------------------------------------
 class TestQueryCompositor:
     def test_single_keyword_mode_wraps_in_list(self):
-        coll = _make_collection(main_config={
-            "keywords": [["machine learning"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["machine learning"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         assert "SemanticScholar" in result
         queries = result["SemanticScholar"]
@@ -81,87 +79,103 @@ class TestQueryCompositor:
         assert "max_articles_per_query" in q
 
     def test_dual_keyword_cartesian_product(self):
-        coll = _make_collection(main_config={
-            "keywords": [["LLM", "GPT"], ["knowledge graph"]],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["LLM", "GPT"], ["knowledge graph"]],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         queries = result["SemanticScholar"]
         # 2 × 1 = 2 combinations
         assert len(queries) == 2
 
     def test_multiple_apis_each_get_queries(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar", "OpenAlex"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar", "OpenAlex"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         assert "SemanticScholar" in result
         assert "OpenAlex" in result
 
     def test_semantic_scholar_gets_mode_field(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": -1,
-            "semantic_scholar_mode": "regular",
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": -1,
+                "semantic_scholar_mode": "regular",
+            }
+        )
         result = coll.queryCompositor()
         query = result["SemanticScholar"][0]
         assert "semantic_scholar_mode" in query
 
     def test_non_semantic_scholar_no_mode_field(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["OpenAlex"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["OpenAlex"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         query = result["OpenAlex"][0]
         assert "semantic_scholar_mode" not in query
 
     def test_max_articles_propagated(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": 500,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": 500,
+            }
+        )
         result = coll.queryCompositor()
         query = result["SemanticScholar"][0]
         assert query["max_articles_per_query"] == 500
 
     def test_year_in_every_query(self):
-        coll = _make_collection(main_config={
-            "keywords": [["ml"], []],
-            "years": [2024],
-            "apis": ["SemanticScholar"],
-            "max_articles_per_query": -1,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["ml"], []],
+                "years": [2024],
+                "apis": ["SemanticScholar"],
+                "max_articles_per_query": -1,
+            }
+        )
         result = coll.queryCompositor()
         for query in result["SemanticScholar"]:
             assert query["year"] == 2024
 
     def test_all_required_fields_present_in_every_query(self):
         """Every query dict must contain keyword, year and max_articles_per_query."""
-        coll = _make_collection(main_config={
-            "keywords": [["a", "b"], []],
-            "years": [2023, 2024],
-            "apis": ["SemanticScholar", "OpenAlex"],
-            "max_articles_per_query": 200,
-        })
+        coll = _make_collection(
+            main_config={
+                "keywords": [["a", "b"], []],
+                "years": [2023, 2024],
+                "apis": ["SemanticScholar", "OpenAlex"],
+                "max_articles_per_query": 200,
+            }
+        )
         result = coll.queryCompositor()
         for api, queries in result.items():
             for q in queries:
                 assert "keyword" in q, f"Missing 'keyword' in {api} query"
                 assert "year" in q, f"Missing 'year' in {api} query"
-                assert "max_articles_per_query" in q, f"Missing 'max_articles_per_query' in {api} query"
+                assert "max_articles_per_query" in q, (
+                    f"Missing 'max_articles_per_query' in {api} query"
+                )
                 assert q["max_articles_per_query"] == 200
 
 
@@ -181,14 +195,24 @@ class TestQueryIsComplete:
         result = coll._query_is_complete(str(tmp_path), "SemanticScholar", 0)
         assert result is False
 
-    def test_dir_with_pages_but_no_sentinel_returns_false(self, tmp_path):
-        # Partial collection: has page files but no _complete sentinel → not done
+    def test_dir_with_pages_and_state_but_no_sentinel_returns_false(self, tmp_path):
+        # Partial/failed run: runCollect wrote _state, never _complete → resume
+        query_dir = tmp_path / "SemanticScholar" / "0"
+        query_dir.mkdir(parents=True)
+        (query_dir / "page_1").write_text("{}")
+        (query_dir / "_state").write_text("incomplete")
+        coll = _make_collection()
+        result = coll._query_is_complete(str(tmp_path), "SemanticScholar", 0)
+        assert result is False
+
+    def test_legacy_dir_with_pages_and_no_marker_is_complete(self, tmp_path):
+        # Collections from older versions have neither marker: keep them
         query_dir = tmp_path / "SemanticScholar" / "0"
         query_dir.mkdir(parents=True)
         (query_dir / "page_1").write_text("{}")
         coll = _make_collection()
         result = coll._query_is_complete(str(tmp_path), "SemanticScholar", 0)
-        assert result is False
+        assert result is True
 
     def test_dir_with_sentinel_returns_true(self, tmp_path):
         # Complete collection: has _complete sentinel

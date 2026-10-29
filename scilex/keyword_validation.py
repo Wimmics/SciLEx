@@ -5,52 +5,51 @@ This module validates that collected papers actually contain the search keywords
 helping identify API false positives and assess collection quality.
 """
 
-import logging
-
 import pandas as pd
 
-from scilex.constants import is_missing
+from scilex.constants import is_missing, normalize_text_field
 
 _STOP_WORDS = {"of", "the", "a", "an", "and", "or", "in", "on", "at", "to", "for"}
 
 
-def normalize_text(text: str) -> str:
+def normalize_text(text) -> str:
     """Normalize text for keyword matching (lowercase, handle dict format)."""
-    if is_missing(text):
-        return ""
-
-    # Handle dict format (some APIs return {"p": ["paragraph1", "paragraph2"]})
-    if isinstance(text, dict) and "p" in text:
-        text = " ".join(text["p"])
-
-    return str(text).lower()
+    return normalize_text_field(text).lower()
 
 
-def check_keyword_in_text(keyword: str, text: str) -> bool:
-    """Exact case-insensitive substring match.
+def build_searchable_text(title, abstract) -> str:
+    """Combine title and abstract into one searchable string.
 
-    Used for mandatory query-term filtering (Group 1 / Group 2 keywords).
-    The keyword must appear verbatim (lowercased) somewhere in the text.
+    Missing values ("NA", NaN, None) and the ``{"p": [...]}`` abstract format
+    are normalized, so a missing abstract never contributes the literal "NA".
     """
-    if is_missing(text) or not keyword:
-        return False
-    return keyword.lower() in normalize_text(text)
+    return f"{normalize_text_field(title)} {normalize_text_field(abstract)}"
 
 
-def check_keyword_in_text_flexible(keyword: str, text: str) -> bool:
-    """Flexible match: exact phrase first, word-level fallback for compound keywords.
+def prepare_text(text) -> str:
+    """Normalize searchable text once for repeated keyword matching.
 
-    Used for bonus keywords where the words may appear separately in the text.
-    For single-word keywords behaves identically to check_keyword_in_text.
-    For multi-word keywords: exact phrase OR every meaningful constituent word
-    (length > 2, not a stop word) present anywhere in the text.
+    Returns the lowercased text, or ``""`` when the text is missing (no
+    non-empty keyword can match an empty string).
     """
-    if is_missing(text) or not keyword:
+    return "" if is_missing(text) else normalize_text(text)
+
+
+def exact_match_prepared(keyword: str, text_lower: str) -> bool:
+    """Exact substring match against text already passed through ``prepare_text``."""
+    return bool(keyword) and keyword.lower() in text_lower
+
+
+def flexible_match_prepared(keyword: str, text_lower: str) -> bool:
+    """Flexible match against text already passed through ``prepare_text``.
+
+    Exact phrase first, then every meaningful constituent word (length > 2,
+    not a stop word) of a multi-word keyword present anywhere in the text.
+    """
+    if not keyword:
         return False
 
-    text_lower = normalize_text(text)
     kw_lower = keyword.lower()
-
     if kw_lower in text_lower:
         return True
 
@@ -61,54 +60,24 @@ def check_keyword_in_text_flexible(keyword: str, text: str) -> bool:
     return bool(meaningful) and all(w in text_lower for w in meaningful)
 
 
-def check_keywords_in_paper(
-    record: dict,
-    keywords: list[list[str]],
-) -> tuple[bool, list[str]]:
+def check_keyword_in_text(keyword: str, text: str) -> bool:
+    """Exact case-insensitive substring match.
+
+    Used for mandatory query-term filtering (Group 1 / Group 2 keywords).
+    The keyword must appear verbatim (lowercased) somewhere in the text.
     """
-    Check if paper contains search keywords in title or abstract.
+    return exact_match_prepared(keyword, prepare_text(text))
 
-    Args:
-        record: Paper record dictionary
-        keywords: Keyword groups (same format as scilex config)
-                  [[group1_kw1, group1_kw2], [group2_kw1, group2_kw2]]
 
-    Returns:
-        (found, matched_keywords): Whether keywords found and list of matched keywords
+def check_keyword_in_text_flexible(keyword: str, text: str) -> bool:
+    """Flexible match: exact phrase first, word-level fallback for compound keywords.
+
+    Used for bonus keywords where the words may appear separately in the text.
+    For single-word keywords behaves identically to check_keyword_in_text.
+    For multi-word keywords: exact phrase OR every meaningful constituent word
+    (length > 2, not a stop word) present anywhere in the text.
     """
-    title = record.get("title", "")
-    abstract = record.get("abstract", "")
-    combined_text = f"{title} {abstract}"
-
-    matched_keywords = []
-
-    # Handle single keyword group
-    if len(keywords) == 1 or (len(keywords) == 2 and not keywords[1]):
-        keyword_group = keywords[0]
-        for kw in keyword_group:
-            if check_keyword_in_text(kw, combined_text):
-                matched_keywords.append(kw)
-
-        return len(matched_keywords) > 0, matched_keywords
-
-    # Handle two keyword groups (must match from both groups)
-    if len(keywords) == 2 and keywords[0] and keywords[1]:
-        group1_matches = []
-        group2_matches = []
-
-        for kw in keywords[0]:
-            if check_keyword_in_text(kw, combined_text):
-                group1_matches.append(kw)
-
-        for kw in keywords[1]:
-            if check_keyword_in_text(kw, combined_text):
-                group2_matches.append(kw)
-
-        matched_keywords = group1_matches + group2_matches
-        # Must have match from BOTH groups
-        return (len(group1_matches) > 0 and len(group2_matches) > 0), matched_keywords
-
-    return False, []
+    return flexible_match_prepared(keyword, prepare_text(text))
 
 
 def generate_keyword_validation_report(
@@ -156,21 +125,20 @@ def generate_keyword_validation_report(
     both_groups = 0
     neither = 0
 
-    for _, row in df.iterrows():
-        record = row.to_dict()
-        title = record.get("title", "")
-        abstract = record.get("abstract", "")
-        combined = f"{title} {abstract}"
+    for record in df.to_dict("records"):
+        combined = prepare_text(
+            build_searchable_text(record.get("title"), record.get("abstract"))
+        )
 
         if dual_group_mode:
             g1_hit = False
             g2_hit = False
             for kw in keywords[0]:
-                if check_keyword_in_text(kw, combined):
+                if exact_match_prepared(kw, combined):
                     keyword_counts[kw] += 1
                     g1_hit = True
             for kw in keywords[1]:
-                if check_keyword_in_text(kw, combined):
+                if exact_match_prepared(kw, combined):
                     keyword_counts[kw] += 1
                     g2_hit = True
             if g1_hit and g2_hit:
@@ -185,7 +153,7 @@ def generate_keyword_validation_report(
             group = keywords[0] if keywords else []
             hit = False
             for kw in group:
-                if check_keyword_in_text(kw, combined):
+                if exact_match_prepared(kw, combined):
                     keyword_counts[kw] += 1
                     hit = True
             if hit:
@@ -195,7 +163,7 @@ def generate_keyword_validation_report(
 
         if bonus_keywords:
             for kw in bonus_keywords:
-                if check_keyword_in_text_flexible(kw, combined):
+                if flexible_match_prepared(kw, combined):
                     bonus_counts[kw] += 1
 
     # -----------------------------------------------------------------------
@@ -282,39 +250,3 @@ def generate_keyword_validation_report(
 
     report_lines.append("=" * 70 + "\n")
     return "\n".join(report_lines)
-
-
-def filter_by_keywords(
-    df: pd.DataFrame, keywords: list[list[str]], strict: bool = False
-) -> pd.DataFrame:
-    """
-    Filter DataFrame to keep only papers containing keywords.
-
-    Args:
-        df: DataFrame with paper records
-        keywords: Keyword groups from config
-        strict: If True, requires exact keyword match. If False (default),
-                keeps all papers (for validation reporting only)
-
-    Returns:
-        Filtered DataFrame
-    """
-    if not strict or len(df) == 0:
-        return df
-
-    keep_mask = []
-
-    for _, row in df.iterrows():
-        found, _ = check_keywords_in_paper(row.to_dict(), keywords)
-        keep_mask.append(found)
-
-    df_filtered = df[keep_mask].copy()
-
-    removed = len(df) - len(df_filtered)
-    if removed > 0:
-        logging.info(
-            f"Filtered out {removed} papers ({removed / len(df) * 100:.1f}%) "
-            f"that don't contain search keywords"
-        )
-
-    return df_filtered

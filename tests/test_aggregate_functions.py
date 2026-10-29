@@ -1,5 +1,8 @@
 """Tests for pure functions in scilex.crawlers.aggregate module."""
 
+import pandas as pd
+import pytest
+
 from scilex.constants import MISSING_VALUE
 from scilex.crawlers.aggregate import (
     ArxivtoZoteroFormat,
@@ -8,9 +11,9 @@ from scilex.crawlers.aggregate import (
     SpringertoZoteroFormat,
     clean_doi,
     getquality,
+    quality_scores,
     reconstruct_abstract_from_inverted_index,
     safe_get,
-    safe_has_key,
 )
 
 
@@ -35,23 +38,6 @@ class TestSafeGet:
 
     def test_none_input_returns_default(self):
         assert safe_get(None, "a") is None
-
-
-# -------------------------------------------------------------------------
-# safe_has_key
-# -------------------------------------------------------------------------
-class TestSafeHasKey:
-    def test_existing_key(self):
-        assert safe_has_key({"a": 1}, "a") is True
-
-    def test_missing_key(self):
-        assert safe_has_key({"a": 1}, "b") is False
-
-    def test_non_dict(self):
-        assert safe_has_key("string", "a") is False
-
-    def test_none_input(self):
-        assert safe_has_key(None, "a") is False
 
 
 # -------------------------------------------------------------------------
@@ -256,6 +242,21 @@ def _minimal_openalex_row(**overrides):
     return row
 
 
+@pytest.mark.parametrize(
+    "work_type, item_type",
+    [
+        ("preprint", "preprint"),
+        ("review", "journalArticle"),
+        ("dissertation", "thesis"),
+        ("article", "journalArticle"),
+        ("paratext", "Manuscript"),
+    ],
+)
+def test_openalex_work_types(work_type, item_type):
+    row = _minimal_openalex_row(type=work_type)
+    assert OpenAlextoZoteroFormat(row)["itemType"] == item_type
+
+
 class TestOpenAlexPdfUrl:
     def test_best_oa_location_pdf_url(self):
         row = _minimal_openalex_row(
@@ -324,9 +325,18 @@ class TestIstexPdfUrl:
     def test_fulltext_pdf_extraction(self):
         row = _minimal_istex_row(
             fulltext=[
-                {"extension": "zip", "uri": "https://api.istex.fr/doc/123/fulltext/zip"},
-                {"extension": "pdf", "uri": "https://api.istex.fr/doc/123/fulltext/pdf"},
-                {"extension": "tei", "uri": "https://api.istex.fr/doc/123/fulltext/tei"},
+                {
+                    "extension": "zip",
+                    "uri": "https://api.istex.fr/doc/123/fulltext/zip",
+                },
+                {
+                    "extension": "pdf",
+                    "uri": "https://api.istex.fr/doc/123/fulltext/pdf",
+                },
+                {
+                    "extension": "tei",
+                    "uri": "https://api.istex.fr/doc/123/fulltext/tei",
+                },
             ]
         )
         result = IstextoZoteroFormat(row)
@@ -340,7 +350,10 @@ class TestIstexPdfUrl:
     def test_fulltext_without_pdf(self):
         row = _minimal_istex_row(
             fulltext=[
-                {"extension": "zip", "uri": "https://api.istex.fr/doc/123/fulltext/zip"},
+                {
+                    "extension": "zip",
+                    "uri": "https://api.istex.fr/doc/123/fulltext/zip",
+                },
             ]
         )
         result = IstextoZoteroFormat(row)
@@ -390,7 +403,10 @@ class TestSpringerPdfUrl:
             ]
         )
         result = SpringertoZoteroFormat(row)
-        assert result["pdf_url"] == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        assert (
+            result["pdf_url"]
+            == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        )
         assert result["url"] == "https://link.springer.com/article/10.1234/test"
 
     def test_only_html_no_pdf_url(self):
@@ -418,7 +434,10 @@ class TestSpringerPdfUrl:
             ]
         )
         result = SpringertoZoteroFormat(row)
-        assert result["pdf_url"] == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        assert (
+            result["pdf_url"]
+            == "https://link.springer.com/content/pdf/10.1234/test.pdf"
+        )
         # url should fall back to the pdf value since no html format
         assert result["url"] == "https://link.springer.com/content/pdf/10.1234/test.pdf"
 
@@ -426,3 +445,20 @@ class TestSpringerPdfUrl:
         row = _minimal_springer_row(url=[])
         result = SpringertoZoteroFormat(row)
         assert result["pdf_url"] == MISSING_VALUE
+
+
+class TestQualityScores:
+    def test_matches_getquality_row_by_row(self):
+        df = pd.DataFrame(
+            [
+                {"DOI": "10.1", "title": "T", "volume": "1", "issue": "2", "url": "NA"},
+                {"DOI": "NA", "title": "", "volume": "1", "issue": None, "url": "u"},
+                {"DOI": None, "title": "T", "volume": "NA", "issue": "3", "url": "u"},
+            ]
+        )
+        expected = [getquality(row, df.columns.tolist()) for _, row in df.iterrows()]
+        assert quality_scores(df).tolist() == expected
+
+    def test_without_volume_issue_columns(self):
+        df = pd.DataFrame([{"title": "T", "abstract": "A"}])
+        assert quality_scores(df).tolist() == [8]

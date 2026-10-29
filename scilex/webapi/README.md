@@ -9,7 +9,7 @@ Complete web-based interface for SciLEx - combining a FastAPI REST backend with 
 - **Multi-Source Paper Collection**: Search 10+ academic databases simultaneously
   - Free APIs: SemanticScholar, OpenAlex, Arxiv, PubMed, DBLP, HAL
   - Paid APIs: IEEE, Elsevier, Springer
-  - Integration: Zotero, HuggingFace
+  - Integration: Zotero, Papers with Code (no key)
 
 - **Advanced Filtering**: 
   - By year, source, publication type
@@ -101,7 +101,6 @@ python scilex/webapi/run_interface.py \
    - **Elsevier**: API key + optional institutional token
    - **Springer**: API key
    - **Zotero**: API key + User ID
-   - **HuggingFace**: Access token
 
 5. Click **✅ Save API Configuration**
 
@@ -326,6 +325,21 @@ curl http://localhost:8000/results/my_collection/stats
 
 ## Configuration
 
+### Configuration files
+
+The server does not need a `scilex.yml`. Each job:
+
+- receives `collection_config` in the request body, in the internal flat format (`collect_name`, `keywords`, `years`, `apis`,
+  `quality_filters`, ...; see the old-to-new table of the
+  [Configuration Reference](../../docs/reference/configuration.md#old-name-to-new-name));
+- writes it to `<output_dir>/_web_job_config.yml` and sets `SCILEX_CONFIG` to that file for the duration of the job, so
+  the pipeline steps resolve their configuration from it (the previous value is restored afterwards).
+
+API keys stored on the server (`/api-config` endpoints) follow `$SCILEX_KEYS` > `~/.config/scilex/keys.yml` >
+legacy `scilex/api.config.yml` (read only if it already exists). With no keys file at all, saving keys creates
+`~/.config/scilex/keys.yml`, never a file inside the package.
+If the request carries no `api_config`, the server-side keys file is used.
+
 ### Output Directory
 
 Configure where results are saved:
@@ -476,7 +490,7 @@ scilex/webapi/
 
 ## Security Notes
 
-- **API Keys**: Stored in `scilex/api.config.yml` (add to `.gitignore`)
+- **API Keys**: Stored in `$SCILEX_KEYS`, else `~/.config/scilex/keys.yml`, else the legacy `scilex/api.config.yml` (never commit it)
 - **Sensitive Data**: Masked in API responses
 - **CORS**: Enabled for all origins (configure in production)
 - **Input Validation**: All user inputs validated

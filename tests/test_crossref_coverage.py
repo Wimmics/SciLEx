@@ -60,7 +60,7 @@ def test_crossref_vs_opencitations_coverage(sample_dois):
     oc_results = {}
     for doi in sample_dois:
         try:
-            ok, resp, _ = getCitations.__wrapped__.__wrapped__.__wrapped__(doi)
+            ok, resp, _ = getCitations(doi)
             if ok and resp is not None:
                 oc_results[doi.lower()] = len(resp.json())
         except Exception:

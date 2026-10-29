@@ -70,6 +70,11 @@ class Arxiv_collector(API_collector):
         logging.debug(f"Parsed {len(page_data['results'])} results from page {page}.")
         return page_data
 
+    def _post_process_page(self, page_data):
+        """Drop entries outside the requested year (parsed as ``None``)."""
+        page_data["results"] = [x for x in page_data["results"] if x is not None]
+        return page_data
+
     def extract_authors(self, entry):
         """Extracts authors from the entry and returns a list."""
         authors = entry.xpath('*[local-name()="author"]')
@@ -102,8 +107,7 @@ class Arxiv_collector(API_collector):
         return [cat.attrib["term"] for cat in categories]
 
     def construct_search_query(self):
-        """
-        Constructs a search query for the API from the keyword sets.
+        """Constructs a search query for the API from the keyword sets.
         The format will be:
         ti:"NLP" OR ti:"Natural Language Processing" OR abs:"NLP" OR abs:"Natural Language Processing"
         AND
@@ -118,18 +122,18 @@ class Arxiv_collector(API_collector):
             group_keywords = []
 
             # Add 'ti' (title) and 'abs' (abstract) queries for each keyword
-            group_keywords += [f'ti:%22{urllib.parse.quote(keyword)}%22']
-            group_keywords += [f'abs:%22{urllib.parse.quote(keyword)}%22']
+            group_keywords += [f"ti:%22{urllib.parse.quote(keyword)}%22"]
+            group_keywords += [f"abs:%22{urllib.parse.quote(keyword)}%22"]
 
             formatted_keyword_groups.append(f"({'+OR+'.join(group_keywords)})")
 
         years_query = str(self.get_year())
+        start_date = self.get_query_start_date()
+        range_start = (
+            start_date.strftime("%Y%m%d") if start_date else years_query + "0101"
+        )
         year_arg = (
-            "submittedDate:%5B"
-            + years_query
-            + "01010000+TO+"
-            + years_query
-            + "12312359%5D"
+            "submittedDate:%5B" + range_start + "0000+TO+" + years_query + "12312359%5D"
         )
         # Join keyword groups and year filter all within search_query (Arxiv API requirement)
         search_query = "+AND+".join(formatted_keyword_groups) + "+AND+" + year_arg

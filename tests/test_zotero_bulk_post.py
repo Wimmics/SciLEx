@@ -1,8 +1,6 @@
 """Tests for bulk_post_items and _retry_with_smaller_batches in ZoteroAPI."""
 
-from unittest.mock import MagicMock, patch
-
-import pytest
+from unittest.mock import MagicMock
 
 from scilex.Zotero.zotero_api import ZoteroAPI
 

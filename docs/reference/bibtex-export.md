@@ -77,12 +77,12 @@ if 'url' in entry:
 | `archiveprefix` | Source API name | `SemanticScholar` |
 | `eprint` | Original API identifier | `2307.03172` |
 
-### HuggingFace Enrichment (after `scilex-enrich`)
+### Papers with Code Enrichment (after `scilex-enrich`)
 
 | Field | Description | Example |
 |-------|-------------|---------|
-| `keywords` | ML tags from HuggingFace | `TASK:NER, PTM:BERT` |
-| `note` | HuggingFace paper URL | `HuggingFace: https://...` |
+| `keywords` | Tags from Papers with Code (tasks, methods, benchmarks) | `TASK:NER, PTM:BERT` |
+| `pwcurl` | Papers with Code paper URL (from `pwc_url`; old CSVs: `hf_url`) | `https://paperswithcode.co/paper/...` |
 | `howpublished` | GitHub repository URL | `https://github.com/...` |
 
 ---
@@ -127,7 +127,7 @@ if 'url' in entry:
   archiveprefix = {arXiv},
   eprint = {2307.03172},
   keywords = {TASK:TextGeneration, PTM:Llama2, FRAMEWORK:PyTorch},
-  note = {HuggingFace: https://huggingface.co/papers/2307.03172},
+  pwcurl = {https://paperswithcode.co/paper/2307.03172},
   howpublished = {https://github.com/facebookresearch/llama}
 }
 ```
@@ -137,5 +137,5 @@ if 'url' in entry:
 ## See Also
 
 - [Basic Workflow](../user-guides/basic-workflow.md) — Pipeline overview including export step
-- [HuggingFace Enrichment](../user-guides/basic-workflow.md#step-3-enrichment-optional) — Adding ML metadata before export
+- [Papers with Code Enrichment](configuration.md) — `enrichment.paperswithcode` (`huggingface` is a deprecated alias) in `scilex.yml`, then `scilex-enrich` before export
 - [Python Scripting](../user-guides/python-scripting.md) — Programmatic BibTeX parsing

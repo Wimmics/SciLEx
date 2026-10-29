@@ -4,32 +4,37 @@ Get your first paper collection running. This assumes you've [installed SciLEx](
 
 ## Quick Start
 
-### 1. Create Configuration
+### 1. Create the configuration
 
-Create a `test_collection.yml` file at the project root:
+Create a folder for your review and generate a `scilex.yml` in it:
+
+```bash
+mkdir my-review && cd my-review
+uv run scilex init                  # asks a few questions (or: scilex-init --template computer-science)
+```
+
+Or write a minimal `scilex.yml` by hand (everything else uses the defaults):
 
 ```yaml
-keywords:
-  - ["machine learning"]
-  - []
+name: test
+search:
+  keywords:
+    - [machine learning]
+  years: [2024]
+  apis: [OpenAlex, Arxiv]
+```
 
-years: [2024]
+API keys live in `~/.config/scilex/keys.yml`, copied from `keys.yml.example` (OpenAlex and Arxiv work without keys).
+Check everything without running anything:
 
-apis:
-  - OpenAlex
-  - Arxiv
-
-fields: ["title", "abstract"]
-
-collect: true
-collect_name: "test"
-max_results_per_api: 50
+```bash
+uv run scilex config check
 ```
 
 ### 2. Run Collection
 
 ```bash
-uv run python src/run_collecte.py
+uv run scilex-collect
 ```
 
 You'll see progress like:
@@ -42,54 +47,48 @@ Progress: 2/4 (50%) collections completed
 ### 3. Aggregate Results
 
 ```bash
-uv run python src/aggregate_collect.py
+uv run scilex-aggregate
 ```
 
-Results saved to `output/collect_*/aggregated_data.csv`
+Results saved to `output/test/aggregated_results.csv`
 
 ### 4. View Results
 
 ```bash
-# View first few lines
-head output/collect_*/aggregated_data.csv
+head output/test/aggregated_results.csv
 ```
 
 Or open in spreadsheet software.
 
 ## Real Collection Example
 
-For a proper research collection, edit `src/scilex.config.yml`:
+For a proper research collection, edit `scilex.yml`:
 
 ```yaml
-keywords:
-  - ["knowledge graph", "ontology"]      # Domain
-  - ["large language model", "LLM"]      # Technology
+name: kg_llm
+preset: literature_review
 
-years: [2022, 2023, 2024]
+search:
+  keywords:
+    - [knowledge graph, ontology]      # Domain
+    - [large language model, LLM]      # Technology
+  years: [2022, 2023, 2024]
+  apis: [SemanticScholar, OpenAlex, Arxiv]
 
-apis:
-  - SemanticScholar
-  - OpenAlex
-  - Arxiv
+filters:
+  item_types: [journalArticle, conferencePaper]
 
-fields: ["title", "abstract"]
-
-aggregate_get_citations: true
-
-quality_filters:
-  enable_itemtype_filter: true
-  allowed_item_types:
-    - journalArticle
-    - conferencePaper
-  apply_relevance_ranking: true
+ranking:
   max_papers: 500
 ```
 
 Then run:
 ```bash
-uv run python src/run_collecte.py
-uv run python src/aggregate_collect.py
+uv run scilex-collect
+uv run scilex-aggregate
 ```
+
+All options are listed in the [Configuration Reference](../reference/configuration.md).
 
 ## CSV Output Columns
 
@@ -105,6 +104,7 @@ uv run python src/aggregate_collect.py
 
 ## Next Steps
 
-- [Configuration Guide](configuration.md) - All config options
+- [Configuration Guide](configuration.md) - Setting up `scilex.yml` and `keys.yml`
+- [Configuration Reference](../reference/configuration.md) - Every option
 - [Basic Workflow](../user-guides/basic-workflow.md) - Detailed workflow
 - [Advanced Filtering](../user-guides/advanced-filtering.md) - Filtering options

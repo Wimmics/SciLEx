@@ -10,9 +10,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.13",
-    "bibtexparser>=1.4",
+    "bibtexparser>=2.0.0b7",
     "fake-useragent>=2.0",
-    "huggingface-hub>=1.2.1",
     "httpx<0.28.0",
     "lxml>=6.0",
     "numpy>=2.0",
@@ -29,6 +28,8 @@ dependencies = [
     "uvicorn>=0.41.0",
     "streamlit>=1.55.0",
     "matplotlib>=3.7",
+    "rdflib>=7.0",
+    "networkx>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -37,14 +38,39 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.1.0",
 ]
+graph = [
+    "python-louvain>=0.16",
+    "scipy>=1.11",  # networkx PageRank
+]
+gui = [
+    "scilex[graph]",  # the app runs the Graph analysis
+    "nicegui>=3.18.0",
+    "platformdirs>=4.12.4",
+    "pywebview>=6.2.1",
+    # Linux has no system web view Python bindings to rely on: ship Qt WebEngine.
+    "pywebview[qt]>=6.2.1; sys_platform == 'linux'",
+]
+build = [
+    "pyinstaller>=6.22.3",
+]
 
 [project.scripts]
+scilex = "scilex.__main__:main"
 scilex-collect = "scilex.run_collection:main"
 scilex-aggregate = "scilex.aggregate_collect:main"
-scilex-enrich = "scilex.enrich_with_hf:main"
+scilex-enrich = "scilex.enrich_with_pwc:main"
 scilex-push-zotero = "scilex.push_to_zotero:main"
 scilex-export-bibtex = "scilex.export_to_bibtex:main"
 scilex-report = "scilex.report_charts:main"
+scilex-enrich-citations = "scilex.enrich_with_citations:main"
+scilex-export-turtle = "scilex.export_to_turtle:main"
+scilex-analyze = "scilex.analyze:main"
+scilex-snowball = "scilex.snowball_sampling:main"
+scilex-seed = "scilex.seed_papers:main"
+scilex-summarize = "scilex.summarize_clusters:main"
+scilex-suggest-keywords = "scilex.suggest_keywords:main"
+scilex-init = "scilex.init_templates:main"
+scilex-gui = "scilex.gui.app:run"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -52,6 +78,7 @@ addopts = "-v"
 pythonpath = ["."]
 markers = [
     "live: tests that require network access and local data (deselect with '-m \"not live\"')",
+    "real_batch: reference_fetcher tests that exercise the SemanticScholar batch lookup (mocked HTTP)",
 ]
 
 [tool.coverage.run]

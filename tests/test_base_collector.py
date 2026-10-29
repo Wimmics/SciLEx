@@ -11,14 +11,17 @@ import requests
 
 from scilex.crawlers.circuit_breaker import CircuitBreakerOpenError
 from scilex.crawlers.collectors.base import API_collector
+from scilex.crawlers.collectors.elsevier import Elsevier_collector
+from scilex.crawlers.collectors.ieee import IEEE_collector
+from scilex.crawlers.collectors.springer import Springer_collector
 
 
 # -------------------------------------------------------------------------
 # Helpers
 # -------------------------------------------------------------------------
-def _make_collector(api_name="TestAPI", tmp_path=None):
-    """Instantiate API_collector without __init__ filesystem/HTTP side effects."""
-    collector = API_collector.__new__(API_collector)
+def _make_collector(api_name="TestAPI", tmp_path=None, collector_class=API_collector):
+    """Instantiate a collector without __init__ filesystem/HTTP side effects."""
+    collector = collector_class.__new__(collector_class)
     collector.api_name = api_name
     collector.api_key = "test-key"
     collector.rate_limit = 0  # Disable rate limiting
@@ -119,18 +122,18 @@ class TestGetAuthRecoveryActions:
         assert "permissions" in result or "whitelist" in result
 
     def test_403_elsevier_specific_guidance(self):
-        collector = _make_collector("Elsevier")
+        collector = _make_collector("Elsevier", collector_class=Elsevier_collector)
         result = collector._get_auth_recovery_actions(403)
         assert "Elsevier" in result
         assert "inst_token" in result
 
     def test_403_ieee_specific_guidance(self):
-        collector = _make_collector("IEEE")
+        collector = _make_collector("IEEE", collector_class=IEEE_collector)
         result = collector._get_auth_recovery_actions(403)
         assert "IEEE" in result
 
     def test_403_springer_specific_guidance(self):
-        collector = _make_collector("Springer")
+        collector = _make_collector("Springer", collector_class=Springer_collector)
         result = collector._get_auth_recovery_actions(403)
         assert "Springer" in result
 
@@ -264,6 +267,8 @@ class TestApiCallDecoratorErrorPaths:
             collector.api_call_decorator(self.URL, max_retries=3)
 
         assert collector.session.get.call_count == 3
+        # Exactly one breaker failure per exhausted call (not one per attempt)
+        mock_breaker.record_failure.assert_called_once()
 
     def test_500_then_200_succeeds(self):
         collector = _make_collector()
@@ -379,3 +384,59 @@ class TestApiCallDecoratorErrorPaths:
         assert result is mock_success
         # DBLP uses fixed 30s wait
         assert any(s == 30 for s in sleep_calls)
+
+    def _run_exhausted(self, status, headers=None, api_name="TestAPI"):
+        collector = _make_collector(api_name)
+        mock_registry, mock_breaker = _make_mock_cb()
+        _, error = _make_http_error(status, headers=headers)
+        collector.session.get.side_effect = error
+        sleeps = []
+        with (
+            patch(
+                "scilex.crawlers.collectors.base.CircuitBreakerRegistry",
+                return_value=mock_registry,
+            ),
+            patch(
+                "scilex.crawlers.collectors.base.time.sleep",
+                side_effect=sleeps.append,
+            ),
+            # Keep the process-wide limiter untouched (on_throttle adds delay)
+            patch(
+                "scilex.crawlers.collectors.base.AdaptiveRateLimiterRegistry"
+            ) as mock_limiters,
+            pytest.raises(requests.exceptions.HTTPError),
+        ):
+            mock_limiters.return_value.get.return_value.on_throttle.return_value = 10.0
+            collector.api_call_decorator(self.URL, max_retries=3)
+        return collector, mock_breaker, sleeps
+
+    def test_429_exhausted_records_exactly_one_failure(self):
+        collector, breaker, _ = self._run_exhausted(429)
+        assert collector.session.get.call_count == 3
+        breaker.record_failure.assert_called_once()
+
+    def test_503_exhausted_records_exactly_one_failure(self):
+        collector, breaker, _ = self._run_exhausted(503)
+        assert collector.session.get.call_count == 3
+        breaker.record_failure.assert_called_once()
+
+    def test_non_retryable_4xx_not_retried_one_failure(self):
+        collector, breaker, sleeps = self._run_exhausted(404)
+        assert collector.session.get.call_count == 1
+        assert sleeps == []
+        breaker.record_failure.assert_called_once()
+
+    def test_retry_after_is_capped(self):
+        _, _, sleeps = self._run_exhausted(429, headers={"Retry-After": "86400"})
+        assert sleeps
+        assert max(sleeps) <= 120
+
+
+class TestLogApiUsageHeaders:
+    def test_non_numeric_remaining_header_does_not_crash(self):
+        collector = _make_collector()
+        response = MagicMock()
+        response.status_code = 200
+        response.elapsed.total_seconds.return_value = 0.1
+        response.headers = {"X-RateLimit-Remaining": "n/a"}
+        collector.log_api_usage(response, 1, 5)  # must not raise

@@ -1,5 +1,4 @@
 import logging
-import math
 from datetime import date
 
 from .base import API_collector
@@ -109,97 +108,31 @@ class Springer_collector(API_collector):
         search_query = " AND ".join([f'"{keyword}"' for keyword in self.get_keywords()])
         return search_query
 
-    def get_configurated_url(self):
-        """
-        Constructs the URLs for both API endpoints.
-
-        Returns:
-            list: A list of constructed API URLs for both endpoints.
-        """
-        # Construct the search query
+    def _build_url(self, base_url, api_key):
+        """Search URL for one endpoint; ``{}`` is the 1-based record start (``s``)."""
         keywords_query = self.construct_search_query()
+        return f"{base_url}?q={keywords_query}&api_key={api_key}&p={self.max_by_page}&s={{}}"
 
-        # p = results per page (fixed); s = start position (added per-page in collect_from_endpoints)
-        meta_url = f"{self.meta_url}?q={keywords_query}&api_key={self.meta_api_key}&p={self.max_by_page}"
-        openaccess_url = f"{self.openaccess_url}?q={keywords_query}&api_key={self.openaccess_api_key}&p={self.max_by_page}"
+    def get_configurated_url(self):
+        """URL template of the meta endpoint (see ``_get_api_endpoints`` for both)."""
+        return self._build_url(self.meta_url, self.meta_api_key)
 
-        logging.debug(f"Constructed query for meta: {meta_url}")
-        logging.debug(f"Constructed query for openaccess: {openaccess_url}")
+    def _get_api_endpoints(self):
+        """Both Springer endpoints: metadata and open access."""
+        urls = [
+            self.get_configurated_url(),
+            self._build_url(self.openaccess_url, self.openaccess_api_key),
+        ]
+        logging.debug(
+            f"Springer endpoints: {[self._sanitize_url(url) for url in urls]}"
+        )
+        return urls
 
-        return [meta_url, openaccess_url]
+    def get_offset(self, page):
+        """Springer's ``s`` parameter is a 1-based record position."""
+        return (page - 1) * self.max_by_page + 1
 
-    def collect_from_endpoints(self):
-        """
-        Collects data from both the meta and openaccess endpoints with pagination.
-
-        Returns:
-            list: Combined results from both endpoints.
-        """
-        urls = self.get_configurated_url()  # Get the list of API URLs
-        combined_results = []
-
-        for base_url in urls:  # Iterate through each base URL
-            ################################# TO DO ?
-            page = 1
-            has_more_pages = True
-
-            while has_more_pages:
-                # PRE-CHECK: Stop if we've already collected enough articles
-                max_articles = self.filter_param.get_max_articles_per_query()
-                if max_articles > 0 and self.nb_art_collected >= max_articles:
-                    logging.info(
-                        f"Reached max_articles_per_query limit ({max_articles}). "
-                        f"Already collected {self.nb_art_collected} articles. Stopping before page {page}."
-                    )
-                    break
-
-                # s = 1-based start position; p (results-per-page) is already in base_url
-                start = (page - 1) * self.max_by_page + 1
-                paginated_url = f"{base_url}&s={start}"
-                logging.debug(f"Fetching data from URL: {paginated_url}")
-
-                # Call the API
-                try:
-                    response = self.api_call_decorator(paginated_url)
-
-                    # Parse the response
-                    page_data = self.parsePageResults(response, page)
-                    combined_results.append(
-                        page_data
-                    )  # Store results from this endpoint
-
-                    # Update article count
-                    self.nb_art_collected += len(page_data["results"])
-
-                    # Determine if more pages are available
-                    if (
-                        len(page_data["results"]) > 0
-                        and "total" in page_data
-                        and page_data["total"] > 0
-                    ):
-                        # Calculate expected pages based on total results
-                        expected_pages = math.ceil(
-                            page_data["total"] / self.max_by_page
-                        )
-                        has_more_pages = page < expected_pages
-
-                        # Check if we've collected enough articles
-                        max_articles = self.filter_param.get_max_articles_per_query()
-                        if max_articles > 0 and self.nb_art_collected >= max_articles:
-                            logging.debug(
-                                f"Collected {self.nb_art_collected} articles (limit: {max_articles}). "
-                                f"No more pages needed."
-                            )
-                            has_more_pages = False
-                    else:
-                        has_more_pages = False
-
-                    page += 1  # Increment page number for the next request
-
-                except Exception as e:
-                    logging.error(
-                        f"Error fetching or parsing data from {paginated_url}: {str(e)}"
-                    )
-                    has_more_pages = False  # Stop fetching on error
-
-        return combined_results
+    def auth_failure_hints(self):
+        return [
+            "3. Springer-specific: Check your subscription tier and rate limits",
+        ]

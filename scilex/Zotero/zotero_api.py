@@ -10,12 +10,57 @@ import logging
 import math
 import random
 import string
+import time
 from typing import Any
 
 import pandas as pd
 import requests
 
-from scilex.constants import MISSING_VALUE, ZoteroConstants, is_valid
+from scilex.constants import (
+    MISSING_VALUE,
+    ZoteroConstants,
+    doi_to_url,
+    is_valid,
+    split_semicolon_field,
+)
+
+ZOTERO_TEMPLATE_URL = "https://api.zotero.org/items/new"
+MAX_RATE_LIMIT_WAIT_SECONDS = 60
+MAX_RATE_LIMIT_ATTEMPTS = 3
+PAGE_SIZE = 100
+
+
+def fetch_item_template(item_type: str) -> dict | None:
+    """
+    Fetch the Zotero template for an item type from the public API.
+
+    The endpoint needs no authentication, so no ZoteroAPI instance is required.
+
+    Args:
+        item_type: The Zotero item type (e.g., "journalArticle")
+
+    Returns:
+        Template dictionary if successful, None otherwise
+    """
+    try:
+        response = requests.get(
+            ZOTERO_TEMPLATE_URL, params={"itemType": item_type}, timeout=30
+        )
+        response.raise_for_status()
+        return response.json()
+    except (requests.exceptions.RequestException, ValueError) as e:
+        logging.error(f"Failed to fetch template for {item_type}: {e}")
+    return None
+
+
+def _wait_seconds_from_headers(headers: Any) -> float:
+    """Return the Retry-After / Backoff delay (capped) found in response headers."""
+    for name in ("Retry-After", "Backoff"):
+        try:
+            return min(float(headers.get(name)), MAX_RATE_LIMIT_WAIT_SECONDS)
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return 0.0
 
 
 class ZoteroAPI:
@@ -99,15 +144,24 @@ class ZoteroAPI:
         return None
 
     def _post(
-        self, path: str, data: Any, timeout: int = 120
+        self,
+        path: str,
+        data: Any,
+        timeout: int = 120,
+        write_token: str | None = None,
     ) -> requests.Response | None:
         """
         Perform a POST request to the Zotero API.
+
+        Rate limiting (HTTP 429) is retried a few times honouring Retry-After;
+        every attempt reuses the same write token so Zotero can deduplicate.
 
         Args:
             path: API path (e.g., "/items")
             data: Data to send (will be JSON-encoded)
             timeout: Request timeout in seconds (default: 120 for bulk uploads)
+            write_token: Idempotency token; generated when omitted. Pass the same
+                token when re-sending the same payload.
 
         Returns:
             Response object if successful, None otherwise
@@ -116,40 +170,76 @@ class ZoteroAPI:
         post_headers = self.headers.copy()
         post_headers.update(
             {
-                "Zotero-Write-Token": self._get_write_token(),
+                "Zotero-Write-Token": write_token or self._get_write_token(),
                 "Content-Type": "application/json",
             }
         )
 
-        try:
-            response = requests.post(
-                url, headers=post_headers, data=json.dumps(data), timeout=timeout
-            )
-            response.raise_for_status()
-            return response
-        except requests.exceptions.Timeout:
-            logging.error(f"Timeout after {timeout}s while posting to {url}")
-        except requests.exceptions.RequestException as e:
-            logging.error(f"POST request failed for {url}: {e}")
+        for attempt in range(1, MAX_RATE_LIMIT_ATTEMPTS + 1):
+            try:
+                response = requests.post(
+                    url, headers=post_headers, data=json.dumps(data), timeout=timeout
+                )
+                if response.status_code == 429 and attempt < MAX_RATE_LIMIT_ATTEMPTS:
+                    wait = _wait_seconds_from_headers(response.headers) or 5.0
+                    logging.warning(f"Rate limited by Zotero, retrying in {wait:.0f}s")
+                    time.sleep(wait)
+                    continue
+                response.raise_for_status()
+                time.sleep(_wait_seconds_from_headers(response.headers))
+                return response
+            except requests.exceptions.Timeout:
+                logging.error(f"Timeout after {timeout}s while posting to {url}")
+            except requests.exceptions.RequestException as e:
+                logging.error(f"POST request failed for {url}: {e}")
+            return None
         return None
 
-    def get_collections(self, limit: int = 100) -> list[dict] | None:
+    def _get_paginated(self, path: str, limit: int = PAGE_SIZE) -> list[dict] | None:
         """
-        Retrieve all collections for the user/group.
+        Fetch every page of a list endpoint.
 
         Args:
-            limit: Maximum number of collections to retrieve per request
+            path: API path (e.g., "/collections")
+            limit: Page size
 
         Returns:
-            List of collection dictionaries, or None if request failed
+            All results concatenated, or None if any page request failed
         """
-        response = self._get("/collections", params={"limit": limit})
-        if response:
+        results: list[dict] = []
+        start = 0
+        while True:
+            response = self._get(path, params={"limit": limit, "start": start})
+            if not response:
+                return None
             try:
-                return response.json()
+                page = response.json()
             except ValueError as e:
-                logging.error(f"Failed to parse collections JSON: {e}")
-        return None
+                logging.error(f"Failed to parse JSON from {path}: {e}")
+                return None
+            if not page:
+                break
+            results.extend(page)
+            try:
+                total = int(response.headers.get("Total-Results"))
+            except (TypeError, ValueError):
+                total = None
+            if len(page) < limit or (total is not None and start + limit >= total):
+                break
+            start += limit
+        return results
+
+    def get_collections(self, limit: int = PAGE_SIZE) -> list[dict] | None:
+        """
+        Retrieve all collections for the user/group (all pages).
+
+        Args:
+            limit: Page size
+
+        Returns:
+            List of collection dictionaries, or None if a request failed
+        """
+        return self._get_paginated("/collections", limit=limit)
 
     def find_collection_by_name(self, name: str) -> dict | None:
         """
@@ -187,7 +277,14 @@ class ZoteroAPI:
 
         if response and response.status_code in [200, 201]:
             logging.info(f"Successfully created collection '{name}'")
-            # Re-fetch to get the key
+            try:
+                created = response.json()["successful"]["0"]
+                if created.get("key"):
+                    created.setdefault("data", {"key": created["key"], "name": name})
+                    return created
+            except (ValueError, KeyError, TypeError, AttributeError):
+                pass
+            # Response body unusable: fall back to looking it up by name
             return self.find_collection_by_name(name)
         return None
 
@@ -209,45 +306,23 @@ class ZoteroAPI:
         # Create if not found
         return self.create_collection(name)
 
-    def get_collection_items(self, collection_key: str, limit: int = 100) -> list[dict]:
+    def get_collection_items(
+        self, collection_key: str, limit: int = PAGE_SIZE
+    ) -> list[dict]:
         """
-        Get all items in a collection.
+        Get all items in a collection (all pages).
 
         Args:
             collection_key: The collection's key
             limit: Items per page
 
         Returns:
-            List of item dictionaries
+            List of item dictionaries (empty if the request failed)
         """
-        items = []
-        start = 0
-
-        while True:
-            params = {"limit": limit, "start": start}
-            # Use collection-specific endpoint for better performance
-            response = self._get(f"/collections/{collection_key}/items", params=params)
-
-            if not response:
-                break
-
-            try:
-                page_items = response.json()
-                if not page_items:
-                    break
-
-                items.extend(page_items)
-
-                # Check if there are more items
-                total_results = int(response.headers.get("Total-Results", 0))
-                if start + limit >= total_results:
-                    break
-
-                start += limit
-            except (ValueError, KeyError) as e:
-                logging.error(f"Error parsing items response: {e}")
-                break
-
+        items = self._get_paginated(f"/collections/{collection_key}/items", limit=limit)
+        if items is None:
+            logging.error(f"Could not list items of collection {collection_key}")
+            items = []
         logging.info(f"Found {len(items)} items in collection")
         return items
 
@@ -275,45 +350,30 @@ class ZoteroAPI:
         logging.info(f"Found {len(urls)} existing URLs in collection")
         return urls
 
-    def get_item_template(self, item_type: str) -> dict | None:
+    @staticmethod
+    def _count_outcome(response: Any, batch: list[dict]) -> dict[str, int]:
         """
-        Get the Zotero template for a specific item type.
+        Count per-item outcomes from a successful (HTTP 2xx) write response.
 
-        Args:
-            item_type: The Zotero item type (e.g., "journalArticle")
-
-        Returns:
-            Template dictionary if successful, None otherwise
+        Zotero answers 200 even when some items were rejected; the body holds
+        {"successful", "unchanged", "failed"}. If the body is not in that shape,
+        the whole batch is counted as successful.
         """
         try:
-            response = requests.get(
-                f"https://api.zotero.org/items/new?itemType={item_type}", timeout=30
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logging.error(f"Failed to fetch template for {item_type}: {e}")
-        return None
+            body = response.json()
+        except (ValueError, AttributeError):
+            body = None
+        if not isinstance(body, dict) or not any(
+            key in body for key in ("successful", "unchanged", "failed")
+        ):
+            return {"success": len(batch), "failed": 0}
 
-    def post_item(self, item_data: dict) -> bool:
-        """
-        Post a single item to Zotero.
-
-        Args:
-            item_data: Item data dictionary (must match Zotero schema)
-
-        Returns:
-            True if successful, False otherwise
-        """
-        response = self._post("/items", data=[item_data])
-        if response and response.status_code in [200, 201]:
-            logging.info(
-                f"Successfully posted item: {item_data.get('title', 'Unknown')}"
-            )
-            return True
-
-        logging.warning(f"Failed to post item: {item_data.get('title', 'Unknown')}")
-        return False
+        failed = body.get("failed") or {}
+        for index, error in failed.items():
+            message = error.get("message") if isinstance(error, dict) else error
+            logging.warning(f"Zotero rejected item {index}: {message}")
+        success = len(body.get("successful") or {}) + len(body.get("unchanged") or {})
+        return {"success": success, "failed": len(failed)}
 
     def post_items_bulk(
         self, items: list[dict], batch_size: int = 50
@@ -321,9 +381,10 @@ class ZoteroAPI:
         """
         Post multiple items to Zotero using true bulk API calls.
 
-        Zotero API supports up to 50 items per POST request. This method
-        batches items appropriately for optimal performance. If a batch fails
-        due to timeout, it will retry with smaller batch sizes (25, then 10).
+        Zotero API supports up to 50 items per POST request. Each batch gets one
+        write token reused when the same batch is re-sent after a timeout; if it
+        still fails, the batch is split into smaller ones (25, then 10).
+        Per-item failures reported in a 200 response are counted as failed.
 
         Args:
             items: List of item data dictionaries
@@ -351,15 +412,19 @@ class ZoteroAPI:
                 f"Posting batch {batch_num}/{total_batches} ({len(batch)} items)"
             )
 
-            # Try posting with current batch size
-            response = self._post("/items", data=batch)
+            write_token = self._get_write_token()
+            response = self._post("/items", data=batch, write_token=write_token)
+            if response is None:
+                # Possible timeout: the server may have processed it. Re-send the
+                # identical payload with the same token (idempotent).
+                response = self._post("/items", data=batch, write_token=write_token)
 
             if response and response.status_code in [200, 201]:
-                # All items in batch succeeded
-                results["success"] += len(batch)
-                logging.debug(f"Batch {batch_num} posted successfully")
+                outcome = self._count_outcome(response, batch)
+                results["success"] += outcome["success"]
+                results["failed"] += outcome["failed"]
+                logging.debug(f"Batch {batch_num} posted: {outcome}")
             elif response is None and len(batch) > 10:
-                # Timeout likely - retry with smaller batches
                 logging.warning(
                     f"Batch {batch_num} failed (likely timeout). Retrying with smaller batches..."
                 )
@@ -367,7 +432,6 @@ class ZoteroAPI:
                 results["success"] += retry_results["success"]
                 results["failed"] += retry_results["failed"]
             else:
-                # Entire batch failed and can't be split further
                 results["failed"] += len(batch)
                 logging.warning(
                     f"Batch {batch_num} failed - {len(batch)} items not posted"
@@ -411,7 +475,9 @@ class ZoteroAPI:
                 response = self._post("/items", data=sub_batch)
 
                 if response and response.status_code in [200, 201]:
-                    results["success"] += len(sub_batch)
+                    outcome = self._count_outcome(response, sub_batch)
+                    results["success"] += outcome["success"]
+                    results["failed"] += outcome["failed"]
                 else:
                     results["failed"] += len(sub_batch)
                     failed_in_this_round.extend(sub_batch)
@@ -470,8 +536,7 @@ def prepare_zotero_item(
 
     # Get or fetch template
     if item_type not in templates_cache:
-        api = ZoteroAPI("", "", "")
-        template = api.get_item_template(item_type)
+        template = fetch_item_template(item_type)
         if not template:
             return None
         templates_cache[item_type] = template
@@ -481,9 +546,19 @@ def prepare_zotero_item(
 
     # --- Direct field mappings ---
     common_fields = [
-        "publisher", "title", "date", "DOI", "archive", "url",
-        "rights", "pages", "journalAbbreviation", "conferenceName",
-        "volume", "issue", "language",
+        "publisher",
+        "title",
+        "date",
+        "DOI",
+        "archive",
+        "url",
+        "rights",
+        "pages",
+        "journalAbbreviation",
+        "conferenceName",
+        "volume",
+        "issue",
+        "language",
     ]
     for field in common_fields:
         val = get_value(row, field)
@@ -511,7 +586,7 @@ def prepare_zotero_item(
     # --- URL fallback to DOI ---
     if not is_valid(item.get("url")):
         doi = item.get("DOI")
-        item["url"] = str(doi) if is_valid(doi) else None
+        item["url"] = doi_to_url(doi)
 
     # --- Resolve github_repo / archiveID for archiveLocation + extra ---
     github_repo = get_value(row, "github_repo", MISSING_VALUE)
@@ -529,7 +604,7 @@ def prepare_zotero_item(
     if "archiveLocation" in item:
         if github_valid:
             item["archiveLocation"] = str(github_repo)
-            if archive_id_valid:           # archiveID bumped to extra
+            if archive_id_valid:  # archiveID bumped to extra
                 extra_lines.append(f"Archive ID: {archive_id}")
         elif archive_id_valid:
             item["archiveLocation"] = str(archive_id)
@@ -540,10 +615,12 @@ def prepare_zotero_item(
     if pdf_valid:
         extra_lines.append(f"PDF URL: {pdf_url}")
 
-    hf_url = get_value(row, "hf_url", MISSING_VALUE)
-    hf_valid = is_valid(hf_url) and hf_url != MISSING_VALUE
-    if hf_valid:
-        extra_lines.append(f"HF URL: {hf_url}")
+    pwc_url = get_value(row, "pwc_url", MISSING_VALUE)
+    if not (is_valid(pwc_url) and pwc_url != MISSING_VALUE):
+        pwc_url = get_value(row, "hf_url", MISSING_VALUE)
+    pwc_valid = is_valid(pwc_url) and pwc_url != MISSING_VALUE
+    if pwc_valid:
+        extra_lines.append(f"Papers with Code: {pwc_url}")
 
     if extra_lines and "extra" in item:
         item["extra"] = "\n".join(extra_lines)
@@ -551,21 +628,20 @@ def prepare_zotero_item(
     # --- Tags ---
     all_tags = []
 
-    def _split_tags(raw):
-        if is_valid(raw) and raw != MISSING_VALUE:
-            return [t.strip() for t in str(raw).split(";") if t.strip()]
-        return []
-
-    # HF enrichment tags + bonus keyword tags + collect keywords
-    all_tags.extend(_split_tags(get_value(row, "tags", MISSING_VALUE)))
-    all_tags.extend(_split_tags(get_value(row, "bonus_keyword_tags", MISSING_VALUE)))
-    all_tags.extend(_split_tags(get_value(row, "collect_keywords", MISSING_VALUE)))
+    # Enrichment tags + bonus keyword tags + collect keywords
+    all_tags.extend(split_semicolon_field(get_value(row, "tags", MISSING_VALUE)))
+    all_tags.extend(
+        split_semicolon_field(get_value(row, "bonus_keyword_tags", MISSING_VALUE))
+    )
+    all_tags.extend(
+        split_semicolon_field(get_value(row, "collect_keywords", MISSING_VALUE))
+    )
 
     # Presence tags
     if pdf_valid:
         all_tags.append("HavePDF")
-    if hf_valid:
-        all_tags.append("HaveHF")
+    if pwc_valid:
+        all_tags.append("HavePWC")
     if github_valid:
         all_tags.append("HaveGithub")
 

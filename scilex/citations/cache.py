@@ -1,5 +1,4 @@
-"""
-SQLite-based citation caching system.
+"""SQLite-based citation caching system.
 
 Provides persistent caching for citation data to avoid redundant API calls.
 Features:
@@ -15,8 +14,12 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-# Thread-local storage for database connections (thread-safe)
-_thread_local = threading.local()
+from scilex.constants import normalize_doi
+
+# Open connections keyed by (thread id, resolved path); guarded by a lock so
+# close_connections() can close every connection opened by any thread.
+_connections: dict[tuple[int, str], sqlite3.Connection] = {}
+_connections_lock = threading.Lock()
 
 # Default cache TTL: 30 days
 DEFAULT_TTL_DAYS = 30
@@ -37,24 +40,50 @@ def get_cache_path(output_dir: str = "output") -> Path:
 
 
 def _get_connection(cache_path: Path) -> sqlite3.Connection:
-    """Get thread-local database connection (thread-safe).
+    """Get the database connection for the current thread and given path.
+
+    Each (thread, path) pair gets its own connection, so using a different
+    cache_path never silently reuses a connection to another database.
 
     Args:
         cache_path: Path to SQLite database
 
     Returns:
-        sqlite3.Connection for current thread
+        sqlite3.Connection for current thread and path
     """
-    if not hasattr(_thread_local, "connection") or _thread_local.connection is None:
-        _thread_local.connection = sqlite3.connect(
-            str(cache_path),
-            check_same_thread=False,  # Allow multi-threading
-            timeout=30.0,  # 30 second timeout for locks
-        )
-        # Enable WAL mode for better concurrency
-        _thread_local.connection.execute("PRAGMA journal_mode=WAL")
-        _thread_local.connection.execute("PRAGMA synchronous=NORMAL")
-    return _thread_local.connection
+    key = (threading.get_ident(), str(cache_path))
+    with _connections_lock:
+        conn = _connections.get(key)
+        if conn is None:
+            conn = sqlite3.connect(
+                str(cache_path),
+                check_same_thread=False,  # close_connections() may run elsewhere
+                timeout=30.0,  # 30 second timeout for locks
+            )
+            # Enable WAL mode for better concurrency
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            _connections[key] = conn
+    return conn
+
+
+def should_cache_result(result: dict) -> bool:
+    """Tell whether a citation result is complete enough to be cached.
+
+    Only results where both the citations and references lookups succeeded
+    are cacheable; partial or failed results would poison the cache for 30 days.
+
+    Args:
+        result: Dict with an ``api_stats`` mapping (``cit_status``/``ref_status``)
+
+    Returns:
+        True only if both statuses equal "success".
+    """
+    api_stats = (result or {}).get("api_stats") or {}
+    return (
+        api_stats.get("cit_status") == "success"
+        and api_stats.get("ref_status") == "success"
+    )
 
 
 def initialize_cache(cache_path: Path | None = None) -> Path:
@@ -97,105 +126,6 @@ def initialize_cache(cache_path: Path | None = None) -> Path:
     return cache_path
 
 
-def get_cached_citation(doi: str, cache_path: Path | None = None) -> dict | None:
-    """Retrieve cached citation data for a DOI.
-
-    Args:
-        doi: DOI string
-        cache_path: Optional path to cache database
-
-    Returns:
-        Dict with citation data if found and not expired, None otherwise
-        Format: {
-            "citations": <json string>,
-            "nb_cited": <int>,
-            "nb_citations": <int>,
-            "api_stats": {
-                "cit_status": <str>,
-                "ref_status": <str>
-            }
-        }
-    """
-    if cache_path is None:
-        cache_path = get_cache_path()
-
-    conn = _get_connection(cache_path)
-    cursor = conn.cursor()
-
-    # Query with expiration check
-    cursor.execute(
-        """
-        SELECT citations_json, nb_cited, nb_citations, cit_status, ref_status
-        FROM citations
-        WHERE doi = ? AND expires_at > ?
-    """,
-        (doi, datetime.now().isoformat()),
-    )
-
-    row = cursor.fetchone()
-    if row is None:
-        return None
-
-    return {
-        "citations": row[0],  # JSON string
-        "nb_cited": row[1],
-        "nb_citations": row[2],
-        "api_stats": {"cit_status": row[3], "ref_status": row[4]},
-    }
-
-
-def cache_citation(
-    doi: str,
-    citations_json: str,
-    nb_cited: int,
-    nb_citations: int,
-    api_stats: dict[str, str],
-    cache_path: Path | None = None,
-    ttl_days: int = DEFAULT_TTL_DAYS,
-) -> None:
-    """Store citation data in cache.
-
-    Args:
-        doi: DOI string
-        citations_json: Citation data as JSON string
-        nb_cited: Number of cited papers
-        nb_citations: Number of citing papers
-        api_stats: API call statistics {"cit_status": ..., "ref_status": ...}
-        cache_path: Optional path to cache database
-        ttl_days: Time to live in days (default: 30)
-    """
-    if cache_path is None:
-        cache_path = get_cache_path()
-
-    conn = _get_connection(cache_path)
-    cursor = conn.cursor()
-
-    now = datetime.now()
-    expires_at = now + timedelta(days=ttl_days)
-
-    # Insert or replace (UPSERT)
-    cursor.execute(
-        """
-        INSERT OR REPLACE INTO citations
-        (doi, citations_json, nb_cited, nb_citations, cit_status, ref_status, cached_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """,
-        (
-            doi,
-            citations_json,
-            nb_cited,
-            nb_citations,
-            api_stats.get("cit_status", "unknown"),
-            api_stats.get("ref_status", "unknown"),
-            now.isoformat(),
-            expires_at.isoformat(),
-        ),
-    )
-
-    conn.commit()
-    logging.debug(f"Cached citation data for DOI: {doi}")
-
-
 def get_cached_citations_batch(dois: list[str], cache_path: Path | None = None) -> dict:
     """Retrieve cached citations for multiple DOIs in one SQL query.
 
@@ -207,12 +137,19 @@ def get_cached_citations_batch(dois: list[str], cache_path: Path | None = None) 
         cache_path: Optional path to cache database.
 
     Returns:
-        dict: {doi: {"citations": ..., "nb_cited": ..., "nb_citations": ...,
+        dict: {doi as passed in: {"citations": ..., "nb_cited": ..., "nb_citations": ...,
                "api_stats": {...}}} for found DOIs. DOIs not in cache (or
                expired) are omitted.
     """
-    if not dois:
+    # Map normalized DOI -> original spellings so callers get their own keys back
+    originals: dict[str, list[str]] = {}
+    for doi in dois or []:
+        normalized_doi = normalize_doi(doi)
+        if normalized_doi is not None:
+            originals.setdefault(normalized_doi, []).append(doi)
+    if not originals:
         return {}
+    normalized_dois = list(originals)
 
     if cache_path is None:
         cache_path = get_cache_path()
@@ -224,8 +161,8 @@ def get_cached_citations_batch(dois: list[str], cache_path: Path | None = None) 
     results = {}
     chunk_size = 500  # SQLite parameter limit safety margin
 
-    for i in range(0, len(dois), chunk_size):
-        chunk = dois[i : i + chunk_size]
+    for i in range(0, len(normalized_dois), chunk_size):
+        chunk = normalized_dois[i : i + chunk_size]
         placeholders = ",".join("?" for _ in chunk)
         cursor.execute(
             f"""
@@ -236,14 +173,16 @@ def get_cached_citations_batch(dois: list[str], cache_path: Path | None = None) 
             (*chunk, now),
         )
         for row in cursor.fetchall():
-            results[row[0]] = {
+            entry = {
                 "citations": row[1],
                 "nb_cited": row[2],
                 "nb_citations": row[3],
                 "api_stats": {"cit_status": row[4], "ref_status": row[5]},
             }
+            for original_doi in originals[row[0]]:
+                results[original_doi] = entry
 
-    logging.debug(f"Batch cache lookup: {len(results)}/{len(dois)} hits")
+    logging.debug(f"Batch cache lookup: {len(results)}/{len(normalized_dois)} hits")
     return results
 
 
@@ -262,6 +201,11 @@ def cache_citations_batch(
         cache_path: Optional path to cache database.
         ttl_days: Time to live in days (default: 30).
     """
+    entries = [
+        {**entry, "doi": normalize_doi(entry["doi"])}
+        for entry in entries or []
+        if normalize_doi(entry["doi"]) is not None
+    ]
     if not entries:
         return
 
@@ -372,33 +316,12 @@ def get_cache_stats(cache_path: Path | None = None) -> dict:
     }
 
 
-def clear_cache(cache_path: Path | None = None) -> int:
-    """Clear entire cache (delete all entries).
-
-    Args:
-        cache_path: Optional path to cache database
-
-    Returns:
-        Number of entries removed
-    """
-    if cache_path is None:
-        cache_path = get_cache_path()
-
-    conn = _get_connection(cache_path)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT COUNT(*) FROM citations")
-    count = cursor.fetchone()[0]
-
-    cursor.execute("DELETE FROM citations")
-    conn.commit()
-
-    logging.info(f"Cleared {count} entries from citation cache")
-    return count
-
-
-def close_connections():
-    """Close thread-local database connections (cleanup)."""
-    if hasattr(_thread_local, "connection") and _thread_local.connection is not None:
-        _thread_local.connection.close()
-        _thread_local.connection = None
+def close_connections() -> None:
+    """Close every database connection opened by any thread."""
+    with _connections_lock:
+        for conn in _connections.values():
+            try:
+                conn.close()
+            except sqlite3.Error as error:
+                logging.debug(f"Error closing cache connection: {error}")
+        _connections.clear()

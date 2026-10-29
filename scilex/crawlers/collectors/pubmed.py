@@ -15,6 +15,8 @@ from datetime import date
 
 from lxml import etree
 
+from scilex.crawlers.utils import sanitize_secrets
+
 from .base import API_collector
 
 
@@ -60,7 +62,9 @@ class PubMed_collector(API_collector):
 
         # Add date filter with quoted dates and space around colon
         year = str(self.get_year())
-        date_filter = f'"{year}/01/01"[PDAT] : "{year}/12/31"[PDAT]'
+        start_date = self.get_query_start_date()
+        range_start = start_date.strftime("%Y/%m/%d") if start_date else f"{year}/01/01"
+        date_filter = f'"{range_start}"[PDAT] : "{year}/12/31"[PDAT]'
         query_parts.append(date_filter)
 
         final_query = " AND ".join(query_parts)
@@ -88,7 +92,7 @@ class PubMed_collector(API_collector):
             f"{api_key_param}"
         )
 
-        logging.debug(f"Configured ESearch URL template: {url}")
+        logging.debug(f"Configured ESearch URL template: {self._sanitize_url(url)}")
         return url
 
     def parsePageResults(self, response, page):
@@ -145,10 +149,13 @@ class PubMed_collector(API_collector):
                 f"Retrieved metadata for {len(all_articles)} articles on page {page}"
             )
 
-        except etree.XMLSyntaxError as e:
-            logging.error(f"XML parsing error on page {page}: {str(e)}")
         except Exception as e:
-            logging.error(f"Error parsing PubMed results on page {page}: {str(e)}")
+            # Never return a silently truncated page: runCollect marks the
+            # query incomplete when this raises.
+            logging.error(
+                f"Error parsing PubMed results on page {page}: {sanitize_secrets(e)}"
+            )
+            raise
 
         return page_data
 
@@ -176,13 +183,10 @@ class PubMed_collector(API_collector):
             f"{api_key_param}"
         )
 
-        try:
-            logging.debug(f"Fetching metadata for {len(pmids)} PMIDs")
-            response = self.api_call_decorator(efetch_url)
-            return self._parse_efetch_response(response.content)
-        except Exception as e:
-            logging.error(f"Error fetching batch metadata: {str(e)}")
-            return []
+        # Errors propagate: a failed batch must not silently drop articles.
+        logging.debug(f"Fetching metadata for {len(pmids)} PMIDs")
+        response = self.api_call_decorator(efetch_url)
+        return self._parse_efetch_response(response.content)
 
     def _parse_efetch_response(self, xml_content):
         """Parse EFetch XML response to extract article metadata.
@@ -219,10 +223,9 @@ class PubMed_collector(API_collector):
                     logging.warning(f"Error parsing article: {str(e)}")
                     continue
 
-        except etree.XMLSyntaxError as e:
-            logging.error(f"XML syntax error in EFetch response: {str(e)}")
         except Exception as e:
-            logging.error(f"Error parsing EFetch response: {str(e)}")
+            logging.error(f"Error parsing EFetch response: {sanitize_secrets(e)}")
+            raise
 
         return articles
 

@@ -281,6 +281,7 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
+!packaging/scilex-gui.spec
 
 # Installer logs
 pip-log.txt
@@ -458,3 +459,9 @@ docs/plans/
 # Deprecated code (tracked in git for history)
 # .deprecated/ is intentionally committed
 docs/enhancement-proposals.md
+
+
+
+
+.playwright-mcp
+.superpowers/

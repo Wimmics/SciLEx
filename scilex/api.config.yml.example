@@ -1,3 +1,4 @@
+# Ancien format, voir scilex.yml.example (racine du dépôt) / `scilex config migrate`.
 # ============================================================================
 # SciLEx API Configuration - Quick Start
 # ============================================================================
@@ -41,12 +42,6 @@ Zotero:
 SemanticScholar:
   api_key: "YOUR_SEMANTIC_SCHOLAR_API_KEY"  # Free tier OK, get at https://www.semanticscholar.org/product/api
 
-# HuggingFace (optional - for paper enrichment with ML models/datasets/code repos)
-HuggingFace:
-  token: null  # Optional HF token (get at https://huggingface.co/settings/tokens)
-               # Benefits: 5x higher rate limit (5 req/sec vs 1 req/sec)
-               # Leave null to use public API (works but slower)
-
 # PubMed - Biomedical literature (35M+ papers, ~25% with PMC PDFs)
 # Free tier: 3 req/sec, With API key: 10 req/sec
 # Get key at: https://www.ncbi.nlm.nih.gov/account/settings/
@@ -64,7 +59,7 @@ HuggingFace:
 # HOW IT WORKS:
 #   During aggregation, SciLEx fetches citation counts for each paper.
 #   CrossRef supports batch DOI lookup (20 DOIs per request), which is
-#   ~200x faster than OpenCitations (1 DOI per request at 1 req/sec).
+#   ~200x faster than OpenCitations (2 requests per DOI at 3 req/sec).
 #   CrossRef is used automatically — no configuration needed.
 #
 # POLITE POOL (recommended):

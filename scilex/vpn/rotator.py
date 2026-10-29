@@ -4,6 +4,7 @@ Works on native Windows, native Linux (nordvpn CLI), and WSL2 (calls NordVPN.exe
 directly via the WSL2 interop path /mnt/c/Program Files/NordVPN/NordVPN.exe).
 """
 
+import copy
 import logging
 import os
 import platform
@@ -12,15 +13,12 @@ import subprocess
 import threading
 import time
 import urllib.request
-from typing import Optional
-
-import yaml
 
 
 class VPNRotator:
     """Controls NordVPN IP rotation to bypass per-IP rate limits.
 
-    Configured via the ``vpn:`` section of ``api.config.yml``.  Use the
+    Configured via the ``collect.vpn`` section of ``scilex.yml``.  Use the
     module-level :func:`get_vpn_rotator` to obtain the shared singleton.
     """
 
@@ -35,18 +33,66 @@ class VPNRotator:
 
     # All countries available on NordVPN (as of 2025)
     ALL_COUNTRIES = [
-        "Albania", "Argentina", "Australia", "Austria", "Belgium",
-        "Bosnia and Herzegovina", "Brazil", "Bulgaria", "Canada", "Chile",
-        "Colombia", "Costa Rica", "Croatia", "Cyprus", "Czech Republic",
-        "Denmark", "Estonia", "Finland", "France", "Georgia", "Germany",
-        "Greece", "Hong Kong", "Hungary", "Iceland", "India", "Indonesia",
-        "Ireland", "Israel", "Italy", "Japan", "Latvia", "Luxembourg",
-        "Malaysia", "Mexico", "Moldova", "Netherlands", "New Zealand",
-        "North Macedonia", "Norway", "Poland", "Portugal", "Romania",
-        "Serbia", "Singapore", "Slovakia", "Slovenia", "South Africa",
-        "South Korea", "Spain", "Sweden", "Switzerland", "Taiwan", "Thailand",
-        "Turkey", "Ukraine", "United Arab Emirates", "United Kingdom",
-        "United States", "Vietnam",
+        "Albania",
+        "Argentina",
+        "Australia",
+        "Austria",
+        "Belgium",
+        "Bosnia and Herzegovina",
+        "Brazil",
+        "Bulgaria",
+        "Canada",
+        "Chile",
+        "Colombia",
+        "Costa Rica",
+        "Croatia",
+        "Cyprus",
+        "Czech Republic",
+        "Denmark",
+        "Estonia",
+        "Finland",
+        "France",
+        "Georgia",
+        "Germany",
+        "Greece",
+        "Hong Kong",
+        "Hungary",
+        "Iceland",
+        "India",
+        "Indonesia",
+        "Ireland",
+        "Israel",
+        "Italy",
+        "Japan",
+        "Latvia",
+        "Luxembourg",
+        "Malaysia",
+        "Mexico",
+        "Moldova",
+        "Netherlands",
+        "New Zealand",
+        "North Macedonia",
+        "Norway",
+        "Poland",
+        "Portugal",
+        "Romania",
+        "Serbia",
+        "Singapore",
+        "Slovakia",
+        "Slovenia",
+        "South Africa",
+        "South Korea",
+        "Spain",
+        "Sweden",
+        "Switzerland",
+        "Taiwan",
+        "Thailand",
+        "Turkey",
+        "Ukraine",
+        "United Arab Emirates",
+        "United Kingdom",
+        "United States",
+        "Vietnam",
     ]
 
     def __init__(self, config: dict):
@@ -60,12 +106,14 @@ class VPNRotator:
 
         self._rotation_count = 0
         self._lock = threading.Lock()
-        self._exe_path: Optional[str] = None
+        self._exe_path: str | None = None
 
         if self.enabled:
             self._exe_path = self._find_nordvpn_exe()
             if self._exe_path:
-                apis_str = ", ".join(sorted(self.rotate_on)) if self.rotate_on else "all APIs"
+                apis_str = (
+                    ", ".join(sorted(self.rotate_on)) if self.rotate_on else "all APIs"
+                )
                 logging.warning(
                     f"[VPN] Rotation enabled — exe: {self._exe_path} | "
                     f"APIs: {apis_str} | limit: {self.max_rotations} rotations/session"
@@ -174,11 +222,12 @@ class VPNRotator:
         except OSError:
             return False
 
-    def _find_nordvpn_exe(self) -> Optional[str]:
+    def _find_nordvpn_exe(self) -> str | None:
         candidates = self._WSL_EXE_PATHS if self._is_wsl2() else self._WIN_EXE_PATHS
         # Also allow native Linux nordvpn CLI
         if platform.system() == "Linux" and not self._is_wsl2():
             import shutil
+
             if shutil.which("nordvpn"):
                 return "nordvpn"
         for p in candidates:
@@ -187,7 +236,7 @@ class VPNRotator:
         return None
 
     @staticmethod
-    def _get_public_ip() -> Optional[str]:
+    def _get_public_ip() -> str | None:
         for url in ("https://api64.ipify.org", "https://api4.ipify.org"):
             try:
                 with urllib.request.urlopen(url, timeout=10) as resp:
@@ -201,26 +250,50 @@ class VPNRotator:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_instance: Optional[VPNRotator] = None
+_instance: VPNRotator | None = None
+_instance_config: dict | None = None
 _instance_lock = threading.Lock()
 
 
-def get_vpn_rotator() -> VPNRotator:
-    """Return the process-wide VPNRotator singleton (thread-safe, lazy init)."""
-    global _instance
-    if _instance is None:
-        with _instance_lock:
-            if _instance is None:
-                _instance = VPNRotator(_load_vpn_config())
-    return _instance
+def _normalize_vpn_config(vpn_config) -> dict:
+    """Return ``vpn_config`` when it is a mapping, else an empty dict (disabled)."""
+    return vpn_config if isinstance(vpn_config, dict) else {}
 
 
-def _load_vpn_config() -> dict:
-    config_path = os.path.join(os.path.dirname(__file__), "..", "api.config.yml")
+def get_vpn_rotator(vpn_config: dict | None = None) -> VPNRotator:
+    """Return the shared VPNRotator for ``vpn_config`` (thread-safe, never raises).
+
+    The singleton is rebuilt when the configuration differs from the one it was
+    created with, so two jobs in one process (web API) each get their own
+    settings. ``None`` or an empty mapping means rotation is disabled.
+
+    Args:
+        vpn_config: The ``vpn`` block of the resolved configuration.
+    """
+    global _instance, _instance_config
+    config = _normalize_vpn_config(vpn_config)
+    with _instance_lock:
+        if _instance is None or config != _instance_config:
+            try:
+                _instance = VPNRotator(config)
+            except Exception as error:
+                logging.warning(f"VPN: invalid configuration ({error}) - disabled.")
+                _instance = VPNRotator({})
+                config = {}
+            _instance_config = copy.deepcopy(config)
+        return _instance
+
+
+def vpn_config_from_configs(main_config, api_config=None) -> dict:
+    """Return the VPN block of a resolved configuration, never raising.
+
+    Reads ``main_config["vpn"]`` (``collect.vpn`` in ``scilex.yml``) and falls
+    back to ``api_config["vpn"]`` for the legacy ``api.config.yml``. An empty
+    dict disables rotation.
+    """
     try:
-        with open(config_path) as fh:
-            cfg = yaml.safe_load(fh) or {}
-        return cfg.get("vpn", {})
-    except Exception as e:
-        logging.debug(f"VPN: could not load config ({e}) — VPN rotation disabled.")
+        vpn_config = (main_config or {}).get("vpn") or (api_config or {}).get("vpn")
+        return _normalize_vpn_config(vpn_config)
+    except Exception as error:
+        logging.debug(f"VPN: could not read config ({error}) - rotation disabled.")
         return {}

@@ -1,9 +1,11 @@
 """Tests for scilex.export_to_bibtex module - all pure functions."""
 
 import pandas as pd
+import pytest
 
 from scilex.export_to_bibtex import (
     ITEMTYPE_TO_BIBTEX,
+    _escape_url,
     escape_bibtex,
     extract_year,
     format_authors,
@@ -66,25 +68,23 @@ class TestParseTags:
 # escape_bibtex
 # -------------------------------------------------------------------------
 class TestEscapeBibtex:
-    def test_ampersand_escaped(self):
-        result = escape_bibtex("A & B")
-        assert "&" not in result or "\\&" in result or "textbackslash" in result
-
-    def test_percent_escaped(self):
-        result = escape_bibtex("100%")
-        assert "%" not in result or "\\%" in result or "textbackslash" in result
-
-    def test_hash_escaped(self):
-        result = escape_bibtex("C#")
-        assert "#" not in result or "\\#" in result or "textbackslash" in result
-
-    def test_underscore_escaped(self):
-        result = escape_bibtex("my_var")
-        assert result != "my_var"  # underscore should be transformed
-
-    def test_dollar_escaped(self):
-        result = escape_bibtex("$10")
-        assert result != "$10"  # dollar should be transformed
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("A & B", r"A \& B"),
+            ("100%", r"100\%"),
+            ("C#", r"C\#"),
+            ("my_var", r"my\_var"),
+            ("$10", r"\$10"),
+            ("{x}", r"\{x\}"),
+            ("a\\b", r"a\textbackslash{}b"),
+            ("~", r"\textasciitilde{}"),
+            ("^", r"\textasciicircum{}"),
+            ("50% R&D", r"50\% R\&D"),
+        ],
+    )
+    def test_exact_escaping(self, raw, expected):
+        assert escape_bibtex(raw) == expected
 
     def test_na_returns_empty(self):
         assert escape_bibtex("NA") == ""
@@ -95,10 +95,58 @@ class TestEscapeBibtex:
     def test_normal_text_unchanged(self):
         assert escape_bibtex("Normal text here") == "Normal text here"
 
-    def test_tilde_escaped(self):
-        result = escape_bibtex("~")
-        assert result != "~"  # tilde should be transformed
-        assert "tilde" in result.lower() or "textbackslash" in result
+
+class TestEscapeUrl:
+    def test_percent_and_hash_escaped(self):
+        assert _escape_url("http://a.org/x%20y#frag") == r"http://a.org/x\%20y\#frag"
+
+    def test_underscore_and_tilde_untouched(self):
+        assert _escape_url("http://a.org/~u/a_b") == "http://a.org/~u/a_b"
+
+    def test_balanced_braces_untouched(self):
+        assert _escape_url("http://a.org/{x}") == "http://a.org/{x}"
+
+    def test_unbalanced_braces_escaped(self):
+        assert _escape_url("http://a.org/}x{") == r"http://a.org/\}x\{"
+
+    def test_missing_returns_empty(self):
+        assert _escape_url("NA") == ""
+
+
+class TestEntryEscaping:
+    def _entry(self, **fields):
+        row = pd.Series({"itemType": "journalArticle", "title": "T", **fields})
+        return format_bibtex_entry(row, "k")
+
+    def test_keywords_escaped(self):
+        assert r"keywords = {R&D}" not in self._entry(tags="R&D;a_b")
+        assert r"keywords = {R\&D, a\_b}" in self._entry(tags="R&D;a_b")
+
+    def test_authors_escaped(self):
+        assert r"author = {Smith \& Sons and A\_B}" in self._entry(
+            authors="Smith & Sons;A_B"
+        )
+
+    def test_url_fields_escaped_minimally(self):
+        entry = self._entry(
+            url="http://a.org/p_1?q=50%&r#x",
+            pdf_url="http://a.org/f%20.pdf",
+            pwc_url="http://pwc.co/a#b",
+            github_repo="http://gh.com/a_b/~c#d",
+        )
+        assert r"url = {http://a.org/p_1?q=50\%&r\#x}" in entry
+        assert r"file = {http://a.org/f\%20.pdf}" in entry
+        assert r"pwcurl = {http://pwc.co/a\#b}" in entry
+        assert r"howpublished = {http://gh.com/a_b/~c\#d}" in entry
+
+    def test_pwc_url_exported_as_pwcurl(self):
+        entry = self._entry(pwc_url="https://paperswithcode.co/paper/2307.03172")
+        assert "pwcurl = {https://paperswithcode.co/paper/2307.03172}" in entry
+        assert "hfurl" not in entry
+
+    def test_legacy_hf_url_falls_back_to_pwcurl(self):
+        entry = self._entry(hf_url="https://huggingface.co/papers/2401.12345")
+        assert "pwcurl = {https://huggingface.co/papers/2401.12345}" in entry
 
 
 # -------------------------------------------------------------------------
@@ -245,7 +293,7 @@ class TestFormatBibtexEntry:
             "serie": "NA",
             "conferenceName": "NA",
             "tags": "NA",
-            "hf_url": "NA",
+            "pwc_url": "NA",
             "github_repo": "NA",
         }
         defaults.update(overrides)
@@ -309,10 +357,12 @@ class TestFormatBibtexEntry:
         assert "copyright" not in entry
         assert "file" not in entry
 
-    def test_hf_tags_in_keywords(self):
-        row = self._make_row(tags="TASK:NER;PTM:BERT")
+    def test_hf_tags_in_dedicated_fields(self):
+        row = self._make_row(tags="TASK:NER;PTM:BERT;transfer learning")
         entry = format_bibtex_entry(row, "key")
-        assert "keywords = {TASK:NER, PTM:BERT}" in entry
+        assert "task = {NER}" in entry
+        assert "ptm = {BERT}" in entry
+        assert "keywords = {transfer learning}" in entry
 
     def test_entry_closes_properly(self):
         row = self._make_row()
@@ -361,3 +411,68 @@ class TestItemtypeMapping:
 
     def test_manuscript(self):
         assert ITEMTYPE_TO_BIBTEX["Manuscript"] == "misc"
+
+
+class TestMainErrorHandling:
+    def test_value_error_exits_1(self, monkeypatch):
+        import scilex.export_to_bibtex as mod
+
+        monkeypatch.setattr("sys.argv", ["scilex-export-bibtex"])
+        monkeypatch.setattr(mod, "load_config", lambda **_: {"collect_name": "c"})
+
+        def raise_value_error(_config):
+            raise ValueError("bad csv")
+
+        monkeypatch.setattr(mod, "load_aggregated_data", raise_value_error)
+        with pytest.raises(SystemExit) as exc_info:
+            mod.main()
+        assert exc_info.value.code == 1
+
+
+def test_export_uses_normalized_collect_name(tmp_path):
+    import scilex.export_to_bibtex as mod
+
+    directory = tmp_path / "mycoll"
+    directory.mkdir()
+    data = pd.DataFrame([{"itemType": "book", "title": "T", "DOI": "10.1/a"}])
+    output = mod.export_to_bibtex(
+        data, {"output_dir": str(tmp_path), "collect_name": "/mycoll/"}
+    )
+    assert output == str(directory / "aggregated_results.bib")
+
+
+class TestFormatPagesDashes:
+    def test_en_dash(self):
+        assert format_pages("10\u201320") == "10--20"
+
+    def test_em_dash_with_spaces(self):
+        assert format_pages("10 \u2014 20") == "10--20"
+
+    def test_many_hyphens(self):
+        assert format_pages("10----20") == "10--20"
+
+
+class TestCitationKeyRobustness:
+    def test_suffixes_continue_past_z(self):
+        row = pd.Series({"title": "T"})
+        used = {"10_1_x"}
+        keys = [generate_citation_key("10.1/x", row, used) for _ in range(28)]
+        assert keys[0] == "10_1_x_a"
+        assert keys[25] == "10_1_x_z"
+        assert keys[26] == "10_1_x_aa"
+        assert keys[27] == "10_1_x_ab"
+        assert len(set(keys)) == 28
+
+    def test_fallback_key_sanitized(self):
+        row = pd.Series({"authors": "A B", "date": "2020", "title": "Q&A: {x}, y"})
+        assert generate_citation_key("NA", row, set()) == "B2020_QA:"
+
+    def test_last_first_author_format(self):
+        row = pd.Series(
+            {"authors": "Smith, John;Doe, Jane", "date": "2020", "title": "Hi"}
+        )
+        assert generate_citation_key("NA", row, set()) == "Smith2020_Hi"
+
+    def test_doi_with_invalid_chars_sanitized(self):
+        key = generate_citation_key("10.1002/(SICI)1097<x>", pd.Series({}), set())
+        assert key == "10_1002_SICI1097x"

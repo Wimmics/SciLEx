@@ -25,6 +25,8 @@ from pathlib import Path
 import requests
 from tqdm import tqdm
 
+from scilex.constants import QUERY_MARKER_FILES, normalize_doi
+
 # ---------------------------------------------------------------------------
 # Persistent DOI → abstract cache  (SQLite backend)
 # ---------------------------------------------------------------------------
@@ -52,12 +54,7 @@ def _resolve_dir(dir_collect: str) -> Path:
         return p
 
     raw = str(dir_collect)
-    if (
-        len(raw) >= 3
-        and raw[1] == ":"
-        and raw[2] in ("/", "\\")
-        and os.name != "nt"
-    ):
+    if len(raw) >= 3 and raw[1] == ":" and raw[2] in ("/", "\\") and os.name != "nt":
         drive = raw[0].lower()
         rest = raw[3:].replace("\\", "/")
         converted = Path(f"/mnt/{drive}/{rest}")
@@ -123,7 +120,9 @@ def _migrate_json_to_sqlite(dir_collect: str) -> int:
         count = conn.execute("SELECT COUNT(*) FROM abstract_cache").fetchone()[0]
 
     json_path.rename(json_path.with_suffix(".json.migrated"))
-    logging.info(f"Abstract cache: migrated {count:,} entries; old file renamed to .json.migrated")
+    logging.info(
+        f"Abstract cache: migrated {count:,} entries; old file renamed to .json.migrated"
+    )
     return count
 
 
@@ -182,15 +181,6 @@ def _is_abstract_missing(value) -> bool:
     return value is None or str(value).strip() in _MISSING_MARKERS
 
 
-def _clean_doi(doi: str) -> str:
-    return (
-        doi.replace("https://doi.org/", "")
-        .replace("http://doi.org/", "")
-        .strip()
-        .lower()
-    )
-
-
 def _extract_doi(record: dict, api_name: str) -> str | None:
     """Extract raw DOI string from an API-format record."""
     if api_name == "Elsevier":
@@ -204,7 +194,7 @@ def _extract_doi(record: dict, api_name: str) -> str | None:
     else:
         doi = record.get("doi") or record.get("DOI") or record.get("prism:doi")
 
-    return _clean_doi(doi) if doi else None
+    return normalize_doi(doi)
 
 
 def _abstract_field(api_name: str) -> str:
@@ -301,7 +291,7 @@ def _iter_page_files(dir_collect: str):
             except ValueError:
                 continue
             for filename in os.listdir(query_path):
-                if filename == "_complete":
+                if filename in QUERY_MARKER_FILES:
                     continue
                 fp = os.path.join(query_path, filename)
                 if os.path.isfile(fp):
@@ -322,8 +312,10 @@ def _single_pass_scan(
         file_data_map : file_path → (data_dict, api_name, abs_field)
                         — holds parsed JSON so we can rewrite only changed files.
     """
-    doi_to_indices: dict[str, list[tuple]] = {}   # doi → [(list_ref, record_idx, abs_field)]
-    file_data: dict[str, tuple] = {}              # file_path → (data, api_name, abs_field)
+    doi_to_indices: dict[
+        str, list[tuple]
+    ] = {}  # doi → [(list_ref, record_idx, abs_field)]
+    file_data: dict[str, tuple] = {}  # file_path → (data, api_name, abs_field)
 
     for file_path, api_name in _iter_page_files(dir_collect):
         if api_name not in ABSTRACT_ABSENT_APIS:
@@ -344,7 +336,9 @@ def _single_pass_scan(
             doi = _extract_doi(record, api_name)
             if not doi:
                 continue
-            doi_to_indices.setdefault(doi, []).append((results, idx, abs_field, file_path))
+            doi_to_indices.setdefault(doi, []).append(
+                (results, idx, abs_field, file_path)
+            )
             file_needs_tracking = True
 
         if file_needs_tracking:
@@ -439,8 +433,14 @@ def enrich_collection_abstracts(
             "Abstract enrichment: cache-only mode — skipping file scan, "
             "cached abstracts will be injected during aggregation"
         )
-        return {"dois_found": 0, "enriched": 0, "cache_hits": 0,
-                "newly_fetched": 0, "failed": 0, "patched_records": 0}
+        return {
+            "dois_found": 0,
+            "enriched": 0,
+            "cache_hits": 0,
+            "newly_fetched": 0,
+            "failed": 0,
+            "patched_records": 0,
+        }
 
     logging.info("Abstract enrichment: scanning collection for missing abstracts…")
 
@@ -448,7 +448,9 @@ def enrich_collection_abstracts(
     all_dois, doi_to_indices, file_data = _single_pass_scan(dir_collect)
 
     if not all_dois:
-        logging.info("Abstract enrichment: nothing to enrich (all records have abstracts).")
+        logging.info(
+            "Abstract enrichment: nothing to enrich (all records have abstracts)."
+        )
         return {"dois_found": 0, "enriched": 0, "failed": 0, "patched_records": 0}
 
     # Batched SQLite lookup — targeted query for only the DOIs we need
@@ -469,7 +471,9 @@ def enrich_collection_abstracts(
         cached_abstracts, doi_to_indices, file_data
     )
     if patched_from_cache:
-        logging.info(f"Abstract enrichment: patched {patched_from_cache} records from cache")
+        logging.info(
+            f"Abstract enrichment: patched {patched_from_cache} records from cache"
+        )
 
     # Fetch DOIs that were never attempted (skip previously-failed ones)
     dois_to_fetch = [d for d in dois_never_attempted if d in doi_to_indices]
@@ -484,7 +488,9 @@ def enrich_collection_abstracts(
 
         def _fetch(doi: str) -> tuple[str, str | None]:
             abstract = fetch_abstract_for_doi(
-                doi, session, ss_api_key=ss_api_key,
+                doi,
+                session,
+                ss_api_key=ss_api_key,
                 inter_request_delay=inter_request_delay,
             )
             time.sleep(inter_request_delay)
@@ -527,7 +533,9 @@ def enrich_collection_abstracts(
         f"({cache_hits} from cache, {len(newly_fetched)} newly fetched, "
         f"{failed + cache_misses} not found)"
     )
-    logging.info(f"Abstract enrichment: patched {total_patched} records in collection files")
+    logging.info(
+        f"Abstract enrichment: patched {total_patched} records in collection files"
+    )
 
     return {
         "dois_found": len(all_dois),

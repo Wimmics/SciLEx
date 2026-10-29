@@ -16,7 +16,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra gui
 
       - name: Run tests (excluding live tests)
         run: uv run pytest -m "not live" --cov=scilex --cov-report=term-missing

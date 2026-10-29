@@ -32,8 +32,11 @@ class AdaptiveRateLimiter:
         self._consecutive_throttles: int = 0
         self._consecutive_successes: int = 0
 
-    def wait(self, base_rate: float) -> None:
-        """Block until the next request is allowed, then mark the call time."""
+    def wait(self, base_rate: float, cancel_event=None) -> None:
+        """Block until the next request is allowed, then mark the call time.
+
+        A set ``cancel_event`` ends the wait early (the caller then stops).
+        """
         with self._lock:
             min_interval = (1.0 / base_rate) if base_rate > 0 else 0.0
             total_interval = min_interval + self._extra_delay
@@ -41,7 +44,10 @@ class AdaptiveRateLimiter:
             wait_needed = total_interval - elapsed
 
         if wait_needed > 0:
-            time.sleep(wait_needed)
+            if cancel_event is not None:
+                cancel_event.wait(wait_needed)
+            else:
+                time.sleep(wait_needed)
 
         with self._lock:
             self._last_call_time = time.monotonic()
@@ -77,11 +83,6 @@ class AdaptiveRateLimiter:
                     f"+{self._extra_delay:.1f}s extra delay "
                     f"(after {self._consecutive_successes} successes)"
                 )
-
-    @property
-    def extra_delay(self) -> float:
-        with self._lock:
-            return self._extra_delay
 
 
 class AdaptiveRateLimiterRegistry:

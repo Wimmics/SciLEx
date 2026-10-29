@@ -1,4 +1,5 @@
 import logging
+import urllib.parse
 from datetime import date
 
 from .base import API_collector
@@ -8,8 +9,7 @@ class HAL_collector(API_collector):
     """Collector for fetching publication metadata from the HAL API."""
 
     def __init__(self, filter_param, data_path, api_key):
-        """
-        Initializes the HAL collector with the given parameters.
+        """Initializes the HAL collector with the given parameters.
 
         Args:
             filter_param (Filter_param): The parameters for filtering results (years, keywords, etc.).
@@ -23,8 +23,7 @@ class HAL_collector(API_collector):
         self.load_rate_limit_from_config()
 
     def parsePageResults(self, response, page):
-        """
-        Parses the results from a response for a specific page.
+        """Parses the results from a response for a specific page.
 
         Args:
             response (requests.Response): The API response object containing the results.
@@ -58,35 +57,23 @@ class HAL_collector(API_collector):
         return page_data
 
     def get_configurated_url(self):
-        """
-        Constructs the API URL with the search query and filters based on the year and pagination.
+        """Constructs the API URL with the search query and filters based on the year and pagination.
 
         Returns:
             str: The formatted API URL for the request.
         """
-        # Get all years from the filter parameter
-        year_range = self.get_year()  # Assuming it returns a list or tuple of years
+        # HAL is Solr: the year goes in a filter query (``fq``); a bare
+        # ``&submittedDateY_i:[...]`` parameter is silently ignored.
+        year_filter = f"fq=submittedDateY_i:{self.get_year()}"
 
-        # Determine the minimum and maximum years
-        # year_min = min(year_range)
-        # year_max = max(year_range)
-
-        year_filter = f"submittedDateY_i:[{year_range}]"  # Create year range filter
-
-        keywords = self.get_keywords()  # Get keywords from filter parameters
-
-        # Flatten the keyword list if it contains lists of keywords
         flat_keywords = [
             keyword
-            for sublist in keywords
+            for sublist in self.get_keywords()
             for keyword in (sublist if isinstance(sublist, list) else [sublist])
         ]
-
-        # Construct keyword query by joining all keywords into a single string
-        keyword_query = "%20AND%20".join(flat_keywords)  # Join keywords with ' OR '
-
-        # Wrap the keyword query in parentheses
-        keyword_query = f"({keyword_query})"
+        # Quote each keyword so multi-word terms match as phrases, AND between them.
+        keyword_query = " AND ".join(f'"{keyword}"' for keyword in flat_keywords)
+        keyword_query = urllib.parse.quote(f"({keyword_query})", safe="")
 
         # Construct the final URL with all available fields
         # Added: volume_s, issue_s, page_s, publisher_s, language_s for better metadata extraction

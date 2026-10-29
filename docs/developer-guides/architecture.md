@@ -5,8 +5,9 @@ SciLEx architecture and core components.
 ## System Overview
 
 ```
-User Config (YAML)
-    ↓
+scilex.yml (review) + keys.yml (API keys)
+    ↓ scilex/settings (validate, presets, defaults)
+
 Collection System → APIs → JSON Storage
     ↓
 Aggregation Pipeline → Filtering
@@ -18,7 +19,7 @@ CSV Output / Zotero Export
 
 ### 1. Collection System
 
-**Location**: `src/crawlers/collector_collection.py`
+**Location**: `scilex/crawlers/collector_collection.py`
 
 Orchestrates parallel API collection:
 - Creates jobs from config (keywords × years × APIs)
@@ -26,7 +27,7 @@ Orchestrates parallel API collection:
 - Tracks progress and handles errors
 - Skips completed queries (idempotent)
 
-**API Collectors** (`src/crawlers/collectors.py`):
+**API Collectors** (`scilex/crawlers/collectors/`, one module per API):
 - Base class: `API_collector`
 - 11 active implementations: SemanticScholar, OpenAlex, IEEE, Elsevier, Springer, arXiv, HAL, DBLP, ISTEX, OpenAIRE, ORKG
 - 1 deprecated: GoogleScholar
@@ -34,7 +35,7 @@ Orchestrates parallel API collection:
 
 ### 2. Aggregation Pipeline
 
-**Location**: `src/aggregate_collect.py`
+**Location**: `scilex/aggregate_collect.py` (CLI) and `scilex/pipeline/` (logic)
 
 Processes collected papers:
 1. Load JSON files from all APIs
@@ -46,14 +47,14 @@ Processes collected papers:
 7. Rank by relevance
 8. Output to CSV
 
-**Parallel Mode** (`src/crawlers/aggregate_parallel.py`):
+**Parallel Mode** (`scilex/crawlers/aggregate_parallel.py`):
 - Multiprocessing for speed
 - Batch processing (5000 papers/batch)
 - Auto-detects CPU count
 
 ### 3. Format Converters
 
-**Location**: `src/crawlers/aggregate.py`
+**Location**: `scilex/crawlers/aggregate.py`
 
 Convert API-specific formats to unified schema:
 - One converter function per API
@@ -75,7 +76,7 @@ Converters registered in `FORMAT_CONVERTERS` dict:
 
 ### 4. Filtering Engine
 
-**Location**: `src/aggregate_collect.py`
+**Location**: `scilex/aggregate_collect.py` (CLI) and `scilex/pipeline/` (logic)
 
 5-phase filtering:
 1. ItemType filter
@@ -169,11 +170,25 @@ Abstracts data storage:
 
 ## Configuration System
 
-Hierarchical priority:
-1. Default values (in code)
-2. Config files (YAML)
-3. Environment variables
-4. Command-line arguments
+Two user-facing files, validated by `scilex/settings/`:
+
+- `scilex.yml` (one per review): pydantic models in `settings/schema.py` (unknown keys are rejected),
+  named presets in `settings/presets.py`.
+- `keys.yml` (shared, `~/.config/scilex/keys.yml`): API keys and rate limits, overridable with
+  `SCILEX_<API>_<FIELD>` environment variables.
+
+Priority for `scilex.yml` values: code defaults < preset < `scilex.yml` < command-line options.
+
+`settings/loader.py` discovers and merges the files and `to_legacy()` converts them to the internal
+`(main_config, api_config)` dictionaries consumed by `SciLExConfig`, the pipeline and the web API.
+`settings/resolve.py` (`resolve_legacy_configs`) is the single entry point that also falls back to the
+legacy `scilex.config.yml` + `scilex.advanced.yml` + `api.config.yml` files. `settings/migrate.py` converts
+those to the new format (`scilex config migrate`).
+
+To add an option: add it to the schema (`settings/schema.py`), map it in `to_legacy()`, handle it in
+`settings/migrate.py`, document it in `scilex.yml.example` and in `docs/reference/configuration.md`.
+
+See the [Configuration Reference](../reference/configuration.md).
 
 ## Error Handling
 
@@ -185,49 +200,50 @@ Hierarchical priority:
 ## Directory Structure
 
 ```
-src/
+scilex/
+├── settings/                  # scilex.yml / keys.yml: schema, presets, loader, resolve, migrate, cli, advanced
+├── config.py, config_defaults.py   # SciLExConfig and code defaults
 ├── crawlers/
-│   ├── collectors.py          # All API collector classes (monolithic)
+│   ├── collectors/            # One collector class per API (inherit API_collector)
 │   ├── collector_collection.py  # Orchestration and job management
 │   ├── aggregate.py           # Format converters (one per API)
-│   └── aggregate_parallel.py  # Parallel aggregation
-├── citations/
-│   └── citations_tools.py
-├── Zotero/
-│   └── push_to_Zotero.py
-├── API tests/                 # Manual API test scripts
-├── run_collecte.py            # Main collection entry point
-├── aggregate_collect.py       # Main aggregation entry point
-├── push_to_Zotero_collect.py  # Zotero export entry point
-├── scilex.config.yml          # Search configuration
-└── api.config.yml.example     # API credentials template
+│   ├── aggregate_parallel.py  # Parallel aggregation
+│   ├── converter_utils.py     # Shared converter helpers
+│   └── key_pool.py            # API key rotation
+├── pipeline/                  # Aggregation steps (filters, ranking, enrichment, reports)
+├── citations/                 # Citation cache, fetchers, reference fetcher
+├── Zotero/, rdf/, PapersWithCode/ (client.py, title_matcher.py, tag_formatter.py), vpn/, templates/
+├── run_collection.py          # scilex-collect
+├── aggregate_collect.py       # scilex-aggregate
+├── push_to_zotero.py          # scilex-push-zotero
+├── export_to_bibtex.py, export_to_turtle.py, enrich_with_pwc.py, init_templates.py
+└── webapi/                    # FastAPI server
 
-scilex/                        # Package stubs (in development)
-├── api.config.yml             # Active API credentials (not committed)
-└── ...
+scilex.yml.example, keys.yml.example   # templates at the repository root
 
 output/
-└── collect_*/                 # Timestamped collections
-    ├── {API}/                 # Per-API results
-    └── aggregated_data.csv    # Final output
+└── <name>/                    # One folder per review (name in scilex.yml)
+    ├── {API}/                 # Per-API raw results
+    ├── config_used.yml        # Internal snapshot used by --resume
+    └── aggregated_results.csv # Final output
 ```
 
 ## Adding New Components
 
 ### New API Collector
 
-1. Create collector class in `src/crawlers/collectors.py`
+1. Create a collector class in `scilex/crawlers/collectors/<api_name>.py`
 2. Implement abstract methods
-3. Add format converter in `src/crawlers/aggregate.py`
-4. Register in `api_collectors` dict in `src/crawlers/collector_collection.py`
-5. Add to config examples
+3. Add format converter in `scilex/crawlers/aggregate.py`
+4. Register in `api_collectors` dict in `scilex/crawlers/collector_collection.py`
+5. Add to `keys.yml.example` and the `search.apis` list of `scilex.yml.example`
 
 See [Adding Collectors](adding-collectors.md) for details.
 
 ### New Filter
 
-1. Add filter function in `src/aggregate_collect.py`
-2. Add config options
+1. Add the filter in `scilex/pipeline/`
+2. Add the config option (schema, `to_legacy`, migrate, example, docs: see Configuration System)
 3. Insert in filtering pipeline
 4. Update documentation
 
