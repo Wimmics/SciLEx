@@ -6,13 +6,16 @@ import json
 from nicegui import events, run, ui
 
 from scilex.constants import doi_to_url
+from scilex.gui.components import criteria_panel
 from scilex.gui.components.errors import show_error
 from scilex.gui.services.screening import (
     EXCLUDE,
+    FACETS,
     FILTER_ALL,
     FILTER_UNDECIDED,
     INCLUDE,
     MAYBE,
+    NONE_VALUE,
     ReviewFileError,
     ScreeningSession,
 )
@@ -29,6 +32,7 @@ FILTER_OPTIONS = {
 DECISION_COLOURS = {INCLUDE: "positive", EXCLUDE: "negative", MAYBE: "warning"}
 KEY_DECISIONS = {"i": INCLUDE, "e": EXCLUDE, "m": MAYBE}
 
+COLLECTION = "collection"  # facet with its own toolbar selector
 COLUMN_DEFS = [
     {
         "field": "title",
@@ -45,6 +49,14 @@ COLUMN_DEFS = [
         "filter": "agNumberColumnFilter",
     },
     {"field": "venue", "headerName": "Venue", "flex": 1, "minWidth": 100},
+    {"field": "item_type", "headerName": "Type", "width": 130, "minWidth": 100},
+    {
+        "field": "imported",
+        "headerName": "Imported",
+        "width": 120,
+        "minWidth": 110,
+        "headerTooltip": "Date the paper entered the review (empty: before tracking)",
+    },
     {
         "field": "score",
         "headerName": "Score",
@@ -124,8 +136,13 @@ class ScreenPage:
         self.session = session
         self.decision_filter = FILTER_ALL
         self.query = ""
+        self.facet_filters: dict[str, set[str]] = {}
+        self.facet_selects: dict[str, ui.select] = {}
+        self.facet_box: ui.expansion | None = None
+        self._clearing = False
         self.current: str | None = None
         self.order: list[str] = []  # keys in the grid's displayed order
+        self.criteria = criteria_panel.load_criteria(session.review)
 
     # -- layout ---------------------------------------------------------
 
@@ -141,12 +158,14 @@ class ScreenPage:
                 "popup-hide",
                 js_handler="() => document.activeElement?.blur()",
             )
+            self.collection_filter()
             ui.input(
                 placeholder="Search title or abstract",
                 on_change=self.on_search,
             ).props("dense outlined clearable debounce=300").classes("grow").mark(
                 "text-search"
             )
+        self.facet_panel()
         ui.label(
             "Shortcuts: I include, E exclude, M maybe (then jump to the next "
             "undecided paper), ↑/↓ or K/J previous/next (disabled while typing "
@@ -189,6 +208,80 @@ class ScreenPage:
         if self.order:
             self.select(self.order[0])
 
+    def collection_filter(self) -> None:
+        """Zotero collection selector of the toolbar (a parent takes its subtree)."""
+        options = self.session.collection_options()
+        if not options:
+            return
+        labels = {
+            path: ("No collection" if path == NONE_VALUE else path.replace("/", " › "))
+            + f" ({count})"
+            for path, count in options
+        }
+        select = (
+            ui.select(
+                labels,
+                multiple=True,
+                label="Zotero collection",
+                with_input=True,
+                clearable=True,
+                on_change=lambda e: self.on_facet(COLLECTION, e.value),
+            )
+            .props("dense outlined use-chips")
+            .classes("w-72")
+            .tooltip("A collection includes its subcollections")
+            .mark("collection-filter")
+        )
+        select.on("popup-hide", js_handler="() => document.activeElement?.blur()")
+        self.facet_selects[COLLECTION] = select
+
+    def facet_panel(self) -> None:
+        """Filters on paper properties: type, origin, import date, keywords, tags…"""
+        # Collections have their own selector in the toolbar.
+        options = {
+            facet: values
+            for facet, values in self.session.facet_options().items()
+            if facet != COLLECTION
+        }
+        if not options:
+            return
+        with (
+            ui.expansion("Filters", icon="filter_list")
+            .classes("w-full")
+            .props("dense")
+            .mark("facet-filters") as self.facet_box
+        ):
+            with (
+                ui.element("div")
+                .classes("grid gap-2 w-full")
+                .style("grid-template-columns: repeat(auto-fill, minmax(230px, 1fr))")
+            ):
+                for facet, values in options.items():
+                    select = (
+                        ui.select(
+                            {value: f"{value} ({count})" for value, count in values},
+                            multiple=True,
+                            label=FACETS[facet],
+                            with_input=True,
+                            clearable=True,
+                            on_change=lambda e, f=facet: self.on_facet(f, e.value),
+                        )
+                        .props("dense outlined use-chips")
+                        .classes("w-full")
+                        .mark(f"facet-{facet}")
+                    )
+                    # Give the keys back to the shortcuts once values are chosen.
+                    select.on(
+                        "popup-hide", js_handler="() => document.activeElement?.blur()"
+                    )
+                    self.facet_selects[facet] = select
+            ui.label(
+                "Several values of one filter: any of them. Several filters: all of them."
+            ).classes("text-xs text-gray-500")
+            ui.button(
+                "Clear filters", icon="filter_list_off", on_click=self.clear_facets
+            ).props("flat dense").mark("clear-filters")
+
     @ui.refreshable_method
     def detail_panel(self) -> None:
         """Detail of the current paper with decision buttons and note."""
@@ -208,11 +301,30 @@ class ScreenPage:
             url = doi_to_url(detail["doi"]) if detail["doi"] else None
             if url:
                 ui.link(detail["doi"], url, new_tab=True).classes("text-sm")
+            origin = detail["origin"] + (
+                f", imported on {detail['imported']}" if detail["imported"] else ""
+            )
+            ui.label(f"Origin: {origin}").classes("text-xs text-gray-500")
             if detail["tags"]:
                 ui.label(f"Tags: {detail['tags']}").classes("text-xs text-gray-500")
             ui.label(detail["abstract"] or "No abstract.").classes(
                 "text-sm whitespace-pre-wrap max-h-48 overflow-auto"
             )
+            if self.criteria:
+                key = self.current
+
+                async def change(add: list[str], remove: list[str]) -> None:
+                    if await criteria_panel.write_tags(
+                        self.session.review, self.session, key, add, remove
+                    ):
+                        self.detail_panel.refresh()
+
+                criteria_panel.render_criteria(
+                    self.session.record(key),
+                    self.criteria,
+                    change,
+                    included=bool(decision and decision.decision == INCLUDE),
+                )
             with ui.row().classes("items-center gap-2"):
                 for label, value, marker in (
                     ("Include (I)", INCLUDE, "decide-include"),
@@ -362,7 +474,9 @@ class ScreenPage:
 
     def refill(self) -> None:
         """Reload the grid rows from the current filters."""
-        rows = self.session.visible_rows(self.decision_filter, self.query)
+        rows = self.session.visible_rows(
+            self.decision_filter, self.query, self.facet_filters
+        )
         order = [row["paper_key"] for row in rows]
         if order == self.order:
             return  # same papers shown: do not resend every row to the browser
@@ -379,6 +493,29 @@ class ScreenPage:
     def on_filter(self, event: events.ValueChangeEventArguments) -> None:
         """Decision filter changed."""
         self.decision_filter = event.value
+        self.refill()
+
+    def on_facet(self, facet: str, value) -> None:
+        """A facet filter changed."""
+        self.facet_filters[facet] = set(value or [])
+        active = sum(
+            1
+            for name, chosen in self.facet_filters.items()
+            if chosen and name != COLLECTION
+        )
+        if self.facet_box is not None:
+            self.facet_box.text = f"Filters ({active} active)" if active else "Filters"
+        if not self._clearing:
+            self.refill()
+
+    def clear_facets(self) -> None:
+        """Remove every facet filter."""
+        self._clearing = True
+        try:
+            for select in self.facet_selects.values():
+                select.set_value([])
+        finally:
+            self._clearing = False
         self.refill()
 
     def on_search(self, event: events.ValueChangeEventArguments) -> None:

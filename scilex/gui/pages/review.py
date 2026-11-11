@@ -5,6 +5,7 @@ import importlib.util
 
 from nicegui import ui
 
+from scilex.gui.components.running_jobs import render_jobs_button
 from scilex.gui.components.stepper import (
     DEFAULT_STEP,
     NEEDS_RESULTS_HINT,
@@ -14,6 +15,7 @@ from scilex.gui.components.stepper import (
     is_enabled,
     render_sidebar,
 )
+from scilex.gui.components.sync_badge import render_sync_badge
 from scilex.gui.state import AppContext
 
 # Each step is drawn by ``scilex.gui.pages.<step>.render(ctx, review)``;
@@ -61,11 +63,17 @@ def render(ctx: AppContext, review_id: str, step: str = DEFAULT_STEP) -> None:
         return
     if step not in STEPS:
         step = DEFAULT_STEP
-    ui.page_title(f"{STEPS[step].label} · {review.name} · SciLEx")
+    if STEPS[step].hidden_with_results and review.has_results and not review.error:
+        step = "extend"  # Collect of a review with papers: Extend > New collect
+    ui.page_title(f"{STEPS[step].label_for(review)} · {review.name} · SciLEx")
 
     with ui.row().classes("w-full p-4 gap-6 no-wrap items-start"):
         with ui.column().classes("gap-0"):
-            ui.label(review.name).classes("text-lg font-bold px-2")
+            with ui.row().classes("items-center gap-1 no-wrap px-1"):
+                if review.has_results and not review.error:
+                    render_sync_badge(ctx, review)
+                ui.label(review.name).classes("text-lg font-bold")
+                render_jobs_button(ctx)
             ui.label(str(review.folder)).classes(
                 "text-xs text-gray-500 px-2 pb-2 break-all w-52"
             )
@@ -82,5 +90,5 @@ def render(ctx: AppContext, review_id: str, step: str = DEFAULT_STEP) -> None:
             elif module is not None:
                 module.render(ctx, review)
             else:
-                ui.label(STEPS[step].label).classes("text-2xl font-bold")
+                ui.label(STEPS[step].label_for(review)).classes("text-2xl font-bold")
                 ui.label("Not available yet.").classes("text-gray-500")

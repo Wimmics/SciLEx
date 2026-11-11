@@ -16,18 +16,37 @@ class Step:
     label: str
     icon: str
     needs_results: bool = False
+    # Label once the review has papers (collected, imported or snowballed).
+    label_with_results: str | None = None
+    # Hidden once the review has papers (Collect: then in ⑤ Extend > New collect).
+    hidden_with_results: bool = False
+
+    def label_for(self, review: Review) -> str:
+        """Return the label shown for ``review``."""
+        if self.label_with_results and review.has_results:
+            return self.label_with_results
+        return self.label
 
 
+# The review workflow: collect (or load from Zotero), screen, annotate, extend
+# the corpus, enrich it, analyse it, export it.
 PIPELINE_STEPS = (
+    Step("overview", "Overview", "dashboard"),
+    Step("explore", "Explore", "manage_search", needs_results=True),
     Step("configure", "① Configure", "tune"),
-    Step("collect", "② Collect", "travel_explore"),
+    Step("collect", "② Collect", "travel_explore", hidden_with_results=True),
+    Step("criteria", "Eligibility criteria", "rule", needs_results=True),
     Step("screen", "③ Screen", "fact_check", needs_results=True),
-    Step("export", "④ Export", "ios_share", needs_results=True),
-    Step("analyses", "⑤ Analyses", "insights", needs_results=True),
+    Step("annotate", "④ Annotate", "sell"),
+    Step("extend", "⑤ Extend", "hub", needs_results=True),
+    Step("consolidate", "Consolidate", "merge_type", needs_results=True),
+    Step("enrich", "⑥ Enrich", "auto_awesome", needs_results=True),
+    Step("analyses", "⑦ Analyses", "insights", needs_results=True),
+    Step("export", "⑧ Export", "ios_share", needs_results=True),
 )
-EXTRA_STEPS = (Step("keys", "API keys", "key"),)
+EXTRA_STEPS = (Step("group", "Zotero group", "groups"), Step("keys", "API keys", "key"))
 STEPS = {step.key: step for step in (*PIPELINE_STEPS, *EXTRA_STEPS)}
-DEFAULT_STEP = "collect"
+DEFAULT_STEP = "overview"  # opening a review shows its summary first
 RESULTS_POLL_SECONDS = 1.0
 INVALID_CONFIG_HINT = "Fix scilex.yml in ① Configure first"
 # Steps usable while scilex.yml cannot be loaded (to repair it).
@@ -53,6 +72,8 @@ def render_sidebar(review: Review, active: str) -> None:
     with ui.column().classes("w-52 gap-1 shrink-0"):
         render_logo("w-36 mb-2 cursor-pointer").on("click", lambda: ui.navigate.to("/"))
         for step in PIPELINE_STEPS:
+            if step.hidden_with_results and review.has_results and step.key != active:
+                continue
             _step_button(review, step, active, locked)
         ui.separator()
         for step in EXTRA_STEPS:
@@ -83,7 +104,7 @@ def _step_button(
     review: Review, step: Step, active: str, locked: list[ui.button]
 ) -> None:
     button = ui.button(
-        step.label,
+        step.label_for(review),
         icon=step.icon,
         on_click=lambda: ui.navigate.to(f"/review/{review.id}/{step.key}"),
     ).props("align=left no-caps" + ("" if step.key == active else " flat"))

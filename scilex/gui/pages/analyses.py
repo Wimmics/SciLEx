@@ -11,8 +11,11 @@ from nicegui import ui
 from scilex.gui.components.errors import show_error
 from scilex.gui.components.graph_view import render_graph_results
 from scilex.gui.components.job_panel import JobPanel
+from scilex.gui.components.run_status import RunStatus, set_tab_dot, state_of
+from scilex.gui.components.tag_tools import render_tag_tools
 from scilex.gui.services import analyses as service
-from scilex.gui.services.jobs import Job, JobConflictError
+from scilex.gui.services import run_history, screening
+from scilex.gui.services.jobs import Job, JobConflictError, results_resource
 from scilex.gui.services.workspace import Review, Workspace
 from scilex.gui.state import AppContext
 from scilex.settings.schema import SettingsError
@@ -26,33 +29,90 @@ DIRECTIONS = {
 }
 
 
+ONLY_KEPT = "only_kept"
+CITATION_SOURCES = {
+    "auto": "Semantic Scholar, then CrossRef, then OpenCitations",
+    "crossref": "CrossRef (references) + OpenCitations",
+    "opencitations": "OpenCitations only (open data, no key)",
+    "zotero": "Zotero snapshot (frozen: the citation notes of the review's library)",
+}
+
+
+def kept_papers_filter(review: Review) -> Callable:
+    """Row filter keeping the papers included (or maybe) in screening.
+
+    Raises:
+        service.AnalysisError: If no paper is kept yet.
+    """
+    kept = {
+        key
+        for key, decision in screening.load_decisions(review).items()
+        if decision.decision in (screening.INCLUDE, screening.MAYBE)
+    }
+    if not kept:
+        raise service.AnalysisError(
+            'No paper is kept in ③ Screen yet: untick "Only the papers kept" '
+            "or screen first."
+        )
+
+    def keep(data):
+        return data[data.apply(screening.paper_key, axis=1).isin(kept)]
+
+    return keep
+
+
 def kind_of(name: str) -> str:
     """Job kind of analysis ``name``."""
     return f"analysis-{name}"
 
 
 def _job_label(job: Job) -> str:
-    """Human name of a job: the analysis title, or the pipeline."""
+    """Human name of a job: the analysis title, else what the job says it is."""
     prefix = "analysis-"
     if job.kind.startswith(prefix):
         for info in service.ANALYSES:
             if info.name == job.kind[len(prefix) :]:
-                return info.title
-    return "Collect"
+                return f"{info.title} on {job.review_name or job.review_id}"
+    return job.describe()
+
+
+def resources_of(review: Review, name: str, options: dict) -> list:
+    """Resources of analysis ``name`` with these (normalised) options."""
+    return [results_resource(review.id, service.results_mode(name, options))]
 
 
 def render(ctx: AppContext, review: Review) -> None:
     """Draw the Analyses screen of ``review``."""
     ui.label("Analyses").classes("text-2xl font-bold")
+    ui.label(
+        "Explore the corpus: charts, citation graph and communities. "
+        "Citation data comes from ⑥ Enrich."
+    ).classes("text-gray-500")
+    render_tabs(ctx, review, service.in_group("analyse"))
+
+
+def render_tabs(
+    ctx: AppContext, review: Review, analyses: tuple[service.AnalysisInfo, ...]
+) -> None:
+    """Draw one tab per analysis of ``analyses`` (shared by Enrich, Extend and Analyses).
+
+    Each tab carries a dot coloured by its last run (see
+    :mod:`scilex.gui.components.run_status`), so a costly action already done
+    is visible without opening its tab.
+    """
+    history = run_history.load(review.folder)
+    tab_items: dict[str, ui.tab] = {}
     with ui.tabs().classes("w-full").props("mobile-arrows outside-arrows") as tabs:
-        for info in service.ANALYSES:
-            ui.tab(info.name, label=info.title).mark(f"analysis-tab-{info.name}")
+        for info in analyses:
+            tab = ui.tab(info.name, label=info.title).mark(f"analysis-tab-{info.name}")
+            set_tab_dot(tab, state_of(review, kind_of(info.name), history)[1])
+            tab_items[info.name] = tab
     # Finishing one analysis (e.g. Citations) can lift another tab's warning.
     problem_refreshers: list[Callable[[], None]] = []
-    infos = {info.name: info for info in service.ANALYSES}
+    infos = {info.name: info for info in analyses}
     tab_containers: dict[str, ui.tab_panel] = {}
     panels: dict[str, JobPanel] = {}
-    first = service.ANALYSES[0].name
+    first = analyses[0].name
     with ui.tab_panels(tabs, value=first).classes("w-full min-w-0") as tab_panels:
         for name in infos:
             tab_containers[name] = ui.tab_panel(name)
@@ -63,7 +123,13 @@ def render(ctx: AppContext, review: Review) -> None:
         if name not in panels:
             with tab_containers[name]:
                 panels[name] = _render_analysis(
-                    ctx, review, infos[name], problem_refreshers
+                    ctx,
+                    review,
+                    infos[name],
+                    problem_refreshers,
+                    on_run_recorded=lambda fresh, tab=tab_items[name]: set_tab_dot(
+                        tab, fresh
+                    ),
                 )
         for other, panel in panels.items():
             panel.timer.active = other == name
@@ -74,11 +140,44 @@ def render(ctx: AppContext, review: Review) -> None:
     tab_panels.on_value_change(lambda event: show_tab(event.value))
 
 
+def _run_crossref_first(ctx: AppContext, review: Review) -> None:
+    """Start the Crossref enrichment (fills empty abstracts) from another tab."""
+    try:
+        config = Workspace.load_config(review)
+
+        def body(job: Job) -> str:
+            def progress(percent: int, message: str) -> None:
+                job.progress, job.message = percent, message
+
+            result = service.RUNNERS["crossref"](
+                config, progress, cancel_event=job.cancel_event
+            )
+            job.result = result
+            return result.message
+
+        ctx.runner.start_task(
+            review,
+            kind_of("crossref"),
+            body,
+            resources=resources_of(review, "crossref", {}),
+        )
+    except (SettingsError, FileNotFoundError, JobConflictError) as exc:
+        show_error("Cannot run Crossref now", exc, expected=True)
+        return
+    ui.notify(
+        "Crossref is filling the empty abstracts (progress in ⑥ Enrich > Crossref, "
+        "and in the jobs list). Run the keywords once it is done.",
+        type="info",
+        multi_line=True,
+    )
+
+
 def _render_analysis(
     ctx: AppContext,
     review: Review,
     info: service.AnalysisInfo,
     problem_refreshers: list[Callable[[], None]],
+    on_run_recorded: Callable[[str], None] | None = None,
 ) -> JobPanel:
     name = info.name
     ui.label(info.description).classes("text-gray-500")
@@ -94,6 +193,18 @@ def _render_analysis(
 
     show_problem()
     problem_refreshers.append(show_problem.refresh)
+    if name in ("search_keywords", "keywords"):
+        gap = service.abstract_gap(collect_dir)
+        if gap:
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.label(gap).classes("text-sm text-orange-700").mark(
+                    f"analysis-abstracts-{name}"
+                )
+                ui.button(
+                    "Run Crossref first",
+                    icon="auto_awesome",
+                    on_click=lambda: _run_crossref_first(ctx, review),
+                ).props("outline dense no-caps").mark(f"analysis-crossref-first-{name}")
 
     options = _render_options(name)
     reason_label = (
@@ -104,7 +215,7 @@ def _render_analysis(
     with ui.row().classes("items-center gap-2"):
         run_button = ui.button("Run", icon="play_arrow").mark(f"analysis-run-{name}")
         with run_button:
-            busy_tooltip = ui.tooltip("Another job is running")
+            busy_tooltip = ui.tooltip("A job using the same data is running")
         cancel_button = (
             ui.button("Cancel", icon="stop")
             .props("outline color=negative")
@@ -112,6 +223,7 @@ def _render_analysis(
         )
         with cancel_button:
             ui.tooltip(info.cancel_note)
+        run_status = RunStatus(review, kind_of(name))
 
     result_area = ui.column().classes("w-full")
 
@@ -128,10 +240,12 @@ def _render_analysis(
                 )
             if name == "graph":
                 # The graph files are drawn as a network, not listed one by one.
-                render_graph_results(service.graph_dir_of(collect_dir))
+                render_graph_results(service.graph_dir_of(collect_dir), review)
                 return
             for path in files:
                 _render_file(path)
+            if name == "tags":
+                render_tag_tools(ctx, review, collect_dir)
 
     def show_existing() -> None:
         files = service.existing_outputs(collect_dir, name)
@@ -155,21 +269,38 @@ def _render_analysis(
         ):
             shown_job.append(job.id)
             show_result(job.result.message, job.result.files)
-        active = ctx.runner.active_job()
-        busy_elsewhere = not running and active is not None
+        try:
+            current = service.normalize_options(
+                name, {key: widget.value for key, widget in options.items()}
+            )
+        except (TypeError, ValueError):
+            current = {}
+        # Only a job that really conflicts (e.g. a collection rewriting this
+        # review's results) blocks this analysis; others run alongside.
+        active = (
+            None
+            if running
+            else ctx.runner.conflicting_job(
+                review, kind_of(name), resources_of(review, name, current)
+            )
+        )
+        busy_elsewhere = active is not None
         missing = service.missing_prerequisite(collect_dir, info.needs)
         run_button.set_enabled(not running and not busy_elsewhere and not missing)
         # One tooltip, shown or hidden: calling .tooltip() here would add one per tick.
         busy_tooltip.set_visibility(busy_elsewhere)
         # A missing input is already explained by the line above the options.
         if busy_elsewhere:
-            reason_label.set_text(f"Another job is running ({_job_label(active)})")
+            reason_label.set_text(f"Waiting for: {_job_label(active)}")
         reason_label.set_visibility(busy_elsewhere)
         cancel_button.set_visibility(running)
 
     def on_finished(job: Job) -> None:
         for refresh_problem in problem_refreshers:
             refresh_problem()
+        fresh = run_status.update()
+        if on_run_recorded is not None:
+            on_run_recorded(fresh)
 
     panel = JobPanel(
         ctx,
@@ -197,6 +328,12 @@ def _render_analysis(
             kwargs = service.normalize_options(
                 name, {key: widget.value for key, widget in options.items()}
             )
+            if name in service.SCOPED and options[ONLY_KEPT].value:
+                kwargs["row_filter"] = kept_papers_filter(review)
+            if name == "tags":
+                kwargs["review_folder"] = review.folder
+            if name in ("citations", "snowball"):
+                kwargs["review"] = review
 
             def body(job: Job) -> str:
                 def progress(percent: int, message: str) -> None:
@@ -209,7 +346,15 @@ def _render_analysis(
                 job.result = result
                 return result.message
 
-            ctx.runner.start_task(review, kind_of(name), body)
+            # A dry run writes nothing: it must not look like a finished run.
+            dry_run = "dry_run" in options and options["dry_run"].value
+            ctx.runner.start_task(
+                review,
+                kind_of(name),
+                body,
+                history_key="" if dry_run else None,
+                resources=resources_of(review, name, kwargs),
+            )
             # Disable at once: the panel timer would leave a double-click window.
             run_button.set_enabled(False)
         except (
@@ -245,9 +390,15 @@ def _render_options(name: str) -> dict:
             f"analysis-opt-{name}-{key}"
         )
 
+    if name in service.SCOPED:
+        checkbox(ONLY_KEPT, "Only the papers kept in ③ Screen (included or maybe)")
     with ui.row().classes("items-center gap-4"):
         if name in ("keywords", "summaries"):
             select("clusters", "Clusters", service.CLUSTER_CHOICES, "auto")
+        if name in ("report", "coverage", "tags", "summaries"):
+            from scilex.gui.services.compare import COMPARE_BY, PAPER_TYPE
+
+            select("compare_by", "Compare by", COMPARE_BY, PAPER_TYPE)
         if name == "keywords":
             number("top_k", "Max suggestions", 30, min=1, precision=0)
             number("min_freq", "Min frequency", 2, min=1, precision=0)
@@ -255,10 +406,33 @@ def _render_options(name: str) -> dict:
             checkbox("dry_run", "Dry run (do not write the CSV)")
             number("limit", "Max papers (0 = all)", 0, min=0, precision=0)
             number("threshold", "Title match threshold (0-100)", 85, min=0, max=100)
+        elif name == "tags":
+            checkbox(
+                "from_zotero",
+                "Read the tags from Zotero now (else: as of the last import)",
+            )
+            number(
+                "max_dimensions", "Dimensions to cross", 5, min=2, max=12, precision=0
+            )
+            number(
+                "similarity",
+                "Merge suggestions: min similarity (0-100)",
+                88,
+                min=50,
+                max=100,
+            )
+        elif name in ("crossref", "lpwc", "orkg"):
+            number("limit", "Max papers (0 = all)", 0, min=0, precision=0)
+        elif name == "metrics":
+            checkbox("tags", "Also as tags (CITATIONS:10^2, PAGERANK:top5%…)", True)
         elif name == "citations":
+            select("source", "Source", CITATION_SOURCES, "auto")
             number("limit", "Max papers (0 = all)", 0, min=0, precision=0)
             checkbox("skip_citers", "Skip citing papers (references only)")
-            checkbox("no_fallback", "No OpenCitations fallback")
+            checkbox(
+                "no_fallback",
+                "Semantic Scholar only (skip the OpenCitations fallback)",
+            )
         elif name == "snowball":
             select("direction", "Direction", DIRECTIONS, "both")
             number("top_k", "Max candidates", 200, min=1, precision=0)

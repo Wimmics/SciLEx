@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 
 from scilex.gui.services.jobs import JobRunner
 from scilex.gui.services.workspace import Workspace
+from scilex.user_profile import UserProfile
 
 
 @dataclass
@@ -13,3 +14,11 @@ class AppContext:
     workspace: Workspace = field(default_factory=Workspace)
     runner: JobRunner = field(default_factory=JobRunner)
     native: bool = True  # False when the UI runs in a browser tab (--browser, tests)
+    # The user; the app is locked until it holds an ORCID iD.
+    profile: UserProfile = field(default_factory=UserProfile.load)
+
+    def __post_init__(self) -> None:
+        """The workflow journals record the user's ORCID iD as the agent."""
+        from scilex.gui.services import journal
+
+        journal.set_agent(self.profile.orcid_uri, self.profile.name)

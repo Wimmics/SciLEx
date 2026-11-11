@@ -38,6 +38,8 @@ _ARXIV_URL = re.compile(r"arxiv\.org/(?:abs|pdf)/(\d{4}\.\d{4,5})", re.IGNORECAS
 
 # progress_callback(processed, total, stats)
 ProgressCallback = Callable[[int, int, dict], None]
+# Narrows the rows an enrichment run handles (e.g. to the papers kept in screening).
+RowFilter = Callable[[pd.DataFrame], pd.DataFrame]
 
 
 def enrichment_settings(main_config: dict) -> dict:
@@ -76,6 +78,11 @@ class EnrichmentOptions:
     threshold: int | None = None
     collect_dir: str | None = None
     workers: int | None = None
+    row_filter: RowFilter | None = None
+    # Writes the enriched table: ``writer(data, csv_path, columns)``. Default:
+    # rewrite the whole CSV. The desktop app passes a writer that merges only
+    # the enrichment columns, so enrichers running at the same time keep theirs.
+    writer: Callable[[pd.DataFrame, str, list[str]], None] | None = None
 
 
 @dataclass
@@ -181,8 +188,15 @@ def process_paper_for_csv(
     }
 
 
-def _rows_to_process(data: pd.DataFrame, limit: int | None) -> pd.DataFrame:
-    """Return the rows an enrichment run handles: the first ``limit`` ones, or all."""
+def _rows_to_process(
+    data: pd.DataFrame, limit: int | None, row_filter: RowFilter | None = None
+) -> pd.DataFrame:
+    """Return the rows an enrichment run handles: the first ``limit`` ones, or all.
+
+    ``row_filter`` narrows them first (the other rows are kept, untouched).
+    """
+    if row_filter is not None:
+        data = row_filter(data)
     return data.head(limit) if limit else data
 
 
@@ -216,7 +230,7 @@ def _enrich_rows(
     """
     stats = {"total": len(data), "matched": 0, "skipped": 0}
     updates: list[tuple[object, dict]] = []
-    rows = _rows_to_process(data, options.limit)
+    rows = _rows_to_process(data, options.limit, getattr(options, "row_filter", None))
 
     def search_row(item):
         """Run one paper's search; errors are returned, not raised."""
@@ -335,13 +349,20 @@ def run_enrichment(
         # Final progress report
         progress_callback(
             processed,
-            len(_rows_to_process(data, options.limit)),
+            len(
+                _rows_to_process(
+                    data, options.limit, getattr(options, "row_filter", None)
+                )
+            ),
             {**stats, "updated": updated},
         )
 
     output_path = None
     if not options.dry_run:
-        write_aggregated_csv(data, csv_path)
+        if options.writer is not None:
+            options.writer(data, str(csv_path), list(ENRICHMENT_COLUMNS))
+        else:
+            write_aggregated_csv(data, csv_path)
         output_path = str(csv_path)
         logging.info(f"✓ Updated CSV written: {csv_path}")
 

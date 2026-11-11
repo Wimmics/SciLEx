@@ -13,6 +13,13 @@ from scilex.gui.services import analyses as service
 pytestmark = pytest.mark.anyio
 
 NAMES = [info.name for info in service.ANALYSES]
+# Step page showing each analysis.
+STEP = {
+    info.name: {"enrich": "enrich", "extend": "extend", "analyse": "analyses"}[
+        info.group
+    ]
+    for info in service.ANALYSES
+}
 
 
 def _prepare_outputs(collect_dir: Path) -> None:
@@ -143,16 +150,24 @@ def _review_with_results(ctx, tmp_path):
 async def test_tabs_are_rendered(ctx, tmp_path):
     review = _review_with_results(ctx, tmp_path)
     async with user_simulation(build_root(ctx)) as user:
-        await user.open(f"/review/{review.id}/analyses")
-        for name in NAMES:
-            await user.should_see(marker=f"analysis-tab-{name}")
+        for step in ("enrich", "extend", "analyses"):
+            await user.open(f"/review/{review.id}/{step}")
+            for name in NAMES:
+                # Extend shows its analyses among its own tabs.
+                marker = (
+                    f"extend-tab-{name}" if step == "extend" else f"analysis-tab-{name}"
+                )
+                if STEP[name] == step:
+                    await user.should_see(marker=marker)
+                else:
+                    await user.should_not_see(marker=f"analysis-tab-{name}")
 
 
 async def test_missing_input_is_explained(ctx, tmp_path):
     review = _review_with_results(ctx, tmp_path)
     async with user_simulation(build_root(ctx)) as user:
-        await user.open(f"/review/{review.id}/analyses")
-        user.find(marker="analysis-tab-snowball").click()
+        await user.open(f"/review/{review.id}/extend")
+        user.find(marker="extend-tab-snowball").click()
         await user.should_see(marker="analysis-missing-snowball")
 
 
@@ -194,8 +209,9 @@ async def test_run_each_analysis(ctx, tmp_path, monkeypatch, name):
 
     monkeypatch.setitem(service.RUNNERS, name, fake_runner)
     async with user_simulation(build_root(ctx)) as user:
-        await user.open(f"/review/{review.id}/analyses")
-        user.find(marker=f"analysis-tab-{name}").click()
+        await user.open(f"/review/{review.id}/{STEP[name]}")
+        tab = "extend-tab" if STEP[name] == "extend" else "analysis-tab"
+        user.find(marker=f"{tab}-{name}").click()
         user.find(marker=f"analysis-run-{name}").click()
         await user.should_see("Completed", retries=50)
         await user.should_see(f"{name} finished", retries=50)
@@ -298,13 +314,16 @@ async def test_citations_job_lifts_snowball_warning(ctx, tmp_path, monkeypatch):
     _fake_fetchers(monkeypatch, calls)
     review = _review_with_dois(ctx, tmp_path)
     async with user_simulation(build_root(ctx)) as user:
-        await user.open(f"/review/{review.id}/analyses")
-        user.find(marker="analysis-tab-snowball").click()
+        # Snowball (⑤ Extend) needs the citations fetched in ⑥ Enrich.
+        await user.open(f"/review/{review.id}/extend")
+        user.find(marker="extend-tab-snowball").click()
         await user.should_see(marker="analysis-missing-snowball")
+        await user.open(f"/review/{review.id}/enrich")
         user.find(marker="analysis-tab-citations").click()
         user.find(marker="analysis-run-citations").click()
         await user.should_see("Completed", retries=50)
-        user.find(marker="analysis-tab-snowball").click()
+        await user.open(f"/review/{review.id}/extend")
+        user.find(marker="extend-tab-snowball").click()
         await user.should_not_see(marker="analysis-missing-snowball", retries=50)
 
 
@@ -328,7 +347,9 @@ async def test_cancel_stops_running_analysis(ctx, tmp_path, monkeypatch):
         await user.should_see("Cancelled", retries=50)
 
 
-async def test_run_buttons_disabled_while_another_job_runs(ctx, tmp_path, monkeypatch):
+async def test_run_buttons_disabled_only_by_conflicting_jobs(
+    ctx, tmp_path, monkeypatch
+):
     import threading
 
     review = _review_with_results(ctx, tmp_path)
@@ -339,17 +360,32 @@ async def test_run_buttons_disabled_while_another_job_runs(ctx, tmp_path, monkey
         return service.AnalysisResult("ok")
 
     monkeypatch.setitem(service.RUNNERS, "report", slow_runner)
-    async with user_simulation(build_root(ctx)) as user:
-        await user.open(f"/review/{review.id}/analyses")
-        user.find(marker="analysis-run-report").click()
-        await user.should_see("Running", retries=50)
-        user.find(marker="analysis-tab-enrich").click()
-        buttons = user.find(marker="analysis-run-enrich").elements
-        assert all(not button.enabled for button in buttons)
+    try:
+        async with user_simulation(build_root(ctx)) as user:
+            await user.open(f"/review/{review.id}/analyses")
+            user.find(marker="analysis-run-report").click()
+            await user.should_see("Running", retries=50)
+            # Charts only read the papers: an enricher can run alongside.
+            await user.open(f"/review/{review.id}/enrich")
+            user.find(marker="analysis-tab-enrich").click()
+            buttons = user.find(marker="analysis-run-enrich").elements
+            assert all(button.enabled for button in buttons)
+
+            # A job rewriting the papers blocks the enrichers of this review.
+            blocker = ctx.runner.start_task(
+                review, "consolidate", lambda job: release.wait(10) and "done"
+            )
+            await user.open(f"/review/{review.id}/enrich")
+            user.find(marker="analysis-tab-enrich").click()
+            await user.should_see("Waiting for: consolidate", retries=20)
+            buttons = user.find(marker="analysis-run-enrich").elements
+            assert all(not button.enabled for button in buttons)
+            release.set()
+            await user.open(f"/review/{review.id}/analyses")
+            await user.should_see("Completed", retries=50)
+            assert blocker is not None
+    finally:
         release.set()
-        # Hidden tabs do not poll: the result shows on return to the job's tab.
-        user.find(marker="analysis-tab-report").click()
-        await user.should_see("Completed", retries=50)
 
 
 def test_run_enrich_cache_path_is_inside_review(ctx, tmp_path, monkeypatch):
@@ -438,9 +474,17 @@ def test_tabs_follow_prerequisites():
         "citations",
         "snowball",
         "graph",
+        "coverage",
+        "tags",
         "keywords",
         "summaries",
         "enrich",
+        "crossref",
+        "lpwc",
+        "search_keywords",
+        "paper_types",
+        "orkg",
+        "metrics",
     ]
 
 
@@ -463,12 +507,17 @@ async def test_busy_reason_is_visible_and_chart_caption_is_file_name(
     async with user_simulation(build_root(ctx)) as user:
         await user.open(f"/review/{review.id}/analyses")
         await user.should_see("years.png")
+        await user.open(f"/review/{review.id}/enrich")
         user.find(marker="analysis-tab-enrich").click()
         user.find(marker="analysis-run-enrich").click()
         await user.should_see("Running", retries=50)
-        user.find(marker="analysis-tab-report").click()
-        await user.should_see("Another job is running (Papers with Code)", retries=50)
+        await user.open(f"/review/{review.id}/analyses")
+        await user.should_see("years.png")
+        # Charts only read the papers: the running enricher does not block them.
+        await user.should_not_see("Waiting for: Papers with Code")
+        assert all(b.enabled for b in user.find(marker="analysis-run-report").elements)
         release.set()
+        await user.open(f"/review/{review.id}/enrich")
         user.find(marker="analysis-tab-enrich").click()
         await user.should_see("Completed", retries=50)
 

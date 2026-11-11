@@ -9,6 +9,8 @@ from the results are kept and reported as orphans.
 from __future__ import annotations
 
 import csv
+import json
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,6 +20,8 @@ import pandas as pd
 
 from scilex.constants import extract_year, is_valid, normalize_doi
 from scilex.gui.services.workspace import Review
+
+logger = logging.getLogger(__name__)
 
 SCREENING_FILENAME = "screening.csv"
 INCLUDE, EXCLUDE, MAYBE = "include", "exclude", "maybe"
@@ -180,14 +184,182 @@ def included_results(
 FILTER_ALL, FILTER_UNDECIDED = "all", "undecided"
 DECISION_LABELS = {INCLUDE: "Include", EXCLUDE: "Exclude", MAYBE: "Maybe"}
 
+# Filters on paper properties ("facets"): key -> label, in display order.
+# Values are OR-ed within a facet and facets are AND-ed.
+FACETS = {
+    "item_type": "Document type",
+    "origin": "Origin",
+    "imported": "Imported on",
+    "source": "Source API",
+    "collection": "Zotero collection",
+    "collect_keywords": "Collect keywords",
+    "tags": "Tags",
+    "status": "Annotation status",
+    "assigned": "Assigned to",
+    "validated_by": "Validated by",
+    "lpwc_tasks": "Tasks (LPWC)",
+    "lpwc_datasets": "Datasets (LPWC)",
+    "orkg_problems": "Research problems (ORKG)",
+    "orkg_fields": "Research fields (ORKG)",
+}
+NONE_VALUE = "(none)"
+BEFORE_TRACKING = "Before tracking"
+# Facet -> results column holding ";"-separated values.
+_LIST_COLUMNS = {
+    "collection": "zotero_collections",
+    "tags": "tags",
+    "lpwc_tasks": "lpwc_tasks",
+    "lpwc_datasets": "lpwc_datasets",
+    "orkg_problems": "orkg_research_problems",
+    "orkg_fields": "orkg_research_fields",
+}
+_COLLECT_KW_PREFIX = re.compile(r"^Collect_KW\d+:", re.IGNORECASE)
+
 
 def _text(value) -> str:
     return str(value) if is_valid(value) else ""
 
 
+def _split(value) -> set[str]:
+    """Values of a ";"-separated cell."""
+    return {part.strip() for part in _text(value).split(";") if part.strip()}
+
+
+def _collection_parts(path: str) -> list[str]:
+    """``"Corpus / Included"`` -> ``["Corpus", "Included"]``."""
+    return [part.strip() for part in path.split("/") if part.strip()]
+
+
+def _in_collection(path: str, chosen: set[str]) -> bool:
+    """Whether collection ``path`` is one of ``chosen`` or below one of them."""
+    if path in chosen:
+        return True
+    parts = _collection_parts(path)
+    return any("/".join(parts[:depth]) in chosen for depth in range(1, len(parts) + 1))
+
+
+def item_type_label(item_type: str) -> str:
+    """Readable Zotero item type: ``journalArticle`` gives "Journal article"."""
+    words = re.sub(r"(?<!^)(?=[A-Z])", " ", item_type).lower()
+    return words[:1].upper() + words[1:]
+
+
+def _facet_values(record: dict, logged: dict | None) -> dict[str, set[str]]:
+    """Facet values of one results row (``logged``: its paper log entry)."""
+    from scilex.gui.services.paper_log import origin_of
+
+    item_type = _text(record.get("itemType"))
+    values = {
+        "item_type": {item_type_label(item_type)} if item_type else set(),
+        "origin": {(logged or {}).get("origin") or origin_of(record)},
+        "imported": {(logged or {}).get("imported_at") or BEFORE_TRACKING},
+        # "OpenAlex*;SemanticScholar": the star marks a merged duplicate.
+        "source": {v.rstrip("*") for v in _split(record.get("archive"))},
+        "collect_keywords": {
+            _COLLECT_KW_PREFIX.sub("", v).strip()
+            for v in _split(record.get("collect_keywords"))
+        }
+        - {""},
+    }
+    for facet, column in _LIST_COLUMNS.items():
+        values[facet] = _split(record.get(column))
+    # Workflow tags (ANNOT:, ANNOT_VALID_BY:, DELETED_BY:) are not annotation codes.
+    from scilex import review_tags
+
+    state = review_tags.workflow(record.get("tags"))
+    values["tags"] = {t for t in values["tags"] if not review_tags.is_workflow_tag(t)}
+    values["status"] = {state.status}
+    values["assigned"] = set(state.assigned)
+    values["validated_by"] = set(state.validated_by)
+    return {facet: found or {NONE_VALUE} for facet, found in values.items()}
+
+
+def _paper_log(review: Review, results: pd.DataFrame) -> dict[str, dict]:
+    """Paper log of the review, completed with papers written by untracked tools."""
+    from scilex.gui.services import paper_log
+
+    try:
+        return paper_log.update(
+            review.folder,
+            results,
+            # Papers the log misses were written since its last update: date
+            # them with the last change of the results file.
+            when=paper_log.mtime_date(review.results_path),
+        )
+    except Exception:  # the filters must never prevent screening
+        logger.warning("Cannot read the paper log", exc_info=True)
+        return {}
+
+
 def _number(value) -> float | None:
     number = pd.to_numeric(value, errors="coerce")
     return None if pd.isna(number) else float(number)
+
+
+# Citation network written by ⑥ Enrich -> Citations (scilex-enrich-citations).
+REFERENCES_CACHE = "citations_cache.json"  # {doi: [dois it cites]}
+CITERS_CACHE = "citers_cache.json"  # {doi: [dois citing it]}
+
+
+def _load_doi_map(path: Path) -> dict[str, set[str]]:
+    """``{doi: [dois]}`` JSON file with normalised DOIs; empty if absent or damaged."""
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        logger.warning("Cannot read the citation network %s: %s", path, exc)
+        return {}
+    mapping: dict[str, set[str]] = {}
+    if not isinstance(raw, dict):
+        return mapping
+    for key, linked in raw.items():
+        doi = normalize_doi(key)
+        if not doi:
+            continue
+        linked = linked if isinstance(linked, list) else []
+        mapping.setdefault(doi, set()).update(
+            d for d in map(normalize_doi, linked) if d
+        )
+    return mapping
+
+
+@dataclass
+class CitationNetwork:
+    """References and citers fetched for the review, keyed by normalised DOI."""
+
+    references: dict[str, set[str]]
+    citers: dict[str, set[str]]
+
+    @classmethod
+    def load(cls, review: Review) -> CitationNetwork:
+        """Read the review's citation caches (empty network if never fetched)."""
+        folder = review.collection_dir
+        return cls(
+            _load_doi_map(folder / REFERENCES_CACHE),
+            _load_doi_map(folder / CITERS_CACHE),
+        )
+
+    def __bool__(self) -> bool:
+        return bool(self.references or self.citers)
+
+
+def _cited_by_index(network: CitationNetwork, corpus: set[str]) -> dict[str, set[str]]:
+    """``{doi: corpus dois citing it}``, from both caches.
+
+    The references of the corpus papers count too, so citations from inside
+    the corpus are found even when the citers were not fetched.
+    """
+    index: dict[str, set[str]] = {}
+    for doi in corpus:
+        for ref in network.references.get(doi, ()):
+            if ref != doi:
+                index.setdefault(ref, set()).add(doi)
+    for doi, citers in network.citers.items():
+        inside = (citers & corpus) - {doi}
+        if inside:
+            index.setdefault(doi, set()).update(inside)
+    return index
 
 
 class ScreeningSession:
@@ -209,19 +381,48 @@ class ScreeningSession:
         self.orphans = [k for k in self.decisions if k not in present]
         self._details: dict[str, dict] = {}
         self._search: dict[str, str] = {}
+        self._facets: dict[str, dict[str, set[str]]] = {}
+        self._records: dict[str, dict] = {}  # raw results rows (Explore notice)
         self.rows: list[dict] = []
+        log = _paper_log(review, results)
+        network = CitationNetwork.load(review)
+        self.has_network = bool(network)
+        corpus = {k[4:] for k in present if k.startswith("doi:")}
+        cited_by = _cited_by_index(network, corpus) if network else {}
+        # Counts from the network, per paper key (Explore notice).
+        self._network: dict[str, dict[str, int]] = {}
         for record in results.to_dict("records"):
             key = record["paper_key"]
+            self._records[key] = record
             venue = _text(record.get("journalAbbreviation")) or _text(
                 record.get("publisher")
             )
             citations = _number(record.get("nb_citation"))
             if citations is None:
                 citations = _number(record.get("canonical_citation_count"))
+            in_corpus = None
+            if network and key.startswith("doi:"):
+                doi = key[4:]
+                counts = {"cited_in_corpus": len(cited_by.get(doi, ()))}
+                in_corpus = counts["cited_in_corpus"]
+                if doi in network.citers:
+                    counts["network_citers"] = len(network.citers[doi])
+                    # The network may be more recent than the Collect count.
+                    if citations is None or counts["network_citers"] > citations:
+                        citations = counts["network_citers"]
+                if doi in network.references:
+                    counts["network_references"] = len(network.references[doi])
+                self._network[key] = counts
             year = (
                 extract_year(record["date"]) if is_valid(record.get("date")) else None
             )
             score = _number(record.get("relevance_score"))
+            facets = _facet_values(record, log.get(key))
+            self._facets[key] = facets
+            imported = next(iter(facets["imported"]))
+            imported = "" if imported == BEFORE_TRACKING else imported
+            item_type = next(iter(facets["item_type"]))
+            item_type = "" if item_type == NONE_VALUE else item_type
             self.rows.append(
                 {
                     "paper_key": key,
@@ -230,6 +431,9 @@ class ScreeningSession:
                     "venue": venue,
                     "score": None if score is None else round(score, 2),
                     "citations": None if citations is None else int(citations),
+                    "cited_in_corpus": in_corpus,
+                    "item_type": item_type,
+                    "imported": imported,
                     "decision": self._label(key),
                 }
             )
@@ -242,6 +446,8 @@ class ScreeningSession:
                 "doi": _text(record.get("DOI")),
                 "item_type": _text(record.get("itemType")),
                 "tags": _text(record.get("tags")),
+                "origin": next(iter(facets["origin"])),
+                "imported": imported,
             }
             self._search[key] = (
                 f"{_text(record.get('title'))} {_text(record.get('abstract'))}".lower()
@@ -260,6 +466,38 @@ class ScreeningSession:
     def row(self, key: str) -> dict:
         """Grid row of one paper (shared with the grid data)."""
         return self._row_by_key[key]
+
+    def record(self, key: str) -> dict:
+        """Every column of one paper, as in ``aggregated_results.csv``."""
+        return self._records[key]
+
+    def network_counts(self, key: str) -> dict[str, int]:
+        """Citation network counts of one paper (``cited_in_corpus``,
+        ``network_citers``, ``network_references``); only those known."""
+        return self._network.get(key, {})
+
+    def set_tags(self, key: str, tags: str) -> None:
+        """Adopt the new ``tags`` cell of one paper (filters and notice follow)."""
+        record = self._records[key]
+        record["tags"] = tags
+        self._details[key]["tags"] = tags
+        old = self._facets[key]
+        fresh = _facet_values(record, None)
+        for kept in ("origin", "imported"):  # from the paper log, unchanged
+            fresh[kept] = old[kept]
+        self._facets[key] = fresh
+
+    def facets_of(self, key: str) -> dict[str, set[str]]:
+        """Facet values of one paper (see :data:`FACETS`)."""
+        return self._facets[key]
+
+    def facet_counts(self, keys: list[str], facet: str) -> list[tuple[str, int]]:
+        """Values of ``facet`` among the papers ``keys``, most frequent first."""
+        counts: dict[str, int] = {}
+        for key in keys:
+            for value in self._facets[key][facet]:
+                counts[value] = counts.get(value, 0) + 1
+        return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
 
     def decision_of(self, key: str) -> Decision | None:
         """Current decision on ``key``, if any."""
@@ -297,14 +535,84 @@ class ScreeningSession:
         counts["total"] = total
         return counts
 
+    def facet_options(self) -> dict[str, list[tuple[str, int]]]:
+        """Values of each facet with their paper counts, most frequent first.
+
+        A facet is left out when no paper has a value for it (e.g. no
+        enrichment run, no Zotero collection), or when all papers share one
+        value, since filtering on it would change nothing.
+        """
+        options = {}
+        total = len(self._facets)
+        for facet in FACETS:
+            counts: dict[str, int] = {}
+            for values in self._facets.values():
+                for value in values[facet]:
+                    counts[value] = counts.get(value, 0) + 1
+            real = [value for value in counts if value != NONE_VALUE]
+            if not real or (len(counts) == 1 and counts[real[0]] == total):
+                continue
+            if facet == "imported":  # chronological, newest first
+                ordered = sorted(counts.items(), reverse=True)
+            else:
+                ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+            options[facet] = ordered
+        return options
+
+    def collection_options(self) -> list[tuple[str, int]]:
+        """Zotero collections with their paper counts, parents before children.
+
+        Each parent collection is listed, counting the papers of its whole
+        subtree (choosing it selects them all); ``(none)`` comes last. Empty
+        when filtering on collections would change nothing.
+        """
+        counts: dict[str, int] = {}
+        for values in self._facets.values():
+            nodes = set()
+            for path in values["collection"]:
+                if path == NONE_VALUE:
+                    nodes.add(NONE_VALUE)
+                    continue
+                parts = _collection_parts(path)
+                nodes.update(
+                    "/".join(parts[:depth]) for depth in range(1, len(parts) + 1)
+                )
+            for node in nodes:
+                counts[node] = counts.get(node, 0) + 1
+        total = len(self._facets)
+        # No collection at all, or every paper in every collection listed.
+        if not any(c < total for n, c in counts.items() if n != NONE_VALUE):
+            return []
+        ordered = sorted(
+            (n for n in counts if n != NONE_VALUE),
+            key=lambda n: [part.lower() for part in _collection_parts(n)],
+        )
+        if NONE_VALUE in counts:
+            ordered.append(NONE_VALUE)
+        return [(node, counts[node]) for node in ordered]
+
     def visible_rows(
-        self, decision_filter: str = FILTER_ALL, query: str = ""
+        self,
+        decision_filter: str = FILTER_ALL,
+        query: str = "",
+        facets: dict[str, set[str]] | None = None,
     ) -> list[dict]:
-        """Rows matching a decision filter and a title/abstract search."""
+        """Rows matching a decision filter, a title/abstract search and facets."""
         needle = query.strip().lower()
+        active = {
+            facet: set(chosen) for facet, chosen in (facets or {}).items() if chosen
+        }
+        collections = active.pop("collection", None)
         selected = []
         for row in self.rows:
             key = row["paper_key"]
+            values = self._facets[key]
+            if any(not values[facet] & chosen for facet, chosen in active.items()):
+                continue
+            if collections and not any(
+                _in_collection(path, collections) for path in values["collection"]
+            ):
+                continue
             decision = self.decisions.get(key)
             if decision_filter == FILTER_UNDECIDED:
                 if decision:

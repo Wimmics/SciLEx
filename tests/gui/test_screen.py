@@ -79,3 +79,36 @@ async def test_orphans_can_be_forgotten(ctx, review):
         await user.should_see(marker="orphans")
         user.find(content="Forget").click()
     assert "doi:10.9/gone" not in screening.load_decisions(review)
+
+
+async def test_facet_filters_and_clear(ctx, review):
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/screen")
+        await user.should_see(marker="screen-grid", retries=20)
+        grid = user.find(marker="screen-grid").elements.pop()
+        type_filter = user.find(marker="facet-item_type").elements.pop()
+        type_filter.set_value(["Journal article"])
+        assert [r["title"] for r in grid.options["rowData"]] == [
+            "Graph RAG",
+            "Unrelated topic",
+        ]
+        user.find(marker="clear-filters").click()
+        assert len(grid.options["rowData"]) == 3
+
+
+async def test_collection_selector_in_the_toolbar(ctx, review):
+    data = pd.read_csv(review.results_path, sep=";", index_col=0)
+    data["zotero_collections"] = ["Corpus/Core", "Corpus/Side", "Other"]
+    data.to_csv(review.results_path, sep=";")
+    async with user_simulation(build_root(ctx)) as user:
+        await user.open(f"/review/{review.id}/screen")
+        await user.should_see(marker="screen-grid", retries=20)
+        grid = user.find(marker="screen-grid").elements.pop()
+        selector = user.find(marker="collection-filter").elements.pop()
+        selector.set_value(["Corpus"])
+        assert sorted(r["title"] for r in grid.options["rowData"]) == [
+            "Graph RAG",
+            "Metabolomics KG",
+        ]
+        selector.set_value([])
+        assert len(grid.options["rowData"]) == 3
